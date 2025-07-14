@@ -1,0 +1,111 @@
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import React from 'react';
+import { StyleSheet, Text, View, useColorScheme } from 'react-native';
+
+import { Button } from '@/components/ui/Button';
+import { Colors } from '@/constants/Colors';
+import { useAuth } from '@/hooks/useAuth';
+import { AuthStackParamList } from '@/navigation/AuthNavigator';
+import { Ionicons } from '@expo/vector-icons';
+import { Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+type LoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+
+type Props = {
+  navigation: LoginScreenNavigationProp;
+};
+
+export default function LoginScreen({ navigation }: Props) {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  
+  const { signInWithGoogle, isLoading } = useAuth();
+
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithGoogle();
+      // Navigation will be handled automatically by the auth state change
+    } catch (error) {
+      console.error('Sign in error:', error);
+      Alert.alert(
+        'Sign In Error',
+        'There was a problem signing you in. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.logoContainer}>
+        <Text allowFontScaling={false} style={[styles.title, { color: colors.text }]}>Reflecta.</Text>
+        <Text style={[styles.subtitle, { color: colors.icon }]}>Your Journal & Mentor for your journey</Text>
+      </View>
+
+      <View style={[styles.buttonContainer]}>
+        {/* {Platform.OS === 'ios' && (
+          <Button
+            variant="primary"
+            iconLeft={<Ionicons name="logo-apple" size={20} color={colors.background} />}
+            onPress={handleAppleLogin}
+            size="lg"
+          >
+            Continue with Apple
+          </Button>
+        )} */}
+        <Button
+          size="lg"
+          variant="primary"
+          iconLeft={<Ionicons name="logo-google" size={20} color={colors.background} />}
+          onPress={handleGoogleLogin}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Signing in...' : 'Continue with Google'}
+        </Button>
+
+        <Text style={[styles.termsText, { color: colors.text }]}>
+          By continuing you agree to our Terms of Service and Privacy Policies.
+        </Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  logoContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 48,
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: -1,
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  buttonContainer: {
+    width: '100%',
+    gap: 12,
+    paddingBottom: 20,
+    paddingTop: 50,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  termsText: {
+    textAlign: 'center',
+    fontSize: 12,
+    marginTop: 6,
+    opacity: 0.3,
+  },
+}); 

@@ -1,0 +1,286 @@
+.dark\:prose-invert:is(.dark *) {
+  --tw-prose-body:var(--tw-prose-invert-body);
+  --tw-prose-headings:var(--tw-prose-invert-headings);
+  --tw-prose-lead:var(--tw-prose-invert-lead);
+  --tw-prose-links:var(--tw-prose-invert-links);
+  --tw-prose-bold:var(--tw-prose-invert-bold);
+  --tw-prose-counters:var(--tw-prose-invert-counters);
+  --tw-prose-bullets:var(--tw-prose-invert-bullets);
+  --tw-prose-hr:var(--tw-prose-invert-hr);
+  --tw-prose-quotes:var(--tw-prose-invert-quotes);
+  --tw-prose-quote-borders:var(--tw-prose-invert-quote-borders);
+  --tw-prose-captions:var(--tw-prose-invert-captions);
+  --tw-prose-kbd:var(--tw-prose-invert-kbd);
+  --tw-prose-kbd-shadows:var(--tw-prose-invert-kbd-shadows);
+  --tw-prose-code:var(--tw-prose-invert-code);
+  --tw-prose-pre-code:var(--tw-prose-invert-pre-code);
+  --tw-prose-pre-bg:var(--tw-prose-invert-pre-bg);
+  --tw-prose-th-borders:var(--tw-prose-invert-th-borders);
+  --tw-prose-td-borders:var(--tw-prose-invert-td-borders)
+}
+
+.ProseMirror {
+  padding: 0px;
+  border: none;
+  border-radius: 4px;
+  min-height: 200px;
+  color: black;
+}
+
+.ProseMirror:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: #adb5bd;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Smooth transitions for text formatting */
+.ProseMirror * {
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+}
+
+/* Style adjustments */
+.ProseMirror h1 {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+.ProseMirror h2 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ProseMirror h3 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.ProseMirror p {
+  margin-bottom: 0.75rem;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Styles for unordered lists */
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ul ul {
+  list-style-type: circle;
+}
+
+.ProseMirror ul ul ul {
+  list-style-type: square;
+}
+
+/* Styles for ordered lists */
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror ol ol {
+  list-style-type: lower-alpha;
+}
+
+.ProseMirror ol ol ol {
+  list-style-type: lower-roman;
+}
+
+/* Common styles for list items */
+.ProseMirror li {
+  margin-bottom: 0.25rem;
+}
+
+/* Ensure proper spacing for nested lists */
+.ProseMirror li>ul,
+.ProseMirror li>ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid #e5e7eb;
+  padding-left: 1rem;
+  color: #4b5563;
+  font-style: italic;
+}
+
+.ProseMirror code {
+  background-color: #f3f4f6;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.875em;
+}
+
+.ProseMirror pre {
+  background-color: #f3f4f6;
+  padding: 1rem;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+.ProseMirror s,
+.ProseMirror del {
+  color: #adb5bd;
+  /* Slightly gray color for strikethrough */
+  text-decoration: line-through;
+  /* Apply strikethrough */
+}
+
+.dark .ProseMirror {
+  color: #e0e0e0;
+  background-color: hsl(var(--background));
+}
+
+.dark .ProseMirror:focus {
+  border-color: #6ab0ff;
+}
+
+.dark .ProseMirror p.is-editor-empty:first-child::before {
+  color: #6c757d;
+}
+
+.dark .ProseMirror h1,
+.dark .ProseMirror h2,
+.dark .ProseMirror h3 {
+  color: #ffffff;
+}
+
+.dark .ProseMirror blockquote {
+  border-left-color: #4a4a4a;
+  color: #b0b0b0;
+}
+
+.dark .ProseMirror code {
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+}
+
+.dark .ProseMirror pre {
+  background-color: #2a2a2a;
+}
+
+.dark .ProseMirror s,
+.dark .ProseMirror del {
+  color: #6c757d;
+}
+
+.bubble-menu {
+  background-color: hsl(var(--background));
+  border: 1px solid #d5d5d5;
+  border-radius: 0.7rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  padding: 0.2rem;
+
+  button {
+    background-color: unset;
+
+    &:hover {
+      background-color: var(--gray-3);
+    }
+
+    &.is-active {
+      background-color: var(--purple);
+
+      &:hover {
+        background-color: var(--purple-contrast);
+      }
+    }
+  }
+}
+
+/* Sage AI node animations */
+.sage-ai-node {
+  /* Removed design styles, keeping only animation-related properties */
+  position: relative;
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.sage-ai-appear {
+  animation: sage-fade-in 0.4s ease-out forwards;
+}
+
+@keyframes sage-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Keep only thinking animation, remove design styles */
+.sage-ai-thinking-dots {
+  display: inline-block;
+  position: relative;
+  width: 50px;
+  height: 12px;
+  margin-top: 8px;
+}
+
+.sage-ai-thinking-dots::after {
+  content: '...';
+  position: absolute;
+  left: 0;
+  bottom: -8px;
+  animation: thinking-dots 1.5s infinite;
+  font-size: 20px;
+  letter-spacing: 2px;
+}
+
+@keyframes thinking-dots {
+
+  0%,
+  20% {
+    opacity: 0;
+  }
+
+  40% {
+    opacity: 0.4;
+  }
+
+  60% {
+    opacity: 0.8;
+  }
+
+  80%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* TipTap generated node classes */
+.react-renderer.node-sageAI {
+  padding: 3px 0px 11px 0px;
+}
+
+/* Remove highlight effect from AI nodes */
+.ai-inserted-text {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  transition: none !important;
+}

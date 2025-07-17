@@ -2,11 +2,13 @@
 
 import styles from "@/styles/tiptap.css";
 import Link from "@tiptap/extension-link";
+import Typography from "@tiptap/extension-typography";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect } from "react";
 import { Linking, useColorScheme } from "react-native";
+import Highlight from "@tiptap/extension-highlight";
 
 export default function Editor({ content, onUpdate, isLoaded }: { content: string, onUpdate: (content: string) => void, isLoaded: (content: boolean) => void }) {
   const colorScheme = useColorScheme();
@@ -20,6 +22,8 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
       Link.configure({
         openOnClick: false,
       }),
+      Typography,
+      Highlight,
     ],
     content: content,
     editorProps: {

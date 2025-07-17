@@ -17,6 +17,8 @@ import {
 } from 'react-native';
 import { useAuth } from '@/hooks/useAuth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import { useCurrentEntry } from '@/navigation/HomeScreen';
 
 interface JournalEntry {
   id: string;
@@ -34,6 +36,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const drawerStatus = useDrawerStatus();
+  const { currentEntryId } = useCurrentEntry();
 
   const { firebaseUser, isFirebaseReady } = useAuth();
 
@@ -238,7 +241,10 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
             </View>
 
             {/* Entries for this date */}
-            {groupedEntries[dateKey].map((entry) => (
+            {groupedEntries[dateKey].map((entry) => {
+              const isCurrentEntry = currentEntryId === entry.id;
+
+              return (
               <TouchableOpacity
                 key={entry.id}
                 style={[styles.entryItem]}
@@ -246,15 +252,16 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
                   (props.navigation as any).navigate('JournalEdit', { entryId: entry.id });
                 }}
               >
-                <View style={styles.entryLine} />
+                <View style={[styles.entryLine, { backgroundColor: isCurrentEntry ? colors.tint : '#525252' }]} />
                 <Text
-                  style={[styles.entryPreview, { color: colors.text }]}
+                  style={[styles.entryPreview, { color: colors.text, opacity: isCurrentEntry ? 1 : 0.7 }]}
                   numberOfLines={1}
                 >
                   {extractPreview(entry.content || '')}
                 </Text>
               </TouchableOpacity>
-            ))}
+              )
+            })}
           </View>
         ))}
       </ScrollView>

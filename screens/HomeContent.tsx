@@ -3,7 +3,8 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/firebase';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { useCurrentEntry } from '@/navigation/HomeScreen';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import { 
@@ -54,9 +55,11 @@ interface JournalEntry {
 
 export default function HomeContent() {
   const navigation = useNavigation<DrawerNavigation>();
+  const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, isFirebaseReady } = useAuth();
+  const { setCurrentEntryId } = useCurrentEntry();
 
   // Get today's date as fallback
   const today = new Date();
@@ -74,6 +77,27 @@ export default function HomeContent() {
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
+
+  // Handle selected entry from drawer navigation
+  useEffect(() => {
+    const selectedEntry = (route.params as any)?.selectedEntry;
+    if (selectedEntry) {
+      setLatestEntry(selectedEntry);
+      setEntry(selectedEntry.content || '');
+      setOriginalContent(selectedEntry.content || '');
+      lastSavedContentRef.current = selectedEntry.content || '';
+      setSaveStatus('saved');
+      setIsNewEntry(false);
+      
+      // Clear the route params to prevent re-loading on re-renders
+      navigation.setParams({ selectedEntry: undefined } as any);
+    }
+  }, [route.params, navigation]);
+
+  // Update current entry ID in context whenever latestEntry changes
+  useEffect(() => {
+    setCurrentEntryId(latestEntry?.id || null);
+  }, [latestEntry, setCurrentEntryId]);
 
   // Calculate display values based on latest entry or fallback to today
   const displayDate = (latestEntry && !isNewEntry) 

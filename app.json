@@ -13,7 +13,11 @@
     },
     "ios": {
       "bundleIdentifier": "so.acta.reflecta",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,11 +26,6 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "so.acta.reflecta"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "c2e503f6-06f6-4f19-b074-463333f0f076"
-      }
     },
     "plugins": [
       [
@@ -41,8 +40,14 @@
           },
           "imageWidth": 200
         }
-      ]
+      ],
+      ["expo-apple-authentication"]
     ],
-    "owner": "acta"
+    "owner": "acta",
+    "extra": {
+      "eas": {
+        "projectId": "1c627d58-b438-49dd-a8bd-c4173a5f2ba5"
+      }
+    }
   }
 }

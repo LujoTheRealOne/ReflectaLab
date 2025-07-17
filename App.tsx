@@ -31,7 +31,7 @@ function AppContent() {
     // Hide splash screen when authentication state is determined
     setTimeout(() => {
       SplashScreen.hideAsync();
-    }, 1000);
+    }, 2000);
   }, [isLoaded]);
 
   // Show offline modal if there's no internet connection

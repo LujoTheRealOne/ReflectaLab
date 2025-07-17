@@ -7,6 +7,7 @@ import { Colors } from '@/constants/Colors';
 import HomeScreen from '@/navigation/HomeScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
 import InfoScreen from '@/screens/InfoScreen';
+import HomeContent from '@/screens/HomeContent';
 
 
 // Define the app stack param list

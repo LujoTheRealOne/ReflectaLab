@@ -4,7 +4,7 @@ import { useColorScheme } from 'react-native';
 
 import { Colors } from '@/constants/Colors';
 import HomeContent from '@/screens/HomeContent';
-// import JournalDrawer from '@/components/JournalDrawer';
+import JournalDrawer from '@/components/JournalDrawer';
 
 export type HomeDrawerParamList = {
   HomeContent: undefined;
@@ -26,8 +26,9 @@ export default function HomeScreen() {
           backgroundColor: colors.background,
         },
         overlayColor: 'rgba(0, 0, 0, 0.3)',
+        swipeEdgeWidth: 50,
       }}
-      // drawerContent={(props) => <JournalDrawer {...props} />}
+      drawerContent={(props) => <JournalDrawer {...props} />}
     >
       <Drawer.Screen
         name="HomeContent"

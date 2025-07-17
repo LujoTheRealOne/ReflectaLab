@@ -8,7 +8,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
@@ -37,7 +36,7 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.logoContainer}>
         <Text allowFontScaling={false} style={[styles.title, { color: colors.text }]}>Reflecta.</Text>
         <Text style={[styles.subtitle, { color: colors.icon }]}>Your Journal & Mentor for your journey</Text>
@@ -51,7 +50,7 @@ export default function LoginScreen({ navigation }: Props) {
             onPress={handleAppleLogin}
             size="lg"
           >
-            Continue with Apple
+            {isLoading ? 'Signing in...' : 'Continue with Apple'}
           </Button>
         )} */}
         <Button
@@ -68,7 +67,7 @@ export default function LoginScreen({ navigation }: Props) {
           By continuing you agree to our Terms of Service and Privacy Policies.
         </Text>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -76,6 +75,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'space-between',
+    paddingBottom: 10,
   },
   logoContainer: {
     flex: 1,

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   Linking,
   SafeAreaView,
   ScrollView,
@@ -18,7 +19,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
-import { ChevronLeft, ExternalLink, FileText, Info, LogOut } from 'lucide-react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { ChevronDown, ChevronLeft, ExternalLink, FileText, Info, LogOut } from 'lucide-react-native';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -45,6 +47,38 @@ export default function SettingsScreen() {
     navigation.goBack();
   };
 
+  const handleManageAccount = () => {
+    try {
+      if (!user) {
+        Alert.alert('Error', 'Please sign in to manage your account.');
+        return;
+      }
+
+      // Use Clerk's account portal URL
+      // This provides the UserProfile component in a web interface
+      const accountPortalUrl = 'https://accounts.reflecta.so/user';
+
+      Alert.alert("Manage Account", "For security reasons, you will have to re-authenticate to manage your account. You will be redirected to the account portal.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Continue', style: 'default', onPress: async () => {
+              // Open in WebBrowser with popup presentation
+              await WebBrowser.openBrowserAsync(accountPortalUrl, {
+                controlsColor: colors.tint,
+                toolbarColor: colors.background,
+                showTitle: true,
+              });
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error opening account management:', error);
+      Alert.alert('Error', 'Failed to open account management. Please try again.');
+    }
+  };
+
   const handleDisconnectWhatsApp = () => {
     Alert.alert(
       'Disconnect WhatsApp',
@@ -62,9 +96,9 @@ export default function SettingsScreen() {
       'Are you sure you want to sign out?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Sign Out', 
-          style: 'destructive', 
+        {
+          text: 'Sign Out',
+          style: 'destructive',
           onPress: async () => {
             try {
               await signOut();
@@ -96,21 +130,26 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
 
         <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
-          <Text style={[styles.accountTitle, { color: colors.text }]}>Account Information</Text>
-          <Text style={[styles.accountDescription, { color: '#999' }]}>
+          <Text style={[styles.settingTitle, { color: colors.text }]}>Account Information</Text>
+          <Text style={[styles.settingDescription, { color: '#999' }]}>
             View your account information
           </Text>
           <View style={{ gap: 10, marginTop: 20 }}>
             <View>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>
-                Name
-              </Text>
-              <Text style={[styles.settingLabel, { color: '#999' }]}>
-                {user?.fullName || user?.firstName || 'Not available'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+                <Image source={{ uri: user?.imageUrl }} style={{ width: 54, height: 54, borderRadius: 100, borderWidth: 1, borderColor: colors.text }} />
+                <View>
+                  <Text style={[styles.settingLabel, { color: colors.text }]}>
+                    Name
+                  </Text>
+                  <Text style={[styles.settingLabel, { color: '#999' }]}>
+                    {user?.fullName || user?.firstName || 'Not available'}
+                  </Text>
+                </View>
+              </View>
             </View>
           </View>
-          <View style={{ gap: 10, marginTop: 20 }}>
+          <View style={{ gap: 10, marginTop: 20, marginBottom: 20 }}>
             <View>
               <Text style={[styles.settingLabel, { color: colors.text }]}>
                 Email
@@ -120,6 +159,13 @@ export default function SettingsScreen() {
               </Text>
             </View>
           </View>
+          <Button
+            variant="outline"
+            style={styles.resetButton}
+            onPress={handleManageAccount}
+          >
+            Manage Account
+          </Button>
         </View>
 
         {/* Notifications Section */}
@@ -157,11 +203,13 @@ export default function SettingsScreen() {
         </View>
 
         {/* App Settings */}
-        {/* <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
 
         <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
           <Text style={[styles.settingTitle, { color: colors.text }]}>Appearance</Text>
-          <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', borderBottomWidth: 1 }]}>
+          <View style={[styles.subsettingItem,
+            // { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', borderBottomWidth: 1 }
+            ]}>
             <View style={styles.settingRow}>
               <View style={styles.settingInfo}>
                 <Text style={[styles.settingLabel, { color: colors.text }]}>Theme</Text>
@@ -170,13 +218,12 @@ export default function SettingsScreen() {
                 </Text>
               </View>
               <TouchableOpacity style={styles.dropdown}>
-                <Text style={[styles.dropdownText, { color: colors.text }]}>System</Text>
-                <Ionicons name="chevron-down" size={20} color="#999" />
+                <Text style={[styles.dropdownText, { color: '#999' }]}>System</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+          {/* <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
             <View style={styles.settingRow}>
               <View style={styles.settingInfo}>
                 <Text style={[styles.settingLabel, { color: colors.text }]}>Language</Text>
@@ -189,8 +236,8 @@ export default function SettingsScreen() {
                 <Ionicons name="chevron-down" size={20} color="#999" />
               </TouchableOpacity>
             </View>
-          </View>
-        </View> */}
+          </View> */}
+        </View>
 
         {/* AI Features */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>AI Features</Text>
@@ -322,12 +369,12 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: '500',
     marginVertical: 10,
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '500',
     marginTop: 30,
     marginBottom: 15,
   },
@@ -347,7 +394,7 @@ const styles = StyleSheet.create({
   },
   settingTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   badge: {
     paddingHorizontal: 8,
@@ -407,7 +454,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 8,
+    paddingVertical: 15,
   },
   dropdownText: {
     fontSize: 16,
@@ -428,14 +475,6 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     flex: 1,
-  },
-  accountTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  accountDescription: {
-    fontSize: 14,
-    lineHeight: 20,
   },
   signOutButton: {
     flexDirection: 'row',

@@ -11,10 +11,6 @@ import { Linking, useColorScheme } from "react-native";
 export default function Editor({ content, onUpdate, isLoaded }: { content: string, onUpdate: (content: string) => void, isLoaded: (content: boolean) => void }) {
   const colorScheme = useColorScheme();
 
-  useEffect(() => {
-    isLoaded(true);
-  }, []);
-
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -22,19 +18,8 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
         placeholder: 'Start writing...',
       }),
       Link.configure({
-        // autolink: false,
-        // shouldAutoLink: (url: string) => {
-        //   return false;
-        // },
         openOnClick: false,
       }),
-      // Link.configure({
-      //   openOnClick: false,
-      //   HTMLAttributes: {
-      //     target: '_blank',
-      //     rel: 'noopener noreferrer',
-      //   },
-      // }),
     ],
     content: content,
     editorProps: {
@@ -67,10 +52,24 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
       },
     },
     onUpdate: ({ editor }) => {
-      const newContent = editor.getHTML()
-      onUpdate(newContent)
+      const newContent = editor.getHTML();
+      onUpdate(newContent);
     }
   });
+
+  // Update editor content when content prop changes
+  useEffect(() => {
+    if (editor && content !== editor.getHTML()) {
+      editor.commands.setContent(content, false);
+    }
+  }, [editor, content]);
+
+  // Signal that editor is loaded
+  useEffect(() => {
+    if (editor) {
+      isLoaded(true);
+    }
+  }, [editor, isLoaded]);
 
   const editorStyles = {
     flex: 1,
@@ -83,7 +82,6 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
 
   return (
     <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* <style dangerouslySetInnerHTML={{ __html: globalStyles }} /> */}
       <style dangerouslySetInnerHTML={{ __html: styles }} />
       <EditorContent editor={editor} style={editorStyles} />
     </div>

@@ -78,8 +78,8 @@ export function Button({
         };
       case 'secondary':
         return {
-          borderColor: theme === 'light' ? '#EFEFEF' : '#151515',
-          backgroundColor: theme === 'light' ? '#EFEFEF' : '#151515',
+          borderColor: theme === 'light' ? '#EAEAEA' : '#222',
+          backgroundColor: theme === 'light' ? '#EAEAEA' : '#222',
         };
       case 'ghost':
         return {

@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "ReflectaLab",
-    "slug": "reflectalab",
-    "scheme": "reflectalab",
-    "version": "1.0.0",
+    "name": "Reflecta",
+    "slug": "reflecta",
+    "scheme": "reflecta",
+    "version": "0.7.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -11,19 +11,17 @@
     "experiments": {
       "domComponents": true
     },
-    "web": {
-      "bundler": "metro"
-    },
     "ios": {
-      "bundleIdentifier": "so.acta.reflectalab",
-      "supportsTablet": true
+      "bundleIdentifier": "so.acta.reflecta",
+      "supportsTablet": false
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "so.acta.reflecta"
     },
     "extra": {
       "eas": {

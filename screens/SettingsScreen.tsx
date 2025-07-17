@@ -134,22 +134,18 @@ export default function SettingsScreen() {
           <Text style={[styles.settingDescription, { color: '#999' }]}>
             View your account information
           </Text>
-          <View style={{ gap: 10, marginTop: 20 }}>
+          <View style={styles.userProfile}>
+            <Image source={{ uri: user?.imageUrl }} style={[styles.userImage, { borderColor: colors.text }]} />
             <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
-                <Image source={{ uri: user?.imageUrl }} style={{ width: 54, height: 54, borderRadius: 100, borderWidth: 1, borderColor: colors.text }} />
-                <View>
-                  <Text style={[styles.settingLabel, { color: colors.text }]}>
-                    Name
-                  </Text>
-                  <Text style={[styles.settingLabel, { color: '#999' }]}>
-                    {user?.fullName || user?.firstName || 'Not available'}
-                  </Text>
-                </View>
-              </View>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>
+                Name
+              </Text>
+              <Text style={[styles.settingLabel, { color: '#999' }]}>
+                {user?.fullName || user?.firstName || 'Not available'}
+              </Text>
             </View>
           </View>
-          <View style={{ gap: 10, marginTop: 20, marginBottom: 20 }}>
+          <View style={styles.userInfoSection}>
             <View>
               <Text style={[styles.settingLabel, { color: colors.text }]}>
                 Email
@@ -161,7 +157,7 @@ export default function SettingsScreen() {
           </View>
           <Button
             variant="outline"
-            style={styles.resetButton}
+            style={styles.standardButton}
             onPress={handleManageAccount}
           >
             Manage Account
@@ -206,21 +202,19 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
 
         <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
-          <Text style={[styles.settingTitle, { color: colors.text }]}>Appearance</Text>
-          <View style={[styles.subsettingItem,
-            // { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', borderBottomWidth: 1 }
-            ]}>
-            <View style={styles.settingRow}>
-              <View style={styles.settingInfo}>
-                <Text style={[styles.settingLabel, { color: colors.text }]}>Theme</Text>
-                <Text style={[styles.settingDescription, { color: '#999' }]}>
-                  Set the color theme appearance of the App
-                </Text>
-              </View>
-              <TouchableOpacity style={styles.dropdown}>
-                <Text style={[styles.dropdownText, { color: '#999' }]}>System</Text>
-              </TouchableOpacity>
+          <View style={styles.settingHeader}>
+            <Text style={[styles.settingTitle, { color: colors.text }]}>Appearance</Text>
+          </View>
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Theme</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>
+                Set the color theme appearance of the App
+              </Text>
             </View>
+            <TouchableOpacity style={styles.dropdown}>
+              <Text style={[styles.dropdownText, { color: '#999' }]}>System</Text>
+            </TouchableOpacity>
           </View>
 
           {/* <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
@@ -249,9 +243,23 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Daily Cues from Sage</Text>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Entry Cues</Text>
               <Text style={[styles.settingDescription, { color: '#999' }]}>
-                Receive periodic, AI-generated reflective cues from Sage based on your journal entries
+                While typing your entry, receive AI-generated cues to help you reflect on your thoughts and feelings
+              </Text>
+            </View>
+            <Switch
+              value={dailyCuesEnabled}
+              onValueChange={() => { }}
+              trackColor={{ false: '#E5E5E7', true: colors.tint }}
+              thumbColor={colors.background}
+            />
+          </View>
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Receive Daily Cues</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>
+                Receive periodic, AI-generated reflective cues from Sage based on your journal entries.
               </Text>
             </View>
             <Switch
@@ -288,8 +296,8 @@ export default function SettingsScreen() {
         {/* Information */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>More Information</Text>
 
-        <View style={{ gap: 30 }}>
-          <View style={{ gap: 10, borderWidth: 1, borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', borderRadius: 10, padding: 10 }}>
+        <View style={styles.sectionGap}>
+          <View style={[styles.settingContainer, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
             <Button
               variant="ghost"
               iconLeft={<FileText size={20} color={colors.text} />}
@@ -300,7 +308,7 @@ export default function SettingsScreen() {
             >
               Privacy Policy
             </Button>
-            <View style={{ height: 1, backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', width: '100%' }} />
+            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
             <Button
               variant="ghost"
               iconLeft={<FileText size={20} color={colors.text} />}
@@ -311,7 +319,7 @@ export default function SettingsScreen() {
             >
               Terms of Service
             </Button>
-            <View style={{ height: 1, backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7', width: '100%' }} />
+            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
             <Button
               variant="ghost"
               iconLeft={<Info size={20} color={colors.text} />}
@@ -326,7 +334,7 @@ export default function SettingsScreen() {
           <Button
             variant="outline"
             iconRight={<LogOut size={20} color={colors.text} />}
-            style={styles.resetButton}
+            style={styles.standardButton}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
               handleSignOut();
@@ -335,10 +343,10 @@ export default function SettingsScreen() {
             Sign Out
           </Button>
         </View>
-        <Text style={{ marginTop: 30, marginBottom: 10, fontSize: 18, fontWeight: '500', textAlign: 'center', color: colors.text }}>
+        <Text style={[styles.appInfo, { color: colors.text }]}>
           Reflecta.
         </Text>
-        <Text style={{ marginBottom: 20, fontSize: 14, fontWeight: '300', textAlign: 'center', color: colors.text, opacity: 0.5 }}>
+        <Text style={[styles.versionInfo, { color: colors.text }]}>
           Version {Application.nativeApplicationVersion}
         </Text>
       </ScrollView>
@@ -382,9 +390,13 @@ const styles = StyleSheet.create({
     padding: 15,
     borderWidth: 1,
     borderRadius: 10,
+    marginBottom: 10,
   },
-  subsettingItem: {
-    paddingVertical: 10,
+  settingContainer: {
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 15,
   },
   settingHeader: {
     flexDirection: 'row',
@@ -396,19 +408,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '500',
   },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    marginBottom: 10,
   },
   settingInfo: {
     flex: 1,
@@ -422,6 +426,37 @@ const styles = StyleSheet.create({
   settingDescription: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  separator: {
+    height: 1,
+    width: '100%',
+  },
+  userProfile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 20,
+  },
+  userImage: {
+    width: 54,
+    height: 54,
+    borderRadius: 100,
+    borderWidth: 1,
+  },
+  userInfoSection: {
+    gap: 10,
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 15,
+  },
+  dropdownText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   systemSettingsButton: {
     marginTop: 15,
@@ -437,35 +472,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#FF6F00',
   },
-  connectedNumber: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 15,
-    marginBottom: 5,
-  },
-  phoneNumber: {
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  disconnectButton: {
-    marginTop: 10,
-  },
-  dropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 15,
-  },
-  dropdownText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  templateDescription: {
-    fontSize: 14,
-    marginBottom: 15,
-  },
-  editTemplateButton: {
-    marginTop: 10,
+  standardButton: {
+    flex: 1,
   },
   infoButton: {
     flex: 1,
@@ -473,22 +481,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  resetButton: {
-    flex: 1,
+  sectionGap: {
+    gap: 30,
   },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    marginTop: 20,
-    marginBottom: 30,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-  },
-  signOutText: {
-    fontSize: 16,
+  appInfo: {
+    marginTop: 30,
+    marginBottom: 10,
+    fontSize: 18,
     fontWeight: '500',
-    color: '#FF6B6B',
+    textAlign: 'center',
+  },
+  versionInfo: {
+    marginBottom: 20,
+    fontSize: 14,
+    fontWeight: '300',
+    textAlign: 'center',
+    opacity: 0.5,
   },
 }); 

@@ -49,17 +49,17 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   // Group entries by date
   const groupEntriesByDate = useCallback((entries: JournalEntry[]) => {
     const grouped: GroupedEntries = {};
-    
+
     entries.forEach((entry) => {
       const date = entry.timestamp?.toDate ? entry.timestamp.toDate() : new Date(entry.timestamp);
       const dateKey = date.toDateString(); // This will group by full date (e.g., "Mon Oct 28 2024")
-      
+
       if (!grouped[dateKey]) {
         grouped[dateKey] = [];
       }
       grouped[dateKey].push(entry);
     });
-    
+
     return grouped;
   }, []);
 
@@ -135,7 +135,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
 
   const formatEntryTime = (timestamp: any) => {
     if (!timestamp) return '';
-    
+
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
@@ -245,21 +245,28 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
               const isCurrentEntry = currentEntryId === entry.id;
 
               return (
-              <TouchableOpacity
-                key={entry.id}
-                style={[styles.entryItem]}
-                onPress={() => {
-                  (props.navigation as any).navigate('JournalEdit', { entryId: entry.id });
-                }}
-              >
-                <View style={[styles.entryLine, { backgroundColor: isCurrentEntry ? colors.tint : '#525252' }]} />
-                <Text
-                  style={[styles.entryPreview, { color: colors.text, opacity: isCurrentEntry ? 1 : 0.7 }]}
-                  numberOfLines={1}
+                <TouchableOpacity
+                  key={entry.id}
+                  style={[styles.entryItem]}
+                  onPress={() => {
+                    // Haptic feedback for entry selection
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+                    // Close the drawer first
+                    props.navigation.closeDrawer();
+
+                    // Navigate to HomeContent with the selected entry data
+                    (props.navigation as any).navigate('HomeContent', { selectedEntry: entry });
+                  }}
                 >
-                  {extractPreview(entry.content || '')}
-                </Text>
-              </TouchableOpacity>
+                  <View style={[styles.entryLine, { backgroundColor: isCurrentEntry ? colors.tint : '#525252' }]} />
+                  <Text
+                    style={[styles.entryPreview, { color: colors.text, opacity: isCurrentEntry ? 1 : 0.7 }]}
+                    numberOfLines={1}
+                  >
+                    {extractPreview(entry.content || '')}
+                  </Text>
+                </TouchableOpacity>
               )
             })}
           </View>

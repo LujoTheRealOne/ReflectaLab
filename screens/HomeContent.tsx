@@ -387,14 +387,14 @@ export default function HomeContent() {
                   <Editor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
                 </View>
               </View>
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 style={{ position: 'absolute', bottom: 50, right: 20, paddingHorizontal: 15, paddingVertical: 15, backgroundColor: colors.text, borderRadius: 15 }}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
               >
                 <AudioLines size={24} color={colors.background} />
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </SafeAreaView>
           </Animated.View>
         </Animated.View>

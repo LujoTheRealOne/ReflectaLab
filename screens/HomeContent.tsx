@@ -78,35 +78,6 @@ export default function HomeContent() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
 
-  // Handle selected entry from drawer navigation
-  useEffect(() => {
-    const selectedEntry = (route.params as any)?.selectedEntry;
-    if (selectedEntry) {
-      setLatestEntry(selectedEntry);
-      setEntry(selectedEntry.content || '');
-      setOriginalContent(selectedEntry.content || '');
-      lastSavedContentRef.current = selectedEntry.content || '';
-      setSaveStatus('saved');
-      setIsNewEntry(false);
-      
-      // Clear the route params to prevent re-loading on re-renders
-      navigation.setParams({ selectedEntry: undefined } as any);
-    }
-  }, [route.params, navigation]);
-
-  // Update current entry ID in context whenever latestEntry changes
-  useEffect(() => {
-    setCurrentEntryId(latestEntry?.id || null);
-  }, [latestEntry, setCurrentEntryId]);
-
-  // Calculate display values based on latest entry or fallback to today
-  const displayDate = (latestEntry && !isNewEntry) 
-    ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
-    : today;
-  
-  const formattedDate = displayDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'long' });
-  const time = displayDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
   // Create a new entry
   const createNewEntry = useCallback(() => {
     if (!firebaseUser) return;
@@ -130,6 +101,43 @@ export default function HomeContent() {
 
     console.log('New entry created:', newEntry.id);
   }, [firebaseUser]);
+
+  // Handle selected entry from drawer navigation
+  useEffect(() => {
+    const selectedEntry = (route.params as any)?.selectedEntry;
+    const createNew = (route.params as any)?.createNew;
+    
+    if (selectedEntry) {
+      setLatestEntry(selectedEntry);
+      setEntry(selectedEntry.content || '');
+      setOriginalContent(selectedEntry.content || '');
+      lastSavedContentRef.current = selectedEntry.content || '';
+      setSaveStatus('saved');
+      setIsNewEntry(false);
+      
+      // Clear the route params to prevent re-loading on re-renders
+      navigation.setParams({ selectedEntry: undefined } as any);
+    } else if (createNew) {
+      // Create a new entry when explicitly requested
+      createNewEntry();
+      
+      // Clear the route params to prevent re-loading on re-renders
+      navigation.setParams({ createNew: undefined } as any);
+    }
+  }, [route.params, navigation, createNewEntry]);
+
+  // Update current entry ID in context whenever latestEntry changes
+  useEffect(() => {
+    setCurrentEntryId(latestEntry?.id || null);
+  }, [latestEntry, setCurrentEntryId]);
+
+  // Calculate display values based on latest entry or fallback to today
+  const displayDate = (latestEntry && !isNewEntry) 
+    ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
+    : today;
+  
+  const formattedDate = displayDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'long' });
+  const time = displayDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   // Fetch the latest journal entry
   const fetchLatestEntry = useCallback(async () => {
@@ -294,8 +302,11 @@ export default function HomeContent() {
     if (!hasTriggeredHaptic) {
       setHasTriggeredHaptic(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      createNewEntry();
     }
+  };
+
+  const triggerNewEntry = () => {
+    createNewEntry();
   };
 
   const resetHapticFlag = () => {
@@ -310,18 +321,29 @@ export default function HomeContent() {
       const newTranslateY = Math.max(0, context.startY + event.translationY);
       translateY.value = newTranslateY;
 
-      // Trigger haptic feedback and new entry creation when threshold is reached
+      // Trigger haptic feedback when threshold is reached (but don't create entry yet)
       if (newTranslateY >= TRIGGER_THRESHOLD) {
         runOnJS(triggerHapticFeedback)();
+      } else {
+        runOnJS(resetHapticFlag)();
       }
     },
     onEnd: () => {
+      // Check if we should create a new entry based on final position
+      const shouldCreateEntry = translateY.value >= TRIGGER_THRESHOLD;
+      
       // Always snap back to original position with controlled spring
       translateY.value = withSpring(0, {
         damping: 20,
         stiffness: 300,
         overshootClamping: true
       });
+      
+      // Create new entry only if released beyond threshold
+      if (shouldCreateEntry) {
+        runOnJS(triggerNewEntry)();
+      }
+      
       runOnJS(resetHapticFlag)();
     },
   });
@@ -340,6 +362,18 @@ export default function HomeContent() {
     };
   });
 
+  const checkIconAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: translateY.value >= TRIGGER_THRESHOLD ? 1 : 0,
+    };
+  });
+
+  const arrowIconAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: translateY.value >= TRIGGER_THRESHOLD ? 0 : 1,
+    };
+  });
+
   const curvedEdgesStyle = useAnimatedStyle(() => {
     const maxBorderRadius = 30;
     const borderRadius = Math.min((translateY.value / TRIGGER_THRESHOLD) * maxBorderRadius, maxBorderRadius);
@@ -355,13 +389,14 @@ export default function HomeContent() {
       {/* Floating text that follows the gesture */}
       <Animated.View style={[styles.floatingText, textAnimatedStyle]}>
         <Text style={styles.instructionText}>Swipe down to create</Text>
-        <Animated.View>
-          {translateY.value < 30 ?
+        <View style={{ position: 'relative' }}>
+          <Animated.View style={arrowIconAnimatedStyle}>
             <ArrowDown size={24} color={'white'} />
-            :
+          </Animated.View>
+          <Animated.View style={[{ position: 'absolute', top: 0, left: 0 }, checkIconAnimatedStyle]}>
             <Check size={24} color={'white'} />
-          }
-        </Animated.View>
+          </Animated.View>
+        </View>
       </Animated.View>
 
       {/* Main content that slides down */}
@@ -373,7 +408,6 @@ export default function HomeContent() {
               <View style={styles.header}>
                 <TouchableOpacity onPress={() => {
                   navigation.openDrawer();
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}>
                   <AlignLeft size={28} color={colors.text} />
                 </TouchableOpacity>

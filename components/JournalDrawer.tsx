@@ -1,11 +1,11 @@
 import { Colors } from '@/constants/Colors';
 import { db } from '@/lib/firebase';
 import { DrawerContentComponentProps, useDrawerStatus } from '@react-navigation/drawer';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { collection, getDocs, orderBy, query, where, deleteDoc, doc } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,7 +13,9 @@ import {
   useColorScheme,
   View,
   NativeScrollEvent,
-  NativeSyntheticEvent
+  NativeSyntheticEvent,
+  Platform,
+  Alert
 } from 'react-native';
 import { useAuth } from '@/hooks/useAuth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -43,7 +45,6 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [groupedEntries, setGroupedEntries] = useState<GroupedEntries>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [scrollY, setScrollY] = useState(0);
 
   // Group entries by date
@@ -107,16 +108,13 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   // Refresh entries when drawer opens
   useEffect(() => {
     if (drawerStatus === 'open' && isFirebaseReady && firebaseUser) {
+      // Add haptic feedback when drawer opens
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       fetchJournalEntries();
     }
   }, [drawerStatus, isFirebaseReady, firebaseUser, fetchJournalEntries]);
 
-  // Handle pull-to-refresh
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    await fetchJournalEntries();
-    setIsRefreshing(false);
-  }, [fetchJournalEntries]);
+
 
   // Handle scroll events
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -161,6 +159,81 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
     return firstLine.length > 50 ? firstLine.substring(0, 50) + '...' : firstLine || 'Untitled Entry';
   };
 
+  // Delete journal entry
+  const deleteEntry = useCallback(async (entryId: string) => {
+    if (!firebaseUser) return;
+
+    try {
+      // Delete from Firestore
+      await deleteDoc(doc(db, 'journal_entries', entryId));
+      
+      // Update local state
+      const updatedEntries = journalEntries.filter(entry => entry.id !== entryId);
+      setJournalEntries(updatedEntries);
+      
+      // Update grouped entries
+      setGroupedEntries(groupEntriesByDate(updatedEntries));
+      
+      // If this was the current entry, handle navigation
+      if (currentEntryId === entryId) {
+        // Close the drawer first
+        props.navigation.closeDrawer();
+        
+        if (updatedEntries.length > 0) {
+          // Navigate to the latest entry (first in the sorted array)
+          const latestEntry = updatedEntries[0];
+          (props.navigation as any).navigate('HomeContent', { selectedEntry: latestEntry });
+        } else {
+          // No entries left, navigate to create a new one
+          (props.navigation as any).navigate('HomeContent', { createNew: true });
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      Alert.alert('Error', 'Failed to delete entry. Please try again.');
+    }
+  }, [firebaseUser, journalEntries, groupEntriesByDate, currentEntryId, props.navigation]);
+
+  // Handle long press on entry
+  const handleLongPress = useCallback((entry: JournalEntry) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    const entryPreview = extractPreview(entry.content || '');
+    const truncatedPreview = entryPreview.length > 50 ? entryPreview.substring(0, 50) + '...' : entryPreview;
+    
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Delete Entry'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+          title: `Delete "${truncatedPreview}"?`,
+          message: 'This action cannot be undone.',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            deleteEntry(entry.id);
+          }
+        }
+      );
+    } else {
+      // Fallback for Android
+      Alert.alert(
+        'Delete Entry',
+        `Are you sure you want to delete "${truncatedPreview}"?\n\nThis action cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Delete', 
+            style: 'destructive', 
+            onPress: () => deleteEntry(entry.id)
+          }
+        ]
+      );
+    }
+  }, [deleteEntry, extractPreview]);
+
   // Show loading while Firebase auth is not ready
   if (!isFirebaseReady) {
     return (
@@ -202,15 +275,6 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.text}
-            colors={[colors.tint]}
-            progressViewOffset={0}
-          />
-        }
       >
         {/* Loading State */}
         {isLoading && (
@@ -224,7 +288,10 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
         {!isLoading && journalEntries.length === 0 && (
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyText, { color: colors.text }]}>
-              No journal entries yet. Start writing your first entry by swiping down from the top of the journal screen!
+              No journal entries yet.
+            </Text>
+            <Text style={[styles.emptyText, { color: colors.text }]}>
+              Start writing your first entry!
             </Text>
           </View>
         )}
@@ -258,6 +325,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
                     // Navigate to HomeContent with the selected entry data
                     (props.navigation as any).navigate('HomeContent', { selectedEntry: entry });
                   }}
+                  onLongPress={() => handleLongPress(entry)}
                 >
                   <View style={[styles.entryLine, { backgroundColor: isCurrentEntry ? colors.tint : '#525252' }]} />
                   <Text

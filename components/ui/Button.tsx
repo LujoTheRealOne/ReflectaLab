@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     minWidth: 48,
   },
   sizeLarge: {
-    paddingVertical: 20,
+    paddingVertical: 18,
     paddingHorizontal: 24,
     minWidth: 80,
   },

@@ -202,7 +202,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 8,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -212,17 +212,17 @@ const styles = StyleSheet.create({
   },
   // Size styles
   sizeDefault: {
-    paddingVertical: 10,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     minWidth: 64,
   },
   sizeSmall: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     minWidth: 48,
   },
   sizeLarge: {
-    paddingVertical: 12,
+    paddingVertical: 20,
     paddingHorizontal: 24,
     minWidth: 80,
   },
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   textLarge: {
-    fontSize: 18,
+    fontSize: 20,
     lineHeight: 28,
   },
   textIcon: {

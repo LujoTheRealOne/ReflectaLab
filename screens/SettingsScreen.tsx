@@ -214,6 +214,20 @@ export default function SettingsScreen() {
             </View>
             <TouchableOpacity style={styles.dropdown}>
               <Text style={[styles.dropdownText, { color: '#999' }]}>System</Text>
+              <ChevronDown size={20} color="#999" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Entry Creation</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>
+                Change the way you create new entries
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.dropdown}>
+              <Text style={[styles.dropdownText, { color: '#999' }]}>Swipe to Create</Text>
+              <ChevronDown size={20} color="#999" />
             </TouchableOpacity>
           </View>
 
@@ -385,17 +399,18 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 30,
     marginBottom: 15,
+    marginLeft: 10,
   },
   settingItem: {
     padding: 15,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 24,
     marginBottom: 10,
   },
   settingContainer: {
     gap: 10,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 24,
     padding: 15,
   },
   settingHeader: {

@@ -18,18 +18,30 @@ type Props = {
 export default function LoginScreen({ navigation }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  
-  const { signInWithGoogle, isLoading } = useAuth();
+
+  const { signInWithGoogle, signInWithApple, isLoading } = useAuth();
 
   const handleGoogleLogin = async () => {
     try {
       await signInWithGoogle();
-      // Navigation will be handled automatically by the auth state change
     } catch (error) {
       console.error('Sign in error:', error);
       Alert.alert(
         'Sign In Error',
         'There was a problem signing you in. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    try {
+      await signInWithApple();
+    } catch (error) {
+      console.error('Apple sign in error:', error);
+      Alert.alert(
+        'Sign In Error',
+        'There was a problem signing you in with Apple. Please try again.',
         [{ text: 'OK' }]
       );
     }
@@ -42,25 +54,29 @@ export default function LoginScreen({ navigation }: Props) {
         <Text style={[styles.subtitle, { color: colors.icon }]}>Your Journal & Mentor for your journey</Text>
       </View>
 
-      <View style={[styles.buttonContainer]}>
-        {/* {Platform.OS === 'ios' && (
-          <Button
-            variant="primary"
-            iconLeft={<Ionicons name="logo-apple" size={20} color={colors.background} />}
-            onPress={handleAppleLogin}
-            size="lg"
-          >
-            {isLoading ? 'Signing in...' : 'Continue with Apple'}
-          </Button>
-        )} */}
+      {/* Buttons */}
+      <View style={styles.buttonContainer}>
         <Button
           size="lg"
-          variant="primary"
-          iconLeft={<Ionicons name="logo-google" size={20} color={colors.background} />}
+          variant="secondary"
+          iconLeft={<Image source={require('@/assets/google-logo.svg')} style={{ width: 20, height: 20 }} />}
           onPress={handleGoogleLogin}
           disabled={isLoading}
+          textStyle={{ color: colors.text }}
         >
           {isLoading ? 'Signing in...' : 'Continue with Google'}
+        </Button>
+
+        <Button
+          variant="primary"
+          iconLeft={<Ionicons name="logo-apple" size={24} color={colors.background} />}
+          onPress={handleAppleLogin}
+          size="lg"
+          style={[styles.button]}
+          textStyle={{ color: colors.background }}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Signing in...' : 'Continue with Apple'}
         </Button>
 
         <Text style={[styles.termsText, { color: colors.text }]}>

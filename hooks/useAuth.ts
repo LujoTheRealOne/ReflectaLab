@@ -10,7 +10,8 @@ WebBrowser.maybeCompleteAuthSession();
 export function useAuth() {
   const { signOut, isSignedIn, getToken } = useClerkAuth();
   const { user } = useUser();
-  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+  const { startOAuthFlow: startGoogleOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+  const { startOAuthFlow: startAppleOAuthFlow } = useOAuth({ strategy: 'oauth_apple' });
   const [isLoading, setIsLoading] = useState(false);
   const [shouldShowGetStarted, setShouldShowGetStarted] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -50,7 +51,7 @@ export function useAuth() {
   const signInWithGoogle = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { createdSessionId, setActive } = await startOAuthFlow();
+      const { createdSessionId, setActive } = await startGoogleOAuthFlow();
 
       if (createdSessionId) {
         setActive!({ session: createdSessionId });
@@ -67,7 +68,29 @@ export function useAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [startOAuthFlow, getToken]);
+  }, [startGoogleOAuthFlow, getToken]);
+
+  const signInWithApple = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { createdSessionId, setActive } = await startAppleOAuthFlow();
+
+      if (createdSessionId) {
+        setActive!({ session: createdSessionId });
+        
+        // Get the Clerk token and sign in to Firebase
+        const token = await getToken();
+        if (token) {
+          await signInWithClerkToken(token);
+        }
+      }
+    } catch (error) {
+      console.error('Apple OAuth error', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startAppleOAuthFlow, getToken]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -93,6 +116,7 @@ export function useAuth() {
     isFirebaseReady,
     shouldShowGetStarted,
     signInWithGoogle,
+    signInWithApple,
     signOut: handleSignOut,
     resetGetStartedState,
   };

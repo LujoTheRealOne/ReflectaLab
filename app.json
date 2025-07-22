@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.7.2",
+    "version": "0.8.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",

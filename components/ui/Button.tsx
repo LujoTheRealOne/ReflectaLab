@@ -50,10 +50,10 @@ export function Button({
 }: ButtonProps) {
   const theme = useColorScheme() ?? 'light';
   const backgroundColor = useThemeColor(
-    { 
-      light: lightColor, 
-      dark: darkColor 
-    }, 
+    {
+      light: lightColor,
+      dark: darkColor
+    },
     'background'
   );
   const textColor = useThemeColor({}, 'text');
@@ -86,8 +86,8 @@ export function Button({
           borderWidth: 0,
           backgroundColor: 'transparent',
         };
-        case 'link':
-          return {
+      case 'link':
+        return {
           borderWidth: 0,
           backgroundColor: 'transparent',
         };
@@ -169,17 +169,17 @@ export function Button({
       {...rest}
     >
       {isLoading ? (
-        <ActivityIndicator 
-          size="small" 
+        <ActivityIndicator
+          size="small"
           color={getTextColor()}
         />
       ) : (
         <View style={styles.content}>
           {iconLeft && <View style={styles.icon}>{iconLeft}</View>}
           {typeof children === 'string' ? (
-            <Text 
+            <Text
               style={[
-                { 
+                {
                   color: getTextColor(),
                   fontWeight: '600',
                 },
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   textLarge: {
-    fontSize: 20,
+    fontSize: 18,
     lineHeight: 28,
   },
   textIcon: {

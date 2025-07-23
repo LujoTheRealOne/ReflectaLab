@@ -42,7 +42,7 @@ Reflecta is a mobile journaling application that combines personal reflection wi
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd ReflectaLabs
+   cd ReflectaLab
    ```
 
 2. **Install dependencies**

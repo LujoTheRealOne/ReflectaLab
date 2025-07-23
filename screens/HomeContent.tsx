@@ -415,8 +415,8 @@ export default function HomeContent() {
                   navigation.navigate('Settings' as never);
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}>
-                  {/* <UserCog size={24} color={colors.text} /> */}
-                  <Image source={{ uri: useAuth().user?.imageUrl }} style={{ width: 32, height: 32, borderRadius: 100, borderWidth: 1, borderColor: colors.text }} />
+                  {/* <Cog size={24} color={colors.text} /> */}
+                  <Image source={{ uri: useAuth().user?.imageUrl }} style={{ width: 32, height: 32, borderRadius: 100, borderWidth: 1.5, borderColor: colors.text }} />
                 </TouchableOpacity>
               </View>
 
@@ -446,7 +446,7 @@ export default function HomeContent() {
                 </View>
               </View>
               {/* <TouchableOpacity
-                style={{ position: 'absolute', bottom: 50, right: 20, paddingHorizontal: 15, paddingVertical: 15, backgroundColor: colors.text, borderRadius: 15 }}
+                style={{ position: 'absolute', bottom: 50, right: 20, paddingHorizontal: 15, paddingVertical: 15, backgroundColor: colors.text, borderRadius: 24 }}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}

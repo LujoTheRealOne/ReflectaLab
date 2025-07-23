@@ -5,11 +5,13 @@ import React from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import GetStartedScreen from '@/screens/auth/GetStartedScreen';
 import LoginScreen from '@/screens/auth/LoginScreen';
+import OnboardingScreen from '@/screens/auth/Onboarding';
 
 // Define the auth stack param list
 export type AuthStackParamList = {
   Login: undefined;
   GetStarted: undefined;
+  Onboarding: undefined;
 };
 
 const Stack = createStackNavigator<AuthStackParamList>();
@@ -32,6 +34,11 @@ export default function AuthNavigator() {
           options={{ title: 'Login' }}
         />
       )}
+      <Stack.Screen
+        name="Onboarding"
+        component={OnboardingScreen}
+        options={{ title: 'Onboarding', gestureEnabled: false }}
+      />
     </Stack.Navigator>
   );
 } 

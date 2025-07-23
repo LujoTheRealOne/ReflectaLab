@@ -284,3 +284,46 @@
   box-shadow: none !important;
   transition: none !important;
 }
+
+/* Coaching Block Styles */
+.coaching-block-wrapper {
+  margin: 16px 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  user-select: none;
+  cursor: default;
+}
+
+.coaching-block-wrapper .coaching-block {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+/* Ensure coaching block content is properly styled */
+.coaching-block-wrapper div[data-type="coaching-block"] {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+/* Make sure React Native components render properly in the editor */
+.coaching-block-wrapper .react-renderer {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+/* Node selection state */
+.coaching-block-wrapper.ProseMirror-selectednode {
+  outline: 2px solid #4a90e2;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

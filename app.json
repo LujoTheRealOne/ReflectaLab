@@ -41,7 +41,10 @@
           "imageWidth": 200
         }
       ],
-      ["expo-apple-authentication"]
+      [
+        "expo-apple-authentication"
+      ],
+      "expo-audio"
     ],
     "owner": "acta",
     "extra": {

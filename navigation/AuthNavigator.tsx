@@ -1,23 +1,37 @@
 import { createStackNavigator } from '@react-navigation/stack';
 import React from 'react';
+import { useColorScheme } from 'react-native';
+import { Colors } from '@/constants/Colors';
 
 // Import screens
 import { useAuth } from '@/hooks/useAuth';
 import GetStartedScreen from '@/screens/auth/GetStartedScreen';
 import LoginScreen from '@/screens/auth/LoginScreen';
 import OnboardingScreen from '@/screens/auth/Onboarding';
+import OnboardingChatScreen from '@/screens/auth/OnboardingChatScreen';
 
 // Define the auth stack param list
 export type AuthStackParamList = {
   Login: undefined;
   GetStarted: undefined;
   Onboarding: undefined;
+  OnboardingChat: {
+    name: string;
+    selectedRoles: string[];
+    selectedSelfReflection: string[];
+    clarityLevel: number;
+    stressLevel: number;
+    coachingStylePosition: { x: number; y: number };
+    timeDuration: number;
+  };
 };
 
 const Stack = createStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
   const { shouldShowGetStarted } = useAuth();
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -38,6 +52,34 @@ export default function AuthNavigator() {
         name="Onboarding"
         component={OnboardingScreen}
         options={{ title: 'Onboarding', gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="OnboardingChat"
+        component={OnboardingChatScreen}
+        options={{ 
+          title: 'Chat', 
+          gestureEnabled: false,
+          transitionSpec: {
+            open: {
+              animation: 'timing',
+              config: {
+                duration: 500,
+              },
+            },
+            close: {
+              animation: 'timing',
+              config: {
+                duration: 500,
+              },
+            },
+          },
+          cardStyleInterpolator: ({ current }) => ({
+            cardStyle: {
+              opacity: current.progress,
+              backgroundColor: colors.background,
+            },
+          }),
+        }}
       />
     </Stack.Navigator>
   );

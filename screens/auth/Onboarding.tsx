@@ -1,10 +1,11 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef } from 'react';
-import { Platform, StyleSheet, Text, TextInput, View, useColorScheme, Keyboard, Animated, TouchableOpacity, Alert } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, View, useColorScheme, Keyboard, Animated, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import Slider from '@react-native-community/slider';
 import Svg, { Path, Rect, Circle, Defs, Pattern } from 'react-native-svg';
 import { PanGestureHandler, State as GestureState } from 'react-native-gesture-handler';
+import { BlurView } from 'expo-blur';
 
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import { useAudioPlayer } from 'expo-audio';
+import { setAudioModeAsync } from 'expo-audio';
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
 
@@ -46,11 +48,13 @@ export default function OnboardingScreen() {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerEnded, setTimerEnded] = useState(false);
+  const [showPauseOverlay, setShowPauseOverlay] = useState(false);
 
   const keyboardOffset = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const buttonSlideAnim = useRef(new Animated.Value(0)).current;
   const loadingPulseAnim = useRef(new Animated.Value(1)).current;
+  const pauseOverlayAnim = useRef(new Animated.Value(0)).current;
 
   const roleOptions = [
     'Founder', 'Designer', 'Academic',
@@ -67,13 +71,21 @@ export default function OnboardingScreen() {
   const bellPlayer = useAudioPlayer(require('@/assets/mediation_bell.mp3'));
 
   // Function to play meditation bell sound
-  const playMeditationBell = () => {
+  const playMeditationBell = async () => {
     try {
+      // Configure audio to play even in silent mode
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+      });
+      
+      bellPlayer.seekTo(0);
       bellPlayer.play();
     } catch (error) {
       console.log('Error playing meditation bell:', error);
     }
   };
+
+
 
   // SVG Icon Components
   const LeadershipIcon = ({ color }: { color: string }) => (
@@ -274,10 +286,10 @@ export default function OnboardingScreen() {
                 ]}
               >
                 {/* Glass effect layers */}
-                <View style={[styles.glassLayer1, { backgroundColor: `${colors.background}40` }]} />
-                <View style={[styles.glassLayer2, { backgroundColor: `${colors.background}60` }]} />
-                <View style={[styles.glassHighlight, { backgroundColor: `${colors.background}80` }]} />
-                <View style={[styles.selectorControlInner, { backgroundColor: `${colors.text}08` }]} />
+                <View style={[styles.glassLayer1, { backgroundColor: `${colors.background}60` }]} />
+                <View style={[styles.glassLayer2, { backgroundColor: `${colors.background}80` }]} />
+                <View style={[styles.glassHighlight, { backgroundColor: `${colors.background}A0` }]} />
+                <View style={[styles.selectorControlInner, { backgroundColor: `${colors.text}A0` }]} />
               </Animated.View>
             </PanGestureHandler>
           </View>
@@ -430,7 +442,7 @@ export default function OnboardingScreen() {
     }
   }, [currentStep]);
 
-    // Timer logic for case 16
+  // Timer logic for case 16
   useEffect(() => {
     if (currentStep === 16) {
       // Reset timer to 5:00 when entering case 16
@@ -438,7 +450,7 @@ export default function OnboardingScreen() {
       setTimerSeconds(0);
       setIsTimerRunning(false);
       setTimerEnded(false);
-      
+
       // Start timer after 2 seconds
       const startTimeout = setTimeout(() => {
         setIsTimerRunning(true);
@@ -452,10 +464,10 @@ export default function OnboardingScreen() {
     }
   }, [currentStep]);
 
-    // Timer countdown logic
+  // Timer countdown logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    
+
     if (isTimerRunning && (timerMinutes > 0 || timerSeconds > 0)) {
       interval = setInterval(() => {
         if (timerSeconds > 0) {
@@ -469,10 +481,10 @@ export default function OnboardingScreen() {
       // Timer just ended
       setIsTimerRunning(false);
       setTimerEnded(true);
-      
+
       // Play meditation bell sound
       playMeditationBell();
-      
+
       // Slide continue button back up
       Animated.timing(buttonSlideAnim, {
         toValue: 0,
@@ -489,6 +501,24 @@ export default function OnboardingScreen() {
   const handleContinue = () => {
     if (currentStep < 16) {
       animateToStep(currentStep + 1);
+    } else if (currentStep === 16) {
+      // Fade out current screen before navigating
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        // Navigate to chat screen with all onboarding data
+        navigation.navigate('OnboardingChat', {
+          name,
+          selectedRoles,
+          selectedSelfReflection,
+          clarityLevel,
+          stressLevel,
+          coachingStylePosition,
+          timeDuration
+        });
+      });
     } else {
       // Handle final submission - navigate to main app
       console.log('Name:', name);
@@ -1045,9 +1075,36 @@ export default function OnboardingScreen() {
           return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         };
 
+        const handleScreenPress = () => {
+          if (!timerEnded && isTimerRunning) {
+            setIsTimerRunning(false);
+            setShowPauseOverlay(true);
+            Animated.timing(pauseOverlayAnim, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }).start();
+          }
+        };
+
+        const handleContinueTimer = () => {
+          Animated.timing(pauseOverlayAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => {
+            setShowPauseOverlay(false);
+            setIsTimerRunning(true);
+          });
+        };
+
         return (
           <>
-            <View style={{ flex: 1, justifyContent: 'space-between', alignItems: 'center', alignSelf: 'stretch', marginBottom: -50 }}>
+            <TouchableOpacity
+              style={{ flex: 1, justifyContent: 'space-between', alignItems: 'center', alignSelf: 'stretch', marginBottom: -50 }}
+              onPress={handleScreenPress}
+              activeOpacity={1}
+            >
               <Text style={[styles.mainText, { color: '#FFFFFF', textAlign: 'center', fontSize: 16, fontWeight: '400', lineHeight: 24, opacity: 0.6, paddingHorizontal: 20 }]}>
                 {`If you can read this,
 close your eyes...`}
@@ -1060,9 +1117,78 @@ close your eyes...`}
               <Text style={[styles.mainText, { color: '#FFFFFF', textAlign: 'center', fontSize: 16, fontWeight: '400', lineHeight: 24, opacity: !timerEnded ? 0.6 : 0, paddingHorizontal: 20 }]}>
                 Press anywhere to pause
               </Text>
-            </View>
+            </TouchableOpacity>
+
+            {/* Pause Overlay */}
+            <Animated.View
+              style={[
+                styles.pauseOverlay,
+                {
+                  opacity: pauseOverlayAnim,
+                  pointerEvents: showPauseOverlay ? 'auto' : 'none',
+                }
+              ]}
+            >
+              <BlurView intensity={30} tint="dark" style={styles.pauseOverlayBlur} />
+              <View style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: '#00000011',
+              }} />
+              <View style={styles.pauseButtonsContainer}>
+                <Button
+                  variant="secondary"
+                  onPress={() => {
+                    Alert.alert('End early', 'Are you sure you want to end your meditation early?', [
+                      {
+                        text: 'Continue', style: 'cancel', onPress: () => {
+                          Animated.timing(pauseOverlayAnim, {
+                            toValue: 0,
+                            duration: 300,
+                            useNativeDriver: true,
+                          }).start(() => {
+                            setShowPauseOverlay(false);
+                            setIsTimerRunning(true);
+                          });
+                        }
+                      },
+                      {
+                        text: 'End early', style: 'destructive', onPress: () => {
+                          Animated.timing(pauseOverlayAnim, {
+                            toValue: 0,
+                            duration: 300,
+                            useNativeDriver: true,
+                          }).start(() => {
+                            setTimerMinutes(0);
+                            setTimerSeconds(0);
+                            setIsTimerRunning(true);
+                            setShowPauseOverlay(false);
+                          });
+                        }
+                      }
+                    ], { cancelable: true, userInterfaceStyle: 'dark' });
+                  }}
+                  style={[styles.backButton, { backgroundColor: `#FFFFFF11`, flex: 1, borderColor: 'transparent' }]}
+                >
+                  <Text style={[{ color: '#FFFFFF', fontSize: 16, fontWeight: '500' }]}>End early</Text>
+                </Button>
+                <Button
+                  variant="primary"
+                  onPress={handleContinueTimer}
+                  size="lg"
+                  style={[styles.continueButtonWithBack, { backgroundColor: `#FFFFFF`, flex: 1, borderColor: 'transparent' }]}
+                  textStyle={{ color: '#000000' }}
+                >
+                  Continue
+                </Button>
+              </View>
+            </Animated.View>
           </>
         );
+      
       default:
         return null;
     }
@@ -1095,7 +1221,9 @@ close your eyes...`}
           styles.contentContainer,
           {
             transform: [{ translateY: keyboardOffset }],
-            opacity: fadeAnim
+            opacity: fadeAnim,
+            // Remove padding for chat interface
+            ...(currentStep >= 16 && { padding: 0, gap: 0 })
           }
         ]}
       >
@@ -1131,7 +1259,7 @@ close your eyes...`}
             textStyle={{ color: currentStep === 7 || currentStep >= 14 ? '#FFFFFF' : currentStep === 6 ? colors.text : colors.background }}
             disabled={isLoading || !isStepValid()}
           >
-            {isLoading ? 'Loading...' : currentStep === 10 ? 'Yes, I\'m in' : 'Continue'}
+            {isLoading ? 'Loading...' : currentStep === 10 ? 'Yes, I\'m in' : currentStep === 15 ? 'Start 5 min Meditation' : 'Continue'}
           </Button>
         </View>
       </Animated.View>
@@ -1550,5 +1678,31 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     textAlign: 'center',
     lineHeight: 80,
+  },
+  pauseOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    alignItems: 'stretch',
+    height: '115%',
+    zIndex: 100,
+  },
+  pauseOverlayBlur: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  pauseButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 50,
+    zIndex: 101,
   },
 }); 

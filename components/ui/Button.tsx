@@ -78,8 +78,8 @@ export function Button({
         };
       case 'secondary':
         return {
-          borderColor: theme === 'light' ? '#EAEAEA' : '#222',
-          backgroundColor: theme === 'light' ? '#EAEAEA' : '#222',
+          borderColor: theme === 'light' ? '#EEEEEE' : '#222',
+          backgroundColor: theme === 'light' ? '#EEEEEE' : '#222',
         };
       case 'ghost':
         return {
@@ -217,7 +217,8 @@ const styles = StyleSheet.create({
     minWidth: 64,
   },
   sizeSmall: {
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     minWidth: 48,
   },

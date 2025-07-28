@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useState, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { FirestoreService } from '@/lib/firestore';
+import { UserAccount } from '@/types/journal';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -17,6 +18,8 @@ export function useAuth() {
   const [shouldShowGetStarted, setShouldShowGetStarted] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+  const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -56,7 +59,11 @@ export function useAuth() {
 
       try {
         // Ensure user document exists in Firestore
-        await FirestoreService.getUserAccount(firebaseUser.uid);
+        const account = await FirestoreService.getUserAccount(firebaseUser.uid);
+        setUserAccount(account);
+        
+        // Check if user needs onboarding
+        setNeedsOnboarding(account.onboardingCompleted !== true);
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality
@@ -126,16 +133,33 @@ export function useAuth() {
     setShouldShowGetStarted(false);
   }, []);
 
+  const completeOnboarding = useCallback(async () => {
+    if (firebaseUser?.uid) {
+      try {
+        // Update user account in Firestore
+        await FirestoreService.updateUserAccount(firebaseUser.uid, {
+          onboardingCompleted: true,
+        });
+        setNeedsOnboarding(false);
+      } catch (error) {
+        console.error('Failed to update onboarding status:', error);
+      }
+    }
+  }, [firebaseUser?.uid]);
+
   return {
     user,
     firebaseUser,
+    userAccount,
     isSignedIn: isSignedIn && !!firebaseUser,
     isLoading,
     isFirebaseReady,
     shouldShowGetStarted,
+    needsOnboarding,
     signInWithGoogle,
     signInWithApple,
     signOut: handleSignOut,
     resetGetStartedState,
+    completeOnboarding,
   };
 } 

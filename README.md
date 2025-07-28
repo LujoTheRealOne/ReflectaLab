@@ -2,8 +2,6 @@
 
 An intelligent journaling app with AI-powered coaching capabilities built with React Native and Expo.
 
-#### The Mobile App is developed by Luca Wernicke
-
 ## 📱 Overview
 
 Reflecta is a mobile journaling application that combines personal reflection with AI-powered coaching. Users can write journal entries using a rich text editor, and receive contextual AI coaching feedback to help deepen their self-reflection and personal growth.
@@ -54,7 +52,9 @@ Reflecta is a mobile journaling application that combines personal reflection wi
    Create a `.env` file in the root directory:
    ```env
    EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
-   OPENAI_API_KEY=your_openai_api_key
+   CLERK_SECRET_KEY=your_secret_key
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   OPENROUTER_APP_NAME=Reflecta Labs
    ```
 
 4. **Configure Firebase**

@@ -3,6 +3,7 @@ import { useAuth as useClerkAuth, useOAuth, useUser } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useState, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
+import { FirestoreService } from '@/lib/firestore';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -47,6 +48,23 @@ export function useAuth() {
 
     signInToFirebase();
   }, [isSignedIn, user, firebaseUser, getToken]);
+
+  // Initialize user document in Firestore when Firebase user is available
+  useEffect(() => {
+    const initializeUserDocument = async () => {
+      if (!firebaseUser?.uid) return;
+
+      try {
+        // Ensure user document exists in Firestore
+        await FirestoreService.getUserAccount(firebaseUser.uid);
+      } catch (error) {
+        console.error('Failed to initialize user document:', error);
+        // Don't throw error here as this is not critical for basic functionality
+      }
+    };
+
+    initializeUserDocument();
+  }, [firebaseUser?.uid]);
 
   const signInWithGoogle = useCallback(async () => {
     setIsLoading(true);

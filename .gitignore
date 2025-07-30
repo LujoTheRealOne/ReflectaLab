@@ -42,3 +42,6 @@ ios/
 
 # Android
 android/
+
+# external repos
+external_repos/

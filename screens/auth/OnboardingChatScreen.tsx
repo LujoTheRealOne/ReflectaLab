@@ -6,6 +6,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
+import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
 
 interface Message {
@@ -199,9 +200,25 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
             Life Deep Dive
           </Text>
-          <Text style={[styles.chatProgressText, { color: `${colors.text}66` }]}>
-            14% done
-          </Text>
+          
+          <View style={styles.progressSection}>
+            <Text style={[styles.chatProgressText, { color: `${colors.text}66` }]}>
+              {progressPercentage}%
+            </Text>
+            
+            {/* Circular Progress Bar */}
+            <Progress.Circle
+              size={20}
+              animated={true}
+              progress={progressPercentage / 100}
+              color={colors.tint}
+              unfilledColor={`${colors.text}20`}
+              borderWidth={0}
+              thickness={4}
+              strokeCap='round'
+              showsText={false}
+            />
+          </View>
         </View>
 
         {/* Messages */}
@@ -576,5 +593,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingVertical: 8,
+  },
+  progressSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   }
 }); 

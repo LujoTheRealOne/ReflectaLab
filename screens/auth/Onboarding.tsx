@@ -503,6 +503,31 @@ export default function OnboardingScreen() {
   const handleContinue = async () => {
     if (currentStep < 16) {
       animateToStep(currentStep + 1);
+      if (currentStep === 12) {
+        // Handle data submission - save data to user object in database
+        if (firebaseUser?.uid) {
+          try {
+            // Update user account in Firestore with onboarding data and completion status
+            await FirestoreService.updateUserAccount(firebaseUser.uid, {
+              // Mark onboarding as completed
+              onboardingCompleted: true,
+              // Store all onboarding data for future reference
+              onboardingData: {
+                name,
+                selectedRoles,
+                selectedSelfReflection,
+                clarityLevel,
+                stressLevel,
+                coachingStylePosition,
+                timeDuration
+              },
+              updatedAt: new Date()
+            });
+          } catch (error) {
+            console.error('Failed to save onboarding data:', error);
+          }
+        }
+      }
     } else if (currentStep === 16) {
       // Fade out current screen before navigating
       Animated.timing(fadeAnim, {
@@ -521,30 +546,6 @@ export default function OnboardingScreen() {
           timeDuration
         });
       });
-    
-      // Handle final submission - save data to user object in database
-      if (firebaseUser?.uid) {
-        try {
-          // Update user account in Firestore with onboarding data and completion status
-          await FirestoreService.updateUserAccount(firebaseUser.uid, {
-            // Mark onboarding as completed
-            onboardingCompleted: true,
-            // Store all onboarding data for future reference
-            onboardingData: {
-              name,
-              selectedRoles,
-              selectedSelfReflection,
-              clarityLevel,
-              stressLevel,
-              coachingStylePosition,
-              timeDuration
-            },
-            updatedAt: new Date()
-          });
-        } catch (error) {
-          console.error('Failed to save onboarding data:', error);
-        }
-      }
     }
   };
 
@@ -1205,7 +1206,7 @@ close your eyes...`}
             </Animated.View>
           </>
         );
-      
+
       default:
         return null;
     }

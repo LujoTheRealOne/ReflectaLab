@@ -8,7 +8,7 @@ export interface TokenExchangeResponse {
 
 export const exchangeClerkTokenForFirebase = async (clerkToken: string): Promise<TokenExchangeResponse> => {
   try {
-    const response = await fetch(process.env.EXPO_PUBLIC_FIREBASE_AUTH_URL, {
+    const response = await fetch(process.env.EXPO_PUBLIC_API_URL + "api/auth/firebase-token", {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

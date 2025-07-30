@@ -1,70 +1,291 @@
-import { useState, useCallback } from 'react';
-import { Alert } from 'react-native';
-import { CoachingInteractionRequest, CoachingInteractionResponse } from '@/types/coaching';
-import aiCoachingService from '@/services/aiCoachingService';
+import { useState, useCallback, useRef } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+
+// Match the interface from the web app
+export interface CoachingMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
 
 interface UseAICoachingReturn {
+  messages: CoachingMessage[];
   isLoading: boolean;
   error: string | null;
-  generateCoachingResponse: (request: CoachingInteractionRequest) => Promise<CoachingInteractionResponse>;
-  clearError: () => void;
+  progress: number; // 0-100
+  sendMessage: (content: string, sessionId?: string) => Promise<void>;
+  clearMessages: () => void;
+  setMessages: (messages: CoachingMessage[]) => void;
 }
 
 export function useAICoaching(): UseAICoachingReturn {
+  const [messages, setMessages] = useState<CoachingMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number>(7);
+  const { getToken } = useAuth();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const generateCoachingResponse = useCallback(async (request: CoachingInteractionRequest): Promise<CoachingInteractionResponse> => {
+  // Typewriter effect function for React Native
+  const simulateTypewriter = async (content: string, messageId: string) => {
+    const words = content.split(' ');
+    let currentContent = '';
+    
+    for (let i = 0; i < words.length; i++) {
+      currentContent += (i > 0 ? ' ' : '') + words[i];
+      
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, content: currentContent }
+          : msg
+      ));
+      
+      // Adjust speed based on word length - shorter delay for shorter words
+      const delay = Math.min(Math.max(words[i].length * 10, 30), 100);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  };
+
+  // Progress evaluation function
+  const evaluateProgress = async (sessionId: string, conversationHistory: CoachingMessage[]) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/prototype/progress-evaluation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationHistory,
+          previousProgress: progress,
+          sessionId,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && typeof result.progress === 'number') {
+          setProgress(result.progress);
+        }
+      }
+    } catch (error) {
+      console.error('Error evaluating progress:', error);
+      // Fallback: increment progress slightly
+      setProgress(prev => Math.min(prev + 5, 95));
+    }
+  };
+
+  const sendMessage = useCallback(async (content: string, sessionId?: string) => {
+    if (!content.trim()) return;
+
+    // Cancel any ongoing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+
+    const userMessage: CoachingMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: content.trim(),
+      timestamp: new Date()
+    };
+
+    // Add user message immediately
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await aiCoachingService.generateCoachingResponse(request);
-      
-      if (!response.success) {
-        const errorMessage = response.error || 'Failed to generate coaching response';
-        setError(errorMessage);
-        
-        // Show user-friendly error alert
-        Alert.alert(
-          'AI Coaching Error',
-          errorMessage,
-          [{ text: 'OK' }]
-        );
+      // Get Clerk token for authentication
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication token not available');
       }
-      
-      return response;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      
-      console.error('AI Coaching hook error:', error);
-      
-      Alert.alert(
-        'AI Coaching Error',
-        'There was an error connecting to the AI service. Please try again.',
-        [{ text: 'OK' }]
-      );
-      
-      return {
-        success: false,
-        error: errorMessage
+
+      // Call the web app API endpoint
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/prototype/coach`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: content.trim(),
+          sessionId: sessionId || 'mobile-session',
+          conversationHistory: messages // Include conversation history for context
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('❌ API Error Response:', errorText);
+        throw new Error(`API Error: ${response.status} - ${errorText}`);
+      }
+
+      // Create AI message placeholder for streaming
+      const aiMessageId = (Date.now() + 1).toString();
+      const aiMessage: CoachingMessage = {
+        id: aiMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date()
       };
+
+      // Add AI message placeholder
+      setMessages(prev => [...prev, aiMessage]);
+      setIsLoading(false);
+
+      // React Native streaming implementation
+      if (!response.body) {
+        const fullResponse = await response.text();
+        
+        // Parse the server-sent events format manually
+        const lines = fullResponse.split('\n');
+        let fullContent = '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'content') {
+                fullContent += data.content;
+              }
+            } catch (parseError) {
+              console.error('Error parsing line:', line, parseError);
+            }
+          }
+        }
+        
+        // Check for finish tokens
+        const hasFinishToken = fullContent.includes('[finish-start]') || fullContent.includes('[finish-end]');
+        
+        if (hasFinishToken) {
+          console.log('🎯 Finish token detected! Setting progress to 100%');
+          setProgress(100);
+        }
+        
+        // Show only clean content during typewriter effect (remove finish tokens)
+        const finishStartIndex = fullContent.indexOf('[finish-start]');
+        const displayContent = finishStartIndex === -1 ? fullContent : fullContent.slice(0, finishStartIndex).trim();
+        await simulateTypewriter(displayContent, aiMessageId);
+        
+        // After typewriter is done, update with full content for parsing
+        setMessages(prev => prev.map(msg => 
+          msg.id === aiMessageId 
+            ? { ...msg, content: fullContent }
+            : msg
+        ));
+        
+        // Evaluate progress after response is complete (unless finish token detected)
+        if (!hasFinishToken) {
+          const updatedMessages = [...messages, userMessage, { ...aiMessage, content: fullContent }];
+          await evaluateProgress(sessionId || 'mobile-session', updatedMessages);
+        }
+        
+        return;
+      }
+
+      // Browser streaming (if ReadableStream is available)
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'content') {
+                fullContent += data.content;
+                // Update the AI message content incrementally (UI will clean for display)
+                setMessages(prev => prev.map(msg => 
+                  msg.id === aiMessageId 
+                    ? { ...msg, content: fullContent }
+                    : msg
+                ));
+              } else if (data.type === 'done') {
+                // Check for finish tokens
+                const hasFinishToken = fullContent.includes('[finish-start]') || fullContent.includes('[finish-end]');
+                
+                if (hasFinishToken) {
+                  console.log('🎯 Finish token detected! Setting progress to 100%');
+                  setProgress(100);
+                } else {
+                  // Evaluate progress after response is complete
+                  const updatedMessages = [...messages, userMessage, { ...aiMessage, content: fullContent }];
+                  await evaluateProgress(sessionId || 'mobile-session', updatedMessages);
+                }
+                break;
+              } else if (data.type === 'error') {
+                console.error('Streaming error:', data.error);
+                throw new Error(data.error || 'Streaming error occurred');
+              }
+            } catch (parseError) {
+              console.error('Error parsing streaming data:', parseError);
+              // Continue processing other lines
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('AI coaching error:', err);
+      
+      // Don't show error if request was aborted
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get AI response';
+      setError(errorMessage);
+
+      // Add error message to chat
+      const errorChatMessage: CoachingMessage = {
+        id: (Date.now() + 2).toString(),
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${errorMessage}.\nPlease try again.`,
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, errorChatMessage]);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
+  }, [messages, getToken, progress, evaluateProgress, simulateTypewriter]);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setError(null);
+    setProgress(0);
   }, []);
 
-  const clearError = useCallback(() => {
-    setError(null);
+  const setMessagesCallback = useCallback((newMessages: CoachingMessage[]) => {
+    setMessages(newMessages);
   }, []);
 
   return {
+    messages,
     isLoading,
     error,
-    generateCoachingResponse,
-    clearError
+    progress,
+    sendMessage,
+    clearMessages,
+    setMessages: setMessagesCallback
   };
-}
-
-export default useAICoaching; 
+} 

@@ -161,5 +161,6 @@ export function useAuth() {
     signOut: handleSignOut,
     resetGetStartedState,
     completeOnboarding,
+    getToken,
   };
 } 

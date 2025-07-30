@@ -8,13 +8,8 @@ import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
-
-interface Message {
-  id: string;
-  text: string;
-  isUser: boolean;
-  timestamp: Date;
-}
+import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
+import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -37,121 +32,180 @@ export default function OnboardingChatScreen() {
     timeDuration
   } = route.params;
 
-  const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  // Use the new AI coaching hook with progress tracking
+  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
+  const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
+  const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
+  const [sessionStartTime] = useState(new Date());
+  const [completionStats, setCompletionStats] = useState({
+    minutes: 0,
+    words: 0,
+    keyInsights: 0
+  });
+  const [parsedCoachingData, setParsedCoachingData] = useState<{
+    components: Array<{ type: string; props: Record<string, string> }>;
+    rawData: string;
+  } | null>(null);
+
+  // Function to parse coaching completion data between finish tokens
+  const parseCoachingCompletion = (content: string) => {
+    const finishStartIndex = content.indexOf('[finish-start]');
+    const finishEndIndex = content.indexOf('[finish-end]');
+    
+    if (finishStartIndex === -1 || finishEndIndex === -1) {
+      return { components: [], rawData: '' };
+    }
+    
+    // Extract content between finish tokens
+    const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
+    
+    // Parse component markers like [focus:focus="...",context="..."]
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    const components: Array<{ type: string; props: Record<string, string> }> = [];
+    
+    let match;
+    while ((match = componentRegex.exec(finishContent)) !== null) {
+      const componentType = match[1];
+      const propsString = match[2];
+      
+      // Parse props from key="value" format
+      const props: Record<string, string> = {};
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+      
+      while ((propMatch = propRegex.exec(propsString)) !== null) {
+        const [, key, value] = propMatch;
+        props[key] = value;
+      }
+      
+      components.push({ type: componentType, props });
+    }
+    
+    console.log('🎯 Parsed coaching completion:', { 
+      componentsCount: components.length, 
+      components,
+      rawFinishContent: finishContent
+    });
+    
+    return { components, rawData: finishContent };
+  };
+
+  // Function to clean message content by removing finish tokens and structured data
+  const getDisplayContent = (content: string) => {
+    const finishStartIndex = content.indexOf('[finish-start]');
+    
+    // If no finish tokens, return original content
+    if (finishStartIndex === -1) {
+      return content;
+    }
+    
+    // Return only the content before the finish tokens
+    return content.slice(0, finishStartIndex).trim();
+  };
 
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
   // Initialize chat with first message when component mounts
   useEffect(() => {
-    if (chatMessages.length === 0) {
+    if (messages.length === 0) {
       setTimeout(() => {
-        const initialMessage: Message = {
+        const initialMessage: CoachingMessage = {
           id: '1',
-          text: `Good afternoon, ${name}.`,
-          isUser: false,
+          content: `Good afternoon, ${name}.\n
+Once you're ready, I'd love to hear: If you had to name what's most alive in you right now—what would it be?\n
+Maybe it's a tension you're holding, a quiet longing, or something you don't quite have words for yet. Whatever shows up—start there.`,
+          role: 'assistant',
           timestamp: new Date()
         };
-        setChatMessages([initialMessage]);
+        setMessages([initialMessage]);
       }, 1000);
     }
-  }, [name]);
-
-
-
-  // Helper function to generate personalized AI responses based on user configuration
-  const generatePersonalizedResponse = (userMessage: string): string => {
-    // Convert coaching style position to descriptive terms
-    const getCoachingStyle = () => {
-      const { x, y } = coachingStylePosition;
-      let style = "";
-
-      // Vertical axis: Friendliness (positive y) vs Challenging (negative y)
-      if (y > 0.3) style += "friendly and supportive";
-      else if (y < -0.3) style += "direct and challenging";
-      else style += "balanced";
-
-      // Horizontal axis: Active (negative x) vs Passive (positive x)
-      if (x < -0.3) style += ", proactive";
-      else if (x > 0.3) style += ", reflective";
-      else style += ", adaptive";
-
-      return style;
-    };
-
-    // Get clarity and stress descriptors
-    const getClarityLevel = () => {
-      if (clarityLevel < 0.3) return "seeking direction";
-      if (clarityLevel > 0.7) return "quite clear on your goals";
-      return "developing clarity";
-    };
-
-    const getStressLevel = () => {
-      if (stressLevel < 0.3) return "relatively calm";
-      if (stressLevel > 0.7) return "under significant pressure";
-      return "managing moderate stress";
-    };
-
-    // Generate contextual response based on user's profile
-    const responses = [
-      `I understand you're ${getClarityLevel()} and ${getStressLevel()}. As someone who works in ${selectedRoles.join(', ')}, getting what you want from life often starts with aligning your professional identity with your deeper values. 
-
-Since you've tried ${selectedSelfReflection.join(', ')}, you already know the power of self-reflection. The key is to be ${getCoachingStyle()} in your approach - what specific aspect of your life feels most out of alignment right now?`,
-
-      `Hey I suggest you setup this notification schedule based on your suggestions.`
-    ];
-
-    // Return a random personalized response
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
+  }, [name, messages.length, setMessages]);
 
   // Auto-scroll to bottom when new messages are added
   useEffect(() => {
-    if (scrollViewRef.current && chatMessages.length > 0) {
+    if (scrollViewRef.current && messages.length > 0) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [chatMessages]);
+  }, [messages]);
 
-  const handleSendMessage = () => {
+  // Check for notification suggestions in new AI messages
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    
+    // Only check assistant messages that have content and aren't already showing a popup
+    if (lastMessage && 
+        lastMessage.role === 'assistant' && 
+        lastMessage.content.length > 0 &&
+        !showPopupForMessage &&
+        lastMessage.content.toLowerCase().includes('notification')) {
+      
+      // Small delay to ensure message is fully rendered
+      setTimeout(() => {
+        setShowPopupForMessage(lastMessage.id);
+      }, 300);
+    }
+  }, [messages, showPopupForMessage]);
+
+  // Check for completion when progress reaches 100%
+  useEffect(() => {
+    if (progress === 100 && !showCompletionForMessage) {
+      console.log('🎯 Progress reached 100%! Showing completion popup...');
+      
+      // Find the final AI message that contains finish tokens
+      const lastAIMessage = [...messages].reverse().find(msg => 
+        msg.role === 'assistant' && 
+        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
+      );
+      
+      if (lastAIMessage) {
+        // Calculate session statistics
+        const sessionEndTime = new Date();
+        const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
+        const sessionMinutes = Math.round(sessionDurationMs / 60000); // Convert to minutes
+        
+        // Count words from user messages
+        const userMessages = messages.filter(msg => msg.role === 'user');
+        const totalWords = userMessages.reduce((count, msg) => {
+          return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
+        }, 0);
+        
+        // Parse coaching completion data to get accurate insights count
+        const parsedData = parseCoachingCompletion(lastAIMessage.content);
+        const keyInsights = Math.max(parsedData.components.length, 3); // Use actual parsed components count
+        
+        setCompletionStats({
+          minutes: Math.max(sessionMinutes, 1), // At least 1 minute
+          words: totalWords,
+          keyInsights
+        });
+        
+        // Store parsed coaching data for future use
+        setParsedCoachingData(parsedData);
+        
+        // Show completion popup for this specific message
+        setShowCompletionForMessage(lastAIMessage.id);
+      }
+    }
+  }, [progress, showCompletionForMessage, messages, sessionStartTime]);
+
+  const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: chatInput.trim(),
-      isUser: true,
-      timestamp: new Date()
-    };
-
-    setChatMessages(prev => [...prev, userMessage]);
+    const messageContent = chatInput.trim();
     setChatInput('');
-    setIsTyping(true);
 
-    // Simulate AI response after a delay with personalized content
-    setTimeout(() => {
-      const responseText = generatePersonalizedResponse(userMessage.text);
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: responseText,
-        isUser: false,
-        timestamp: new Date()
-      };
-      setChatMessages(prev => [...prev, aiResponse]);
-      setIsTyping(false);
-
-      // Auto-show popup for notification schedule suggestion
-      if (responseText.includes('Hey I suggest you setup this notification schedule')) {
-        setTimeout(() => {
-          setShowPopupForMessage(aiResponse.id);
-        }, 300); // Small delay to let the message appear first
-      }
-    }, 2000);
+    // Send message using the AI coaching hook
+    await sendMessage(messageContent, 'onboarding-session');
   };
 
   const handleMicrophonePress = () => {
@@ -174,18 +228,61 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
     }, 100);
   };
 
-  const handlePopupAction = (action: string, messageId: string) => {
+  const handlePopupAction = async (action: string, messageId: string) => {
     console.log(`Action: ${action} for message: ${messageId}`);
     setShowPopupForMessage(null);
+    
     // Handle specific actions here
     switch (action) {
       case 'decline':
-        // Handle decline
+        console.log('User declined notification permissions');
         break;
       case 'accept':
-        // Handle accept
+        try {
+          const granted = await requestPermissions();
+          if (granted) {
+            console.log('✅ Notification permissions granted and push token saved');
+            
+            // Send confirmation message to chat
+            const confirmationMessage: CoachingMessage = {
+              id: (Date.now() + 3).toString(),
+              role: 'assistant',
+              content: "Perfect! I've saved your notification preferences. You'll receive thoughtful reflection prompts to help you stay connected with your insights and growth.",
+              timestamp: new Date()
+            };
+            setMessages([...messages, confirmationMessage]);
+          } else {
+            console.log('❌ Notification permissions denied');
+            // Add message about manual setup
+            const declineMessage: CoachingMessage = {
+              id: (Date.now() + 3).toString(),
+              role: 'assistant',
+              content: "No problem! You can always enable notifications later in your device settings if you change your mind.",
+              timestamp: new Date()
+            };
+            setMessages([...messages, declineMessage]);
+          }
+        } catch (error) {
+          console.error('Error setting up notifications:', error);
+        }
         break;
     }
+  };
+
+  const handleCompletionAction = () => {
+    console.log('User clicked View Personal Mirror');
+    console.log('📊 Session Stats:', completionStats);
+    console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
+    
+    if (parsedCoachingData) {
+      parsedCoachingData.components.forEach((component, index) => {
+        console.log(`  ${index + 1}. ${component.type.toUpperCase()}:`, component.props);
+      });
+    }
+    
+    // Navigate to the personal mirror/results view
+    // For now, just log the action - you can implement navigation later
+    setShowCompletionForMessage(null);
   };
 
   return (
@@ -196,21 +293,21 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         {/* Header */}
-        <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderBottomColor: `${colors.tint}12` }]}>
+        <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
             Life Deep Dive
           </Text>
           
           <View style={styles.progressSection}>
             <Text style={[styles.chatProgressText, { color: `${colors.text}66` }]}>
-              {progressPercentage}%
+              {Math.round(progress)}%
             </Text>
             
             {/* Circular Progress Bar */}
             <Progress.Circle
               size={20}
               animated={true}
-              progress={progressPercentage / 100}
+              progress={progress / 100}
               color={colors.tint}
               unfilledColor={`${colors.text}20`}
               borderWidth={0}
@@ -232,12 +329,12 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
             keyboardDismissMode="interactive"
             scrollEventThrottle={16}
           >
-            {chatMessages.map((message) => (
+            {messages.map((message) => (
               <View
                 key={message.id}
                 style={[
                   styles.messageContainer,
-                  message.isUser ? styles.userMessageContainer : styles.aiMessageContainer
+                  message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
                 <View
@@ -245,17 +342,17 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
                   <Text
                     style={[
                       styles.messageText,
-                      message.isUser
+                      message.role === 'user'
                         ? { color: `${colors.text}99` }
                         : { color: colors.text }
                     ]}
                   >
-                    {message.text}
+                    {getDisplayContent(message.content)}
                   </Text>
                 </View>
 
-                {/* AI Chat Popup */}
-                {!message.isUser && showPopupForMessage === message.id && (
+                                {/* AI Chat Popup */}
+                {message.role === 'assistant' && showPopupForMessage === message.id && (
                   <View style={[
                     styles.aiPopup,
                     {
@@ -292,9 +389,44 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
                     </View>
                   </View>
                 )}
+
+                {/* Completion Popup - appears on final message when progress reaches 100% */}
+                {message.role === 'assistant' && showCompletionForMessage === message.id && (
+                  <View style={[
+                    styles.aiPopup,
+                    {
+                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+                    }
+                  ]}>
+                    <View style={styles.aiPopupContent}>
+                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
+                        You've invested in yourself.
+                      </Text>
+                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
+                        Now let's see what is reflecting.
+                      </Text>
+                      
+                      <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
+                        {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
+                      </Text>
+
+                      <View style={styles.aiPopupButtons}>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onPress={handleCompletionAction}
+                          style={{ flex: 1 }}
+                        >
+                          View Personal Mirror
+                        </Button>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
             ))}
-            {isTyping && (
+            {isLoading && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
                 <View style={[styles.messageBubble, { backgroundColor: `${colors.text}08` }]}>
                   <View style={styles.typingIndicator}>
@@ -314,8 +446,10 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
             styles.chatInputWrapper,
             {
               backgroundColor: colors.background,
-              borderWidth: colorScheme === 'dark' ? 0 : 1,
-              borderColor: colorScheme === 'dark' ? 'transparent' : '#E5E5E5',
+              borderTopWidth: 1,
+              borderLeftWidth: 1,
+              borderRightWidth: 1,
+              borderColor: `${colors.tint}12`,
               paddingBottom: Math.max(insets.bottom, 20) + 14, // Ensure minimum padding + safe area
               flexDirection: isRecording ? 'column' : 'row',
             }
@@ -331,11 +465,11 @@ Since you've tried ${selectedSelfReflection.join(', ')}, you already know the po
               onChangeText={setChatInput}
               onFocus={() => setIsChatInputFocused(true)}
               onBlur={() => setIsChatInputFocused(false)}
-              placeholder="Write how you think..."
+              placeholder="Share whats on your mind..."
               placeholderTextColor={`${colors.text}66`}
               multiline
               maxLength={500}
-              returnKeyType="send"
+              returnKeyType='default'
               onSubmitEditing={handleSendMessage}
               cursorColor={colors.tint}
               editable={!isRecording}
@@ -420,12 +554,15 @@ const styles = StyleSheet.create({
   },
   chatHeader: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 16,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
     alignItems: 'center',
-    gap: 4,
     borderBottomWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     zIndex: 10,
   },
   chatHeaderText: {
@@ -587,7 +724,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '400',
     lineHeight: 16,
-    opacity: 0.5,
   },
   aiPopupButtons: {
     flexDirection: 'row',

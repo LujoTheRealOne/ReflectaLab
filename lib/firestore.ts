@@ -4,6 +4,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   Timestamp,
   serverTimestamp,
   FieldValue
@@ -111,9 +112,8 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
     data.alignment = userAccount.alignment;
   }
 
-  if (userAccount.onboardingCompleted !== undefined) {
-    data.onboardingCompleted = userAccount.onboardingCompleted;
-  }
+  // Always include onboardingCompleted field, defaulting to false if not provided
+  data.onboardingCompleted = userAccount.onboardingCompleted ?? false;
   
   if (userAccount.onboardingData !== undefined) {
     data.onboardingData = userAccount.onboardingData;
@@ -133,6 +133,31 @@ export class FirestoreService {
       
       if (docSnap.exists()) {
         const userData = docSnap.data();
+        
+        // Check if document has essential fields - if not, treat as non-existent
+        if (!userData.uid || !userData.updatedAt) {
+          console.log('🔧 [FIX] Document exists but missing essential fields, recreating...', {
+            hasUid: !!userData.uid,
+            hasUpdatedAt: !!userData.updatedAt,
+            userId
+          });
+          
+          // Delete the corrupted document and create a new one
+          await deleteDoc(docRef);
+          
+          // Create new user account
+          const newUserAccount: UserAccount = {
+            uid: userId,
+            onboardingCompleted: false, // Set to false for new users
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          const firestoreData = convertToFirestoreUserData(newUserAccount);
+          await setDoc(docRef, firestoreData);
+          console.log('✅ Created new user document for:', userId);
+          return newUserAccount;
+        }
         
         // Fix missing createdAt field for existing documents
         if (!userData.createdAt && userData.updatedAt) {

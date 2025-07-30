@@ -13,6 +13,19 @@ export interface UserAccount {
   alignment?: string;
   createdAt: Date;
   updatedAt: Date;
+  onboardingCompleted?: boolean; // Track if user has completed onboarding
+  onboardingData?: {
+    name: string;
+    selectedRoles: string[];
+    selectedSelfReflection: string[];
+    clarityLevel: number;
+    stressLevel: number;
+    coachingStylePosition: {
+      x: number;
+      y: number;
+    };
+    timeDuration: number;
+  };
 }
 
 export interface MorningGuidance {

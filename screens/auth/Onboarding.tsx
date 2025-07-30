@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import { useAudioPlayer } from 'expo-audio';
 import { setAudioModeAsync } from 'expo-audio';
+import { FirestoreService } from '@/lib/firestore';
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
 
@@ -25,6 +26,7 @@ export default function OnboardingScreen() {
   const navigation = useNavigation<OnboardingScreenNavigationProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { firebaseUser } = useAuth();
   const accentColors = {
     'blue': '#2563EB',
     'orange': '#FF4500'
@@ -498,7 +500,7 @@ export default function OnboardingScreen() {
     };
   }, [isTimerRunning, timerMinutes, timerSeconds, timerEnded]);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (currentStep < 16) {
       animateToStep(currentStep + 1);
     } else if (currentStep === 16) {
@@ -519,15 +521,30 @@ export default function OnboardingScreen() {
           timeDuration
         });
       });
-    } else {
-      // Handle final submission - navigate to main app
-      console.log('Name:', name);
-      console.log('Selected Roles:', selectedRoles);
-      console.log('Selected Self Reflection:', selectedSelfReflection);
-      console.log('Clarity Level:', clarityLevel);
-      console.log('Stress Level:', stressLevel);
-      console.log('Coaching Style Position:', coachingStylePosition);
-      console.log('Time Duration:', timeDuration);
+    
+      // Handle final submission - save data to user object in database
+      if (firebaseUser?.uid) {
+        try {
+          // Update user account in Firestore with onboarding data and completion status
+          await FirestoreService.updateUserAccount(firebaseUser.uid, {
+            // Mark onboarding as completed
+            onboardingCompleted: true,
+            // Store all onboarding data for future reference
+            onboardingData: {
+              name,
+              selectedRoles,
+              selectedSelfReflection,
+              clarityLevel,
+              stressLevel,
+              coachingStylePosition,
+              timeDuration
+            },
+            updatedAt: new Date()
+          });
+        } catch (error) {
+          console.error('Failed to save onboarding data:', error);
+        }
+      }
     }
   };
 

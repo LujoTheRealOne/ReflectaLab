@@ -14,7 +14,7 @@ const Stack = createNativeStackNavigator();
 
 export default function Navigation() {
   const colorScheme = useColorScheme();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, needsOnboarding } = useAuth();
 
   return (
     <View style={{
@@ -26,7 +26,11 @@ export default function Navigation() {
       >
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {isSignedIn ? (
-            <Stack.Screen name="App" component={AppNavigator} />
+            needsOnboarding ? (
+              <Stack.Screen name="Onboarding" component={AuthNavigator} initialParams={{ screen: 'Onboarding' }} />
+            ) : (
+              <Stack.Screen name="App" component={AppNavigator} />
+            )
           ) : (
             <Stack.Screen name="Auth" component={AuthNavigator} />
           )}

@@ -24,6 +24,19 @@ export interface FirestoreUserAccount {
   alignment?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt: Timestamp | FieldValue;
+  onboardingCompleted?: boolean; // Track if user has completed onboarding
+  onboardingData?: {
+    name: string;
+    selectedRoles: string[];
+    selectedSelfReflection: string[];
+    clarityLevel: number;
+    stressLevel: number;
+    coachingStylePosition: {
+      x: number;
+      y: number;
+    };
+    timeDuration: number;
+  };
 }
 
 // Convert Firestore document to UserAccount
@@ -55,6 +68,19 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
     uid: data.uid as string,
     currentMorningGuidance,
     alignment: data.alignment as string | undefined,
+    onboardingCompleted: data.onboardingCompleted as boolean | undefined,
+    onboardingData: data.onboardingData as {
+      name: string;
+      selectedRoles: string[];
+      selectedSelfReflection: string[];
+      clarityLevel: number;
+      stressLevel: number;
+      coachingStylePosition: {
+        x: number;
+        y: number;
+      };
+      timeDuration: number;
+    } | undefined,
     createdAt,
     updatedAt: (data.updatedAt as Timestamp).toDate()
   };
@@ -85,6 +111,14 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
     data.alignment = userAccount.alignment;
   }
 
+  if (userAccount.onboardingCompleted !== undefined) {
+    data.onboardingCompleted = userAccount.onboardingCompleted;
+  }
+  
+  if (userAccount.onboardingData !== undefined) {
+    data.onboardingData = userAccount.onboardingData;
+  }
+
   return data;
 };
 
@@ -113,6 +147,7 @@ export class FirestoreService {
         // Create new user account
         const newUserAccount: UserAccount = {
           uid: userId,
+          onboardingCompleted: false, // Set to false for new users
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -131,6 +166,24 @@ export class FirestoreService {
         fullError: error
       });
       throw new Error('Failed to get user account from Firestore');
+    }
+  }
+  
+  // Update user account
+  static async updateUserAccount(userId: string, updates: Partial<UserAccount>): Promise<void> {
+    try {
+      const docRef = doc(db, this.USERS_COLLECTION_NAME, userId);
+      const firestoreData = convertToFirestoreUserData({
+        uid: userId,
+        ...updates,
+        updatedAt: new Date()
+      });
+      
+      await updateDoc(docRef, firestoreData);
+      console.log('✅ Updated user document for:', userId);
+    } catch (error) {
+      console.error('🚨 [ERROR] Error updating user account:', error);
+      throw new Error('Failed to update user account in Firestore');
     }
   }
 } 

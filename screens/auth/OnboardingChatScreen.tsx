@@ -659,31 +659,33 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             {/* State 2: Recording - show cancel (X) and confirm (checkmark) */}
             {isRecording && (
               <View style={styles.recordingButtons}>
-                <Text style={[{ color: colors.text, marginRight: 10 }]}>
+                <Text style={[{ color: colors.text }]}>
                   {isTranscribing ? 'Transcribing...' : 'Recording...'}
                 </Text>
-                <TouchableOpacity
-                  style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
-                  onPress={handleRecordingCancel}
-                  disabled={isTranscribing}
-                >
-                  <Ionicons
-                    name="close"
-                    size={20}
-                    color={colors.text}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.recordingButton, { backgroundColor: colors.text }]}
-                  onPress={handleRecordingConfirm}
-                  disabled={isTranscribing}
-                >
-                  <Ionicons
-                    name={isTranscribing ? "hourglass" : "checkmark"}
-                    size={20}
-                    color={colors.background}
-                  />
-                </TouchableOpacity>
+                <View style={styles.recordingButtonGroup}>
+                  <TouchableOpacity
+                    style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
+                    onPress={handleRecordingCancel}
+                    disabled={isTranscribing}
+                  >
+                    <Ionicons
+                      name="close"
+                      size={20}
+                      color={colors.text}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.recordingButton, { backgroundColor: colors.text }]}
+                    onPress={handleRecordingConfirm}
+                    disabled={isTranscribing}
+                  >
+                    <Ionicons
+                      name={isTranscribing ? "hourglass" : "checkmark"}
+                      size={20}
+                      color={colors.background}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -845,6 +847,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingTop: 8,
+  },
+  recordingButtonGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   recordingButton: {
     width: 34,

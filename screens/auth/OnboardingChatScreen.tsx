@@ -17,36 +17,44 @@ import OpenAI from 'openai';
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
 
-// Loading dots component with animation
-const LoadingDots = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const totalDots = 5;
+// Spinning animation component
+const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const spinValue = useRef(new Animated.Value(0)).current;
   
   // Animation effect
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveIndex(prev => (prev + 1) % totalDots);
-    }, 300); // Change dot every 300ms
+    const spinAnimation = Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true
+      })
+    );
     
-    return () => clearInterval(interval);
-  }, []);
+    spinAnimation.start();
+    
+    return () => {
+      spinAnimation.stop();
+    };
+  }, [spinValue]);
+  
+  // Interpolate the spin value to create a full 360 degree rotation
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
   
   return (
-    <View style={styles.loadingDots}>
-      {Array.from({ length: totalDots }).map((_, index) => (
-        <View 
-          key={index}
-          style={[
-            styles.dot, 
-            index <= activeIndex && styles.activeDot,
-            { 
-              backgroundColor: index <= activeIndex 
-                ? (colorScheme === 'dark' ? '#666666' : '#333333')
-                : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
-            }
-          ]}
-        />
-      ))}
+    <View style={styles.loadingSpinner}>
+      <Animated.View 
+        style={[
+          styles.spinner,
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#666666' : '#333333',
+            transform: [{ rotate: spin }]
+          }
+        ]}
+      />
     </View>
   );
 };
@@ -736,7 +744,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           ]}>
             {isTranscribing ? (
               <View style={[styles.chatInput, styles.transcribingInputContainer]}>
-                <LoadingDots colorScheme={colorScheme} />
+                <SpinningAnimation colorScheme={colorScheme} />
               </View>
             ) : (
               <TextInput
@@ -1058,19 +1066,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingLeft: 4,
   },
-  loadingDots: {
-    flexDirection: 'row',
+  loadingSpinner: {
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    height: 20,
+    width: 20,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E5E5E5',
-  },
-  activeDot: {
-    backgroundColor: '#333333',
+  spinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#E5E5E5',
+    borderTopColor: '#333333',
   },
   audioLevelContainer: {
     flexDirection: 'row',

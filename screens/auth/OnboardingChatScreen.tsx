@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, ColorSchemeName } from 'react-native';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,6 +51,70 @@ const LoadingDots = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
   );
 };
 
+// Audio level indicator component
+const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
+  const totalDots = 6;
+  const minThreshold = 0.65; // Silence threshold
+  
+  // Remap the audio level from 0.6-1.0 range to 0-1 range
+  const remappedAudioLevel = Math.max(0, (audioLevel - minThreshold) / (1 - minThreshold));
+  
+  // Calculate which dots should be filled based on remapped audio level
+  const isDotActive = (index: number) => {
+    // Each dot represents a segment of the audio level range
+    const threshold = (index + 1) / totalDots;
+    return remappedAudioLevel >= threshold - (1/totalDots);
+  };
+  
+  return (
+    <View style={styles.audioLevelContainer}>
+      {Array.from({ length: totalDots }).map((_, index) => {
+        const isActive = isDotActive(index);
+        
+        return (
+          <View 
+            key={index}
+            style={[
+              styles.audioLevelDot, 
+              { 
+                backgroundColor: isActive
+                  ? (colorScheme === 'dark' ? '#666666' : '#333333')
+                  : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
+              }
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+};
+
+// Recording timer component
+const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, colorScheme: ColorSchemeName }) => {
+  const [elapsed, setElapsed] = useState('00:00');
+  
+  useEffect(() => {
+    if (!startTime) return;
+    
+    const interval = setInterval(() => {
+      const now = new Date();
+      const diffMs = now.getTime() - startTime.getTime();
+      const diffSec = Math.floor(diffMs / 1000);
+      const minutes = Math.floor(diffSec / 60).toString().padStart(2, '0');
+      const seconds = (diffSec % 60).toString().padStart(2, '0');
+      setElapsed(`${minutes}:${seconds}`);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [startTime]);
+  
+  return (
+    <Text style={[styles.recordingTimer, { color: colorScheme === 'dark' ? '#FFFFFF' : '#333333' }]}>
+      {elapsed}
+    </Text>
+  );
+};
+
 export default function OnboardingChatScreen() {
   const navigation = useNavigation<OnboardingChatScreenNavigationProp>();
   const route = useRoute<OnboardingChatScreenRouteProp>();
@@ -86,6 +150,8 @@ export default function OnboardingChatScreen() {
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
+  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [completionStats, setCompletionStats] = useState({
     minutes: 0,
     words: 0,
@@ -265,8 +331,23 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       console.log('Starting recording...');
       // Use the built-in preset for better compatibility
       const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        (status) => {
+          // Monitor recording status including audio level
+          if (status.isRecording && status.metering !== undefined) {
+            // Convert dB metering to a 0-1 range for our visualization
+            // Typical metering values range from -160 (silence) to 0 (max)
+            const dB = status.metering || -160;
+            console.log('🎯 Audio level:', dB);
+            const normalized = Math.max(0, Math.min(1, (dB + 160) / 160));
+            console.log('🎯 Normalized audio level:', normalized);
+            setAudioLevel(normalized);
+          }
+        },
+        100 // Update every 100ms
       );
+      
+      setRecordingStartTime(new Date());
       setRecording(recording);
       setIsRecording(true);
     } catch (err) {
@@ -285,6 +366,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       setIsRecording(false);
+      setRecordingStartTime(null);
+      setAudioLevel(0);
       
       if (uri) {
         // Start transcribing
@@ -416,6 +499,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       setRecording(null);
     }
     setIsRecording(false);
+    setRecordingStartTime(null);
+    setAudioLevel(0);
     setChatInput('');
   };
 
@@ -702,23 +787,29 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               </View>
             )}
 
-            {/* State 2: Recording - show cancel (X) and confirm (checkmark) */}
+            {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
             {isRecording && !isTranscribing && (
-              <View style={styles.recordingButtons}>
-                <Text style={[{ color: colors.text }]}>
-                  Recording...
-                </Text>
-                <View style={styles.recordingButtonGroup}>
-                  <TouchableOpacity
-                    style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
-                    onPress={handleRecordingCancel}
-                  >
-                    <Ionicons
-                      name="close"
-                      size={20}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
+              <View style={styles.recordingContainer}>
+                {/* Left side - Cancel button */}
+                <TouchableOpacity
+                  style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
+                  onPress={handleRecordingCancel}
+                >
+                  <Ionicons
+                    name="close"
+                    size={20}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+                
+                {/* Left-center - Audio level visualization */}
+                <View style={styles.recordingCenterSection}>
+                  <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
+                </View>
+                
+                {/* Right side - Timer and confirm button */}
+                <View style={styles.recordingRightSection}>
+                  <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
                   <TouchableOpacity
                     style={[styles.recordingButton, { backgroundColor: colors.text }]}
                     onPress={handleRecordingConfirm}
@@ -893,14 +984,19 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  recordingButtons: {
+  recordingContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     width: '100%',
     paddingTop: 8,
   },
-  recordingButtonGroup: {
+  recordingCenterSection: {
+    flex: 1,
+    alignItems: 'flex-start',
+    paddingLeft: 10,
+  },
+  recordingRightSection: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -975,5 +1071,24 @@ const styles = StyleSheet.create({
   },
   activeDot: {
     backgroundColor: '#333333',
+  },
+  audioLevelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  audioLevelDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  recordingVisualizer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  recordingTimer: {
+    fontSize: 14,
+    fontWeight: '500',
   }
 }); 

@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, ColorSchemeName } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,40 @@ import OpenAI from 'openai';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
+
+// Loading dots component with animation
+const LoadingDots = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const totalDots = 5;
+  
+  // Animation effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveIndex(prev => (prev + 1) % totalDots);
+    }, 300); // Change dot every 300ms
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return (
+    <View style={styles.loadingDots}>
+      {Array.from({ length: totalDots }).map((_, index) => (
+        <View 
+          key={index}
+          style={[
+            styles.dot, 
+            index <= activeIndex && styles.activeDot,
+            { 
+              backgroundColor: index <= activeIndex 
+                ? (colorScheme === 'dark' ? '#666666' : '#333333')
+                : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
+            }
+          ]}
+        />
+      ))}
+    </View>
+  );
+};
 
 export default function OnboardingChatScreen() {
   const navigation = useNavigation<OnboardingChatScreenNavigationProp>();
@@ -240,6 +274,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
+
+
   // Stop recording and transcribe
   const stopRecordingAndTranscribe = async () => {
     if (!recording) return;
@@ -251,14 +287,18 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       setIsRecording(false);
       
       if (uri) {
+        // Start transcribing
         setIsTranscribing(true);
+        
         // Transcribe the audio
         const transcription = await transcribeAudio(uri);
+        
+        // End transcribing state regardless of outcome
         setIsTranscribing(false);
         
         if (transcription) {
           setChatInput(transcription);
-          // Focus the text input to allow editing
+          // Focus the text input after transcription is complete
           setTimeout(() => {
             textInputRef.current?.focus();
           }, 100);
@@ -609,29 +649,35 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               flexDirection: isRecording ? 'column' : 'row',
             }
           ]}>
-            <TextInput
-              ref={textInputRef}
-              style={[
-                styles.chatInput,
-                { color: colors.text },
-                isRecording && { flex: 0, width: '100%', textAlign: 'left' }
-              ]}
-              value={chatInput}
-              onChangeText={setChatInput}
-              onFocus={() => setIsChatInputFocused(true)}
-              onBlur={() => setIsChatInputFocused(false)}
-              placeholder="Share whats on your mind..."
-              placeholderTextColor={`${colors.text}66`}
-              multiline
-              maxLength={500}
-              returnKeyType='default'
-              onSubmitEditing={handleSendMessage}
-              cursorColor={colors.tint}
-              editable={!isRecording}
-            />
+            {isTranscribing ? (
+              <View style={[styles.chatInput, styles.transcribingInputContainer]}>
+                <LoadingDots colorScheme={colorScheme} />
+              </View>
+            ) : (
+              <TextInput
+                ref={textInputRef}
+                style={[
+                  styles.chatInput,
+                  { color: colors.text },
+                  isRecording && { flex: 0, width: '100%', textAlign: 'left' }
+                ]}
+                value={chatInput}
+                onChangeText={setChatInput}
+                onFocus={() => setIsChatInputFocused(true)}
+                onBlur={() => setIsChatInputFocused(false)}
+                placeholder="Share whats on your mind..."
+                placeholderTextColor={`${colors.text}66`}
+                multiline
+                maxLength={500}
+                returnKeyType='default'
+                onSubmitEditing={handleSendMessage}
+                cursorColor={colors.tint}
+                editable={!isRecording}
+              />
+            )}
 
             {/* State 1: Empty input - show microphone */}
-            {chatInput.trim().length === 0 && !isRecording && (
+            {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity
                   style={[styles.microphoneButton, { backgroundColor: colors.text }]}
@@ -657,16 +703,15 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             )}
 
             {/* State 2: Recording - show cancel (X) and confirm (checkmark) */}
-            {isRecording && (
+            {isRecording && !isTranscribing && (
               <View style={styles.recordingButtons}>
                 <Text style={[{ color: colors.text }]}>
-                  {isTranscribing ? 'Transcribing...' : 'Recording...'}
+                  Recording...
                 </Text>
                 <View style={styles.recordingButtonGroup}>
                   <TouchableOpacity
                     style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                     onPress={handleRecordingCancel}
-                    disabled={isTranscribing}
                   >
                     <Ionicons
                       name="close"
@@ -677,10 +722,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   <TouchableOpacity
                     style={[styles.recordingButton, { backgroundColor: colors.text }]}
                     onPress={handleRecordingConfirm}
-                    disabled={isTranscribing}
                   >
                     <Ionicons
-                      name={isTranscribing ? "hourglass" : "checkmark"}
+                      name="checkmark"
                       size={20}
                       color={colors.background}
                     />
@@ -688,12 +732,20 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 </View>
               </View>
             )}
+            
 
-            {/* State 3: Text entered - show send button */}
-            {chatInput.trim().length > 0 && !isRecording && (
+
+            {/* State 3: Text entered or transcribing - show send button */}
+            {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
               <TouchableOpacity
-                style={[styles.sendButton, { backgroundColor: colors.text }]}
+                style={[
+                  styles.sendButton, 
+                  { 
+                    backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
+                  }
+                ]}
                 onPress={handleSendMessage}
+                disabled={isTranscribing}
               >
                 <Ionicons
                   name="arrow-up"
@@ -903,5 +955,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  transcribingInputContainer: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    paddingLeft: 4,
+  },
+  loadingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E5E5E5',
+  },
+  activeDot: {
+    backgroundColor: '#333333',
   }
 }); 

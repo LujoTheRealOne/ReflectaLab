@@ -1,6 +1,7 @@
 import Editor from '@/components/TipTap';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { db } from '@/lib/firebase';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -60,6 +61,7 @@ export default function HomeContent() {
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, isFirebaseReady } = useAuth();
   const { setCurrentEntryId } = useCurrentEntry();
+  const { trackEntryCreated, trackEntryUpdated } = useAnalytics();
 
   // Get today's date as fallback
   const today = new Date();
@@ -205,6 +207,12 @@ export default function HomeContent() {
           content,
           lastUpdated: serverTimestamp()
         });
+        
+        // Track journal entry update
+        trackEntryUpdated({
+          entry_id: latestEntry.id,
+          content_length: content.length,
+        });
       } else {
         // Create new entry in database
         const newEntry = {
@@ -215,6 +223,11 @@ export default function HomeContent() {
         };
         
         const docRef = await addDoc(collection(db, 'journal_entries'), newEntry);
+        
+        // Track journal entry creation
+        trackEntryCreated({
+          entry_id: docRef.id,
+        });
         
         // Update local state with new entry info from database
         setLatestEntry({
@@ -233,7 +246,7 @@ export default function HomeContent() {
       console.error('Error saving entry:', error);
       setSaveStatus('unsaved');
     }
-  }, [firebaseUser, latestEntry, isNewEntry]);
+  }, [firebaseUser, latestEntry, isNewEntry, trackEntryCreated, trackEntryUpdated]);
 
   // Handle content changes with debounced save
   const handleContentChange = useCallback((newContent: string) => {

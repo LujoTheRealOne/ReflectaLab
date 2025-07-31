@@ -5,6 +5,7 @@ import { useCallback, useState, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
+import { useAnalytics } from './useAnalytics';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -20,6 +21,7 @@ export function useAuth() {
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const { trackSignUp, trackSignIn, trackSignOut } = useAnalytics();
 
   // Listen to Firebase auth state changes
   useEffect(() => {
@@ -85,6 +87,11 @@ export function useAuth() {
         const token = await getToken();
         if (token) {
           await signInWithClerkToken(token);
+          
+          // Track sign in
+          trackSignIn({
+            method: 'google',
+          });
         }
       }
     } catch (error) {
@@ -93,7 +100,7 @@ export function useAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [startGoogleOAuthFlow, getToken]);
+  }, [startGoogleOAuthFlow, getToken, trackSignIn, user]);
 
   const signInWithApple = useCallback(async () => {
     setIsLoading(true);
@@ -107,6 +114,11 @@ export function useAuth() {
         const token = await getToken();
         if (token) {
           await signInWithClerkToken(token);
+          
+          // Track sign in
+          trackSignIn({
+            method: 'apple',
+          });
         }
       }
     } catch (error) {
@@ -115,10 +127,13 @@ export function useAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [startAppleOAuthFlow, getToken]);
+  }, [startAppleOAuthFlow, getToken, trackSignIn, user]);
 
   const handleSignOut = useCallback(async () => {
     try {
+      // Track sign out before actually signing out
+      trackSignOut();
+      
       await Promise.all([
         signOut(),
         signOutFromFirebase()
@@ -127,7 +142,7 @@ export function useAuth() {
       console.error('Sign out error', error);
       throw error;
     }
-  }, [signOut]);
+  }, [signOut, trackSignOut]);
 
   const resetGetStartedState = useCallback(() => {
     setShouldShowGetStarted(false);

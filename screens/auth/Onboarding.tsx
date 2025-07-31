@@ -19,6 +19,7 @@ import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import { useAudioPlayer } from 'expo-audio';
 import { setAudioModeAsync } from 'expo-audio';
 import { FirestoreService } from '@/lib/firestore';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
 
@@ -27,6 +28,7 @@ export default function OnboardingScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser } = useAuth();
+  const { trackOnboardingCompleted } = useAnalytics();
   const accentColors = {
     'blue': '#2563EB',
     'orange': '#FF4500'
@@ -57,6 +59,7 @@ export default function OnboardingScreen() {
   const buttonSlideAnim = useRef(new Animated.Value(0)).current;
   const loadingPulseAnim = useRef(new Animated.Value(1)).current;
   const pauseOverlayAnim = useRef(new Animated.Value(0)).current;
+  const onboardingStartTime = useRef(Date.now()).current;
 
   const roleOptions = [
     'Founder', 'Designer', 'Academic',
@@ -507,6 +510,8 @@ export default function OnboardingScreen() {
         // Handle data submission - save data to user object in database
         if (firebaseUser?.uid) {
           try {
+            const onboardingDuration = Math.floor((Date.now() - onboardingStartTime) / 1000);
+            
             // Update user account in Firestore with onboarding data and completion status
             await FirestoreService.updateUserAccount(firebaseUser.uid, {
               // Mark onboarding as completed
@@ -522,6 +527,13 @@ export default function OnboardingScreen() {
                 timeDuration
               },
               updatedAt: new Date()
+            });
+            
+            // Track onboarding completion
+            trackOnboardingCompleted({
+              onboarding_duration: onboardingDuration,
+              steps_completed: 13, // Steps 1-12 completed at this point
+              user_responses: selectedRoles.length + selectedSelfReflection.length + 4, // roles + reflections + clarity + stress + coaching style + time
             });
           } catch (error) {
             console.error('Failed to save onboarding data:', error);

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
 // Match the interface from the web app
 export interface CoachingMessage {
@@ -25,6 +26,7 @@ export function useAICoaching(): UseAICoachingReturn {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(7);
   const { getToken } = useAuth();
+  const { trackCoachingCompletion } = useAnalytics();
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Typewriter effect function for React Native
@@ -81,6 +83,8 @@ export function useAICoaching(): UseAICoachingReturn {
 
   const sendMessage = useCallback(async (content: string, sessionId?: string) => {
     if (!content.trim()) return;
+
+    const currentSessionId = sessionId || 'mobile-session';
 
     // Cancel any ongoing request
     if (abortControllerRef.current) {
@@ -270,10 +274,24 @@ export function useAICoaching(): UseAICoachingReturn {
   }, [messages, getToken, progress, evaluateProgress, simulateTypewriter]);
 
   const clearMessages = useCallback(() => {
+    // Track coaching completion
+    if (messages.length > 0) {
+      const userMessages = messages.filter(m => m.role === 'user');
+      const totalContentLength = userMessages.reduce((total, msg) => total + msg.content.length, 0);
+      
+      trackCoachingCompletion({
+        modelId: 'mobile-coaching',
+        variant: 'text',
+        contentLength: totalContentLength,
+        hasOptions: false,
+        optionCount: userMessages.length,
+      });
+    }
+    
     setMessages([]);
     setError(null);
     setProgress(0);
-  }, []);
+  }, [messages, trackCoachingCompletion]);
 
   const setMessagesCallback = useCallback((newMessages: CoachingMessage[]) => {
     setMessages(newMessages);

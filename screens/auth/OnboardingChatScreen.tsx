@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, ColorSchemeName, Animated } from 'react-native';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import OpenAI from 'openai';
+import { useAuth } from '@/hooks/useAuth';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -150,6 +151,7 @@ export default function OnboardingChatScreen() {
   // Use the new AI coaching hook with progress tracking
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
+  const { completeOnboarding } = useAuth();
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -246,14 +248,28 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [name, messages.length, setMessages]);
 
-  // Auto-scroll to bottom when new messages are added
+  // Controlled scrolling - only when explicitly needed
+  const scrollToBottomRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
+  
   useEffect(() => {
-    if (scrollViewRef.current && messages.length > 0) {
+    // Only scroll if we explicitly requested it OR if new AI message arrives
+    const shouldScroll = scrollToBottomRef.current || 
+      (messages.length > previousMessageCountRef.current && 
+       messages.length > 0 && 
+       messages[messages.length - 1]?.role === 'assistant');
+    
+    if (shouldScroll && scrollViewRef.current) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+        scrollToBottomRef.current = false;
+      }, 200);
     }
-  }, [messages]);
+    
+    previousMessageCountRef.current = messages.length;
+  }, [messages.length]);
+
+
 
   // Check for notification suggestions in new AI messages
   useEffect(() => {
@@ -492,6 +508,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
     const messageContent = chatInput.trim();
     setChatInput('');
+    
+    // Trigger scroll after sending message
+    scrollToBottomRef.current = true;
 
     // Send message using the AI coaching hook
     await sendMessage(messageContent, 'onboarding-session');
@@ -557,8 +576,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
-  const handleCompletionAction = () => {
-    console.log('User clicked View Personal Mirror');
+  const handleCompletionAction = async () => {
+    console.log('User clicked End this session');
     console.log('📊 Session Stats:', completionStats);
     console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
     
@@ -568,8 +587,14 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       });
     }
     
-    // Navigate to the personal mirror/results view
-    // For now, just log the action - you can implement navigation later
+    // Complete onboarding - this will trigger navigation to home screen
+    try {
+      await completeOnboarding();
+      console.log('✅ Onboarding completed successfully');
+    } catch (error) {
+      console.error('❌ Failed to complete onboarding:', error);
+    }
+    
     setShowCompletionForMessage(null);
   };
 
@@ -706,7 +731,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                           onPress={handleCompletionAction}
                           style={{ flex: 1 }}
                         >
-                          View Personal Mirror
+                          End this session
                         </Button>
                       </View>
                     </View>
@@ -716,7 +741,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             ))}
             {isLoading && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                <View style={[styles.messageBubble, { backgroundColor: `${colors.text}08` }]}>
+                <View style={styles.messageBubble}>
                   <View style={styles.typingIndicator}>
                     <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
                     <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
@@ -738,7 +763,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               borderLeftWidth: 1,
               borderRightWidth: 1,
               borderColor: `${colors.tint}12`,
-              paddingBottom: Math.max(insets.bottom, 20) + 14, // Ensure minimum padding + safe area
+              paddingBottom: Math.max(insets.bottom, 20), // Ensure minimum padding + safe area
               flexDirection: isRecording ? 'column' : 'row',
             }
           ]}>
@@ -893,15 +918,17 @@ const styles = StyleSheet.create({
   messagesContainer: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingBottom: 4,
   },
   messagesList: {
     flex: 1,
-    paddingTop: 20,
+    paddingTop: 12,
     zIndex: 0,
     overflow: 'visible'
   },
   messagesContent: {
-    paddingBottom: 20,
+    paddingBottom: 10,
+    flexGrow: 1,
   },
   messageContainer: {
     marginBottom: 16,
@@ -915,8 +942,8 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '85%',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    // paddingHorizontal: 16,
+    paddingVertical: 16,
     borderRadius: 20,
   },
   messageText: {
@@ -939,6 +966,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingBottom: 0,
     paddingTop: 0,
+    maxHeight: 180, // Prevent input from taking too much space
   },
   chatInputWrapper: {
     flexDirection: 'row',
@@ -951,13 +979,14 @@ const styles = StyleSheet.create({
     boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
+    maxHeight: 160, // Limit the wrapper height
   },
   chatInput: {
     flex: 1,
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
-    maxHeight: 120,
+    maxHeight: 100, // Reduced to leave room for padding
     paddingVertical: 8,
     paddingHorizontal: 0,
     backgroundColor: 'transparent',

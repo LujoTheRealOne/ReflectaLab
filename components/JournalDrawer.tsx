@@ -18,6 +18,7 @@ import {
   Alert
 } from 'react-native';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
@@ -41,6 +42,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   const { currentEntryId } = useCurrentEntry();
 
   const { firebaseUser, isFirebaseReady } = useAuth();
+  const { trackEntryDeleted } = useAnalytics();
 
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [groupedEntries, setGroupedEntries] = useState<GroupedEntries>({});
@@ -164,8 +166,19 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
     if (!firebaseUser) return;
 
     try {
+      // Find the entry to get its details for tracking
+      const entryToDelete = journalEntries.find(entry => entry.id === entryId);
+      
       // Delete from Firestore
       await deleteDoc(doc(db, 'journal_entries', entryId));
+      
+      // Track journal entry deletion
+      trackEntryDeleted({
+        entry_id: entryId,
+        content_length: entryToDelete?.content?.length || 0,
+        entry_age_days: entryToDelete?.timestamp ? 
+          Math.floor((new Date().getTime() - new Date(entryToDelete.timestamp.toDate()).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+      });
       
       // Update local state
       const updatedEntries = journalEntries.filter(entry => entry.id !== entryId);
@@ -193,7 +206,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
       console.error('Error deleting entry:', error);
       Alert.alert('Error', 'Failed to delete entry. Please try again.');
     }
-  }, [firebaseUser, journalEntries, groupEntriesByDate, currentEntryId, props.navigation]);
+  }, [firebaseUser, journalEntries, groupEntriesByDate, currentEntryId, props.navigation, trackEntryDeleted]);
 
   // Handle long press on entry
   const handleLongPress = useCallback((entry: JournalEntry) => {

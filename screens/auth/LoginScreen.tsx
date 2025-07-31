@@ -304,7 +304,7 @@ export default function LoginScreen({ navigation }: Props) {
         <Button
           variant="primary"
           iconLeft={<Ionicons name="logo-apple" size={24} color={colors.background} />}
-          onPress={() => navigation.navigate('Onboarding')} // TODO: Change back to handleAppleLogin
+          onPress={handleAppleLogin}
           size="lg"
           textStyle={{ color: colors.background }}
           disabled={isLoading}

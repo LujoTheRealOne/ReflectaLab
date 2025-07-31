@@ -44,7 +44,8 @@
       [
         "expo-apple-authentication"
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-localization"
     ],
     "owner": "acta",
     "extra": {

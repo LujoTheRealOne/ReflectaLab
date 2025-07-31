@@ -27,7 +27,7 @@ export default function OnboardingScreen() {
   const navigation = useNavigation<OnboardingScreenNavigationProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { firebaseUser } = useAuth();
+  const { firebaseUser, signOut } = useAuth();
   const { trackOnboardingCompleted } = useAnalytics();
   const accentColors = {
     'blue': '#2563EB',
@@ -566,7 +566,14 @@ export default function OnboardingScreen() {
       // Go back to login screen
       Alert.alert('Go back?', 'Are you sure you want to cancel this onboarding? You will lose all your progress.', [
         { text: 'Continue', style: 'cancel' },
-        { text: 'Go back', style: 'destructive', onPress: () => navigation.goBack() }
+        { text: 'Go back', style: 'destructive', onPress: () => {
+          try {
+            signOut();
+          } catch (error) {
+            console.error('Go back error:', error);
+            Alert.alert('Error', 'Failed to sign out and go back. Please try again.');
+          }
+        } }
       ]);
     } else {
       animateToStep(currentStep - 1);

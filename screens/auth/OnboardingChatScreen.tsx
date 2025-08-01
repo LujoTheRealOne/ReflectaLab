@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,10 +10,119 @@ import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
+import OpenAI from 'openai';
 import { useAuth } from '@/hooks/useAuth';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
+
+// Spinning animation component
+const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const spinValue = useRef(new Animated.Value(0)).current;
+  
+  // Animation effect
+  useEffect(() => {
+    const spinAnimation = Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true
+      })
+    );
+    
+    spinAnimation.start();
+    
+    return () => {
+      spinAnimation.stop();
+    };
+  }, [spinValue]);
+  
+  // Interpolate the spin value to create a full 360 degree rotation
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+  
+  return (
+    <View style={styles.loadingSpinner}>
+      <Animated.View 
+        style={[
+          styles.spinner,
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#666666' : '#333333',
+            transform: [{ rotate: spin }]
+          }
+        ]}
+      />
+    </View>
+  );
+};
+
+// Audio level indicator component
+const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
+  const totalDots = 6;
+  const minThreshold = 0.65; // Silence threshold
+  
+  // Remap the audio level from 0.6-1.0 range to 0-1 range
+  const remappedAudioLevel = Math.max(0, (audioLevel - minThreshold) / (1 - minThreshold));
+  
+  // Calculate which dots should be filled based on remapped audio level
+  const isDotActive = (index: number) => {
+    // Each dot represents a segment of the audio level range
+    const threshold = (index + 1) / totalDots;
+    return remappedAudioLevel >= threshold - (1/totalDots);
+  };
+  
+  return (
+    <View style={styles.audioLevelContainer}>
+      {Array.from({ length: totalDots }).map((_, index) => {
+        const isActive = isDotActive(index);
+        
+        return (
+          <View 
+            key={index}
+            style={[
+              styles.audioLevelDot, 
+              { 
+                backgroundColor: isActive
+                  ? (colorScheme === 'dark' ? '#666666' : '#333333')
+                  : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
+              }
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+};
+
+// Recording timer component
+const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, colorScheme: ColorSchemeName }) => {
+  const [elapsed, setElapsed] = useState('00:00');
+  
+  useEffect(() => {
+    if (!startTime) return;
+    
+    const interval = setInterval(() => {
+      const now = new Date();
+      const diffMs = now.getTime() - startTime.getTime();
+      const diffSec = Math.floor(diffMs / 1000);
+      const minutes = Math.floor(diffSec / 60).toString().padStart(2, '0');
+      const seconds = (diffSec % 60).toString().padStart(2, '0');
+      setElapsed(`${minutes}:${seconds}`);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [startTime]);
+  
+  return (
+    <Text style={[styles.recordingTimer, { color: colorScheme === 'dark' ? '#FFFFFF' : '#333333' }]}>
+      {elapsed}
+    </Text>
+  );
+};
 
 export default function OnboardingChatScreen() {
   const navigation = useNavigation<OnboardingChatScreenNavigationProp>();
@@ -21,6 +130,12 @@ export default function OnboardingChatScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+  
+  // Initialize OpenAI client
+  const openai = new OpenAI({
+    apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
+    dangerouslyAllowBrowser: true // Required for React Native
+  });
 
   // Extract all the onboarding data from navigation params
   const {
@@ -40,9 +155,13 @@ export default function OnboardingChatScreen() {
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
+  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [completionStats, setCompletionStats] = useState({
     minutes: 0,
     words: 0,
@@ -214,6 +333,176 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
 
+  // Start recording function
+  const startRecording = async () => {
+    try {
+      console.log('Requesting recording permissions...');
+      // Request permissions
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.error('Permission to record was denied');
+        return;
+      }
+      
+      // Set audio mode with more compatible settings
+      console.log('Setting audio mode...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+      
+      console.log('Starting recording...');
+      // Use the built-in preset for better compatibility
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        (status) => {
+          // Monitor recording status including audio level
+          if (status.isRecording && status.metering !== undefined) {
+            // Convert dB metering to a 0-1 range for our visualization
+            // Typical metering values range from -160 (silence) to 0 (max)
+            const dB = status.metering || -160;
+            console.log('🎯 Audio level:', dB);
+            const normalized = Math.max(0, Math.min(1, (dB + 160) / 160));
+            console.log('🎯 Normalized audio level:', normalized);
+            setAudioLevel(normalized);
+          }
+        },
+        100 // Update every 100ms
+      );
+      
+      setRecordingStartTime(new Date());
+      setRecording(recording);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+    }
+  };
+
+
+
+  // Stop recording and transcribe
+  const stopRecordingAndTranscribe = async () => {
+    if (!recording) return;
+    
+    try {
+      console.log('Stopping recording...');
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setIsRecording(false);
+      setRecordingStartTime(null);
+      setAudioLevel(0);
+      
+      if (uri) {
+        // Start transcribing
+        setIsTranscribing(true);
+        
+        // Transcribe the audio
+        const transcription = await transcribeAudio(uri);
+        
+        // End transcribing state regardless of outcome
+        setIsTranscribing(false);
+        
+        if (transcription) {
+          setChatInput(transcription);
+          // Focus the text input after transcription is complete
+          setTimeout(() => {
+            textInputRef.current?.focus();
+          }, 100);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+      setIsTranscribing(false);
+    }
+    
+    setRecording(null);
+  };
+
+  // Transcribe audio function using OpenAI API directly
+  const transcribeAudio = async (audioUri: string): Promise<string | null> => {
+    try {
+      console.log('Transcribing audio from:', audioUri);
+      
+      // Get file info
+      const fileInfo = await FileSystem.getInfoAsync(audioUri);
+      console.log('File info:', fileInfo);
+      
+      // Simpler approach: Use fetch to send the file to OpenAI API
+      console.log('Reading audio file...');
+      
+      // Get the base64 content of the file
+      const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+      console.log('Audio file read as base64, length:', base64Audio.length);
+      
+      // Create a FormData object to send the file
+      const formData = new FormData();
+      formData.append('file', {
+        uri: audioUri,
+        type: 'audio/m4a',
+        name: `recording-${Date.now()}.m4a`,
+      } as any);
+      formData.append('model', 'whisper-1');
+      
+      console.log('Calling OpenAI transcription API using fetch...');
+      
+      // Use fetch API directly
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ OpenAI API Error:', errorText);
+        
+        // Try with a different file format if there's an error
+        if (errorText.includes('file format') || errorText.includes('Invalid file')) {
+          console.log('Trying with a different file format...');
+          
+          // Create a new FormData with a different file type
+          const retryFormData = new FormData();
+          retryFormData.append('file', {
+            uri: audioUri,
+            type: 'audio/mpeg',
+            name: `recording-${Date.now()}.mp3`,
+          } as any);
+          retryFormData.append('model', 'whisper-1');
+          
+          const retryResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
+            },
+            body: retryFormData,
+          });
+          
+          if (!retryResponse.ok) {
+            const retryErrorText = await retryResponse.text();
+            console.error('❌ Retry failed:', retryErrorText);
+            throw new Error(retryErrorText);
+          }
+          
+          const retryResult = await retryResponse.json();
+          console.log('✅ Transcription successful with alternative format:', retryResult.text);
+          return retryResult.text;
+        }
+        
+        throw new Error(errorText);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Transcription successful:', result.text);
+      return result.text;
+    } catch (error) {
+      console.error('Error transcribing audio:', error);
+      return null;
+    }
+  };
+
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
@@ -228,23 +517,22 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleMicrophonePress = () => {
-    setIsRecording(true);
-    setChatInput('This text is dictated');
-    // Here you would typically start voice recording
-    // For now, we'll simulate with placeholder text
+    startRecording();
   };
 
   const handleRecordingCancel = () => {
+    if (recording) {
+      recording.stopAndUnloadAsync();
+      setRecording(null);
+    }
     setIsRecording(false);
+    setRecordingStartTime(null);
+    setAudioLevel(0);
     setChatInput('');
   };
 
   const handleRecordingConfirm = () => {
-    setIsRecording(false);
-    // Keep the dictated text and allow further editing
-    setTimeout(() => {
-      textInputRef.current?.focus();
-    }, 100);
+    stopRecordingAndTranscribe();
   };
 
   const handlePopupAction = async (action: string, messageId: string) => {
@@ -479,54 +767,63 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               flexDirection: isRecording ? 'column' : 'row',
             }
           ]}>
-            <TextInput
-              ref={textInputRef}
-              style={[
-                styles.chatInput,
-                { color: colors.text },
-                isRecording && { flex: 0, width: '100%', textAlign: 'left' }
-              ]}
-              value={chatInput}
-              onChangeText={setChatInput}
-              onFocus={() => setIsChatInputFocused(true)}
-              onBlur={() => setIsChatInputFocused(false)}
-              placeholder="Share whats on your mind..."
-              placeholderTextColor={`${colors.text}66`}
-              multiline
-              maxLength={500}
-              returnKeyType='default'
-              onSubmitEditing={handleSendMessage}
-              cursorColor={colors.tint}
-              editable={!isRecording}
-            />
-
-            {/* State 1: Empty input - show microphone */}
-            {chatInput.trim().length === 0 && !isRecording && (
-              // <TouchableOpacity
-              //   style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-              //   onPress={handleMicrophonePress}
-              // >
-              //   <Ionicons
-              //     name="mic"
-              //     size={20}
-              //     color={colors.background}
-              //   />
-              // </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sendButton, { backgroundColor: `${colors.tint}1A` }]}
-                disabled={true}
-              >
-                <Ionicons
-                  name="arrow-up"
-                  size={20}
-                  color={`${colors.tint}66`}
-                />
-              </TouchableOpacity>
+            {isTranscribing ? (
+              <View style={[styles.chatInput, styles.transcribingInputContainer]}>
+                <SpinningAnimation colorScheme={colorScheme} />
+              </View>
+            ) : (
+              <TextInput
+                ref={textInputRef}
+                style={[
+                  styles.chatInput,
+                  { color: colors.text },
+                  isRecording && { flex: 0, width: '100%', textAlign: 'left' }
+                ]}
+                value={chatInput}
+                onChangeText={setChatInput}
+                onFocus={() => setIsChatInputFocused(true)}
+                onBlur={() => setIsChatInputFocused(false)}
+                placeholder="Share whats on your mind..."
+                placeholderTextColor={`${colors.text}66`}
+                multiline
+                maxLength={500}
+                returnKeyType='default'
+                onSubmitEditing={handleSendMessage}
+                cursorColor={colors.tint}
+                editable={!isRecording}
+              />
             )}
 
-            {/* State 2: Recording - show cancel (X) and confirm (checkmark) */}
-            {/* {isRecording && (
-              <View style={styles.recordingButtons}>
+            {/* State 1: Empty input - show microphone */}
+            {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                  onPress={handleMicrophonePress}
+                >
+                  <Ionicons
+                    name="mic"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sendButton, { backgroundColor: `${colors.tint}1A` }]}
+                  disabled={true}
+                >
+                  <Ionicons
+                    name="arrow-up"
+                    size={20}
+                    color={`${colors.tint}66`}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
+            {isRecording && !isTranscribing && (
+              <View style={styles.recordingContainer}>
+                {/* Left side - Cancel button */}
                 <TouchableOpacity
                   style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                   onPress={handleRecordingCancel}
@@ -537,24 +834,42 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                     color={colors.text}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.recordingButton, { backgroundColor: colors.text }]}
-                  onPress={handleRecordingConfirm}
-                >
-                  <Ionicons
-                    name="checkmark"
-                    size={20}
-                    color={colors.background}
-                  />
-                </TouchableOpacity>
+                
+                {/* Left-center - Audio level visualization */}
+                <View style={styles.recordingCenterSection}>
+                  <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
+                </View>
+                
+                {/* Right side - Timer and confirm button */}
+                <View style={styles.recordingRightSection}>
+                  <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
+                  <TouchableOpacity
+                    style={[styles.recordingButton, { backgroundColor: colors.text }]}
+                    onPress={handleRecordingConfirm}
+                  >
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={colors.background}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
-            )} */}
+            )}
+            
 
-            {/* State 3: Text entered - show send button */}
-            {chatInput.trim().length > 0 && !isRecording && (
+
+            {/* State 3: Text entered or transcribing - show send button */}
+            {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
               <TouchableOpacity
-                style={[styles.sendButton, { backgroundColor: colors.text }]}
+                style={[
+                  styles.sendButton, 
+                  { 
+                    backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
+                  }
+                ]}
                 onPress={handleSendMessage}
+                disabled={isTranscribing}
               >
                 <Ionicons
                   name="arrow-up"
@@ -706,12 +1021,22 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  recordingButtons: {
+  recordingContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     width: '100%',
     paddingTop: 8,
+  },
+  recordingCenterSection: {
+    flex: 1,
+    alignItems: 'flex-start',
+    paddingLeft: 10,
+  },
+  recordingRightSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   recordingButton: {
     width: 34,
@@ -763,5 +1088,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  transcribingInputContainer: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    paddingLeft: 4,
+  },
+  loadingSpinner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 20,
+    width: 20,
+  },
+  spinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#E5E5E5',
+    borderTopColor: '#333333',
+  },
+  audioLevelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  audioLevelDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  recordingVisualizer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  recordingTimer: {
+    fontSize: 14,
+    fontWeight: '500',
   }
 }); 

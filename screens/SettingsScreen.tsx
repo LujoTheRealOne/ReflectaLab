@@ -16,17 +16,27 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { ChevronDown, ChevronLeft, ExternalLink, FileText, Info, LogOut } from 'lucide-react-native';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { user, signOut } = useAuth();
+  const { user, signOut, firebaseUser } = useAuth();
+  const { 
+    requestPermissions, 
+    expoPushToken, 
+    savePushTokenToFirestore, 
+    permissionStatus,
+    checkPermissions 
+  } = useNotificationPermissions();
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -42,6 +52,95 @@ export default function SettingsScreen() {
   }>({ verified: false });
 
   const [isLoading, setIsLoading] = useState(false);
+
+  // Load push notification preference from Firestore
+  const loadPushNotificationPreference = useCallback(async () => {
+    if (!firebaseUser?.uid) return;
+
+    try {
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const enabled = userData?.enablePushNotifications ?? false;
+        setPushNotificationsEnabled(enabled);
+        console.log('📱 Loaded push notification preference:', enabled);
+      }
+    } catch (error) {
+      console.error('Error loading push notification preference:', error);
+    }
+  }, [firebaseUser]);
+
+  // Save push notification preference to Firestore
+  const savePushNotificationPreference = useCallback(async (enabled: boolean) => {
+    if (!firebaseUser?.uid) return;
+
+    try {
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      await updateDoc(userDocRef, {
+        enablePushNotifications: enabled,
+        updatedAt: new Date()
+      });
+      console.log('📱 Saved push notification preference:', enabled);
+    } catch (error) {
+      console.error('Error saving push notification preference:', error);
+      throw error;
+    }
+  }, [firebaseUser]);
+
+  // Load preference on component mount
+  useEffect(() => {
+    loadPushNotificationPreference();
+    checkPermissions();
+  }, [loadPushNotificationPreference, checkPermissions]);
+
+  // Handle push notification toggle
+  const handlePushNotificationToggle = useCallback(async (newValue: boolean) => {
+    if (isLoading) return;
+    
+    // Optimistic update - toggle immediately for better UX
+    const previousValue = pushNotificationsEnabled;
+    setPushNotificationsEnabled(newValue);
+    setIsLoading(true);
+    
+    try {
+      if (newValue) {
+        // Enabling notifications - request permissions first
+        const granted = await requestPermissions();
+        
+        if (granted) {
+          // Permissions granted, save preference and token
+          await savePushNotificationPreference(true);
+        } else {
+          // Permissions denied - revert the switch
+          setPushNotificationsEnabled(false);
+          Alert.alert(
+            'Permissions Required',
+            'To receive notifications, please enable them in your device settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', style: 'default', onPress: () => Linking.openSettings() }
+            ]
+          );
+        }
+      } else {
+        // Disabling notifications
+        await savePushNotificationPreference(false);
+      }
+    } catch (error) {
+      console.error('Error toggling push notifications:', error);
+      // Revert to previous state on error
+      setPushNotificationsEnabled(previousValue);
+      Alert.alert(
+        'Error', 
+        'Failed to update notification settings. Please try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, pushNotificationsEnabled, requestPermissions, savePushNotificationPreference]);
 
   const handleBack = () => {
     navigation.goBack();
@@ -180,13 +279,13 @@ export default function SettingsScreen() {
             </View>
             <Switch
               value={pushNotificationsEnabled}
-              onValueChange={setPushNotificationsEnabled}
+              onValueChange={handlePushNotificationToggle}
               trackColor={{ false: '#E5E5E7', true: colors.tint }}
               thumbColor={colors.background}
-              disabled={true}
+              disabled={isLoading}
             />
           </View>
-          {pushNotificationsEnabled && (
+          {pushNotificationsEnabled && permissionStatus !== 'granted' && (
             <TouchableOpacity
               style={styles.systemSettingsButton}
               onPress={() => { Linking.openSettings() }}

@@ -10,7 +10,13 @@ import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorderState,
+} from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import OpenAI from 'openai';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,16 +69,12 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
 // Audio level indicator component
 const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
   const totalDots = 6;
-  const minThreshold = 0.65; // Silence threshold
   
-  // Remap the audio level from 0.6-1.0 range to 0-1 range
-  const remappedAudioLevel = Math.max(0, (audioLevel - minThreshold) / (1 - minThreshold));
-  
-  // Calculate which dots should be filled based on remapped audio level
+  // Calculate which dots should be filled based on audio level
   const isDotActive = (index: number) => {
-    // Each dot represents a segment of the audio level range
+    // Each dot represents a segment of the audio level range (0-1)
     const threshold = (index + 1) / totalDots;
-    return remappedAudioLevel >= threshold - (1/totalDots);
+    return audioLevel >= threshold;
   };
   
   return (
@@ -152,10 +154,16 @@ export default function OnboardingChatScreen() {
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding } = useAuth();
+  
+  // Audio recording hooks with metering enabled
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
+  const recorderState = useAudioRecorderState(audioRecorder, 100); // Update every 100ms
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
@@ -333,46 +341,57 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
 
+  // Monitor audio level from recorder state
+  useEffect(() => {
+    if (recorderState.isRecording) {
+      if (recorderState.metering !== undefined && recorderState.metering !== null) {
+        // expo-audio metering values typically range from -160 (silence) to 0 (max volume)
+        const dB = recorderState.metering;
+        
+        // Normalize the dB value to 0-1 range for visualization
+        // We'll use a more responsive range: -60 to 0 dB for better sensitivity
+        const minDb = -60;
+        const maxDb = 0;
+        const clampedDb = Math.max(minDb, Math.min(maxDb, dB));
+        const normalized = (clampedDb - minDb) / (maxDb - minDb);
+        
+        setAudioLevel(normalized);
+      } else {
+        // Fallback: simulate audio levels when metering is not available
+        // Create a more realistic simulation based on recording duration
+        const duration = recorderState.durationMillis || 0;
+        const cycle = Math.sin(duration / 200) + Math.sin(duration / 300); // Varying patterns
+        const simulatedLevel = Math.max(0.1, Math.min(0.8, 0.4 + cycle * 0.2 + Math.random() * 0.1));
+        setAudioLevel(simulatedLevel);
+      }
+    } else {
+      setAudioLevel(0);
+    }
+  }, [recorderState.metering, recorderState.isRecording, recorderState.durationMillis]);
+
   // Start recording function
   const startRecording = async () => {
     try {
-      console.log('Requesting recording permissions...');
       // Request permissions
-      const { status } = await Audio.requestPermissionsAsync();
+      const { status } = await AudioModule.requestRecordingPermissionsAsync();
       if (status !== 'granted') {
         console.error('Permission to record was denied');
         return;
       }
       
       // Set audio mode with more compatible settings
-      console.log('Setting audio mode...');
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
       
-      console.log('Starting recording...');
-      // Use the built-in preset for better compatibility
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        (status) => {
-          // Monitor recording status including audio level
-          if (status.isRecording && status.metering !== undefined) {
-            // Convert dB metering to a 0-1 range for our visualization
-            // Typical metering values range from -160 (silence) to 0 (max)
-            const dB = status.metering || -160;
-            console.log('🎯 Audio level:', dB);
-            const normalized = Math.max(0, Math.min(1, (dB + 160) / 160));
-            console.log('🎯 Normalized audio level:', normalized);
-            setAudioLevel(normalized);
-          }
-        },
-        100 // Update every 100ms
-      );
+      await audioRecorder.prepareToRecordAsync({
+        ...RecordingPresets.HIGH_QUALITY,
+        isMeteringEnabled: true,
+      });
+      audioRecorder.record();
       
       setRecordingStartTime(new Date());
-      setRecording(recording);
       setIsRecording(true);
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -383,12 +402,11 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
   // Stop recording and transcribe
   const stopRecordingAndTranscribe = async () => {
-    if (!recording) return;
+    if (!recorderState.isRecording) return;
     
     try {
-      console.log('Stopping recording...');
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       setIsRecording(false);
       setRecordingStartTime(null);
       setAudioLevel(0);
@@ -404,7 +422,12 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         setIsTranscribing(false);
         
         if (transcription) {
-          setChatInput(transcription);
+          // Append transcription to existing text or set it as new text
+          const existingText = chatInput.trim();
+          const newText = existingText 
+            ? `${existingText} ${transcription}` 
+            : transcription;
+          setChatInput(newText);
           // Focus the text input after transcription is complete
           setTimeout(() => {
             textInputRef.current?.focus();
@@ -415,25 +438,18 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       console.error('Failed to stop recording', err);
       setIsTranscribing(false);
     }
-    
-    setRecording(null);
   };
 
   // Transcribe audio function using OpenAI API directly
   const transcribeAudio = async (audioUri: string): Promise<string | null> => {
     try {
-      console.log('Transcribing audio from:', audioUri);
       
       // Get file info
       const fileInfo = await FileSystem.getInfoAsync(audioUri);
       console.log('File info:', fileInfo);
       
-      // Simpler approach: Use fetch to send the file to OpenAI API
-      console.log('Reading audio file...');
-      
       // Get the base64 content of the file
       const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
-      console.log('Audio file read as base64, length:', base64Audio.length);
       
       // Create a FormData object to send the file
       const formData = new FormData();
@@ -443,9 +459,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         name: `recording-${Date.now()}.m4a`,
       } as any);
       formData.append('model', 'whisper-1');
-      
-      console.log('Calling OpenAI transcription API using fetch...');
-      
+            
       // Use fetch API directly
       const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
@@ -461,7 +475,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         
         // Try with a different file format if there's an error
         if (errorText.includes('file format') || errorText.includes('Invalid file')) {
-          console.log('Trying with a different file format...');
           
           // Create a new FormData with a different file type
           const retryFormData = new FormData();
@@ -521,9 +534,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleRecordingCancel = () => {
-    if (recording) {
-      recording.stopAndUnloadAsync();
-      setRecording(null);
+    if (recorderState.isRecording) {
+      audioRecorder.stop();
     }
     setIsRecording(false);
     setRecordingStartTime(null);
@@ -794,30 +806,18 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               />
             )}
 
-            {/* State 1: Empty input - show microphone */}
+            {/* State 1: Empty input - show microphone only */}
             {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity
-                  style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                  onPress={handleMicrophonePress}
-                >
-                  <Ionicons
-                    name="mic"
-                    size={20}
-                    color={colors.background}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.sendButton, { backgroundColor: `${colors.tint}1A` }]}
-                  disabled={true}
-                >
-                  <Ionicons
-                    name="arrow-up"
-                    size={20}
-                    color={`${colors.tint}66`}
-                  />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                onPress={handleMicrophonePress}
+              >
+                <Ionicons
+                  name="mic"
+                  size={20}
+                  color={colors.background}
+                />
+              </TouchableOpacity>
             )}
 
             {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
@@ -859,24 +859,37 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             
 
 
-            {/* State 3: Text entered or transcribing - show send button */}
+            {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
             {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
-              <TouchableOpacity
-                style={[
-                  styles.sendButton, 
-                  { 
-                    backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
-                  }
-                ]}
-                onPress={handleSendMessage}
-                disabled={isTranscribing}
-              >
-                <Ionicons
-                  name="arrow-up"
-                  size={20}
-                  color={colors.background}
-                />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                  onPress={handleMicrophonePress}
+                  disabled={isTranscribing}
+                >
+                  <Ionicons
+                    name="mic"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sendButton, 
+                    { 
+                      backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
+                    }
+                  ]}
+                  onPress={handleSendMessage}
+                  disabled={isTranscribing}
+                >
+                  <Ionicons
+                    name="arrow-up"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>

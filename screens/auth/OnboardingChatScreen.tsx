@@ -10,16 +10,8 @@ import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
-import {
-  useAudioRecorder,
-  AudioModule,
-  RecordingPresets,
-  setAudioModeAsync,
-  useAudioRecorderState,
-} from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
-import OpenAI from 'openai';
 import { useAuth } from '@/hooks/useAuth';
+import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -133,11 +125,7 @@ export default function OnboardingChatScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   
-  // Initialize OpenAI client
-  const openai = new OpenAI({
-    apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
-    dangerouslyAllowBrowser: true // Required for React Native
-  });
+
 
   // Extract all the onboarding data from navigation params
   const {
@@ -155,21 +143,38 @@ export default function OnboardingChatScreen() {
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding } = useAuth();
   
-  // Audio recording hooks with metering enabled
-  const audioRecorder = useAudioRecorder({
-    ...RecordingPresets.HIGH_QUALITY,
-    isMeteringEnabled: true,
-  });
-  const recorderState = useAudioRecorderState(audioRecorder, 100); // Update every 100ms
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
-  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null);
-  const [audioLevel, setAudioLevel] = useState(0);
+
+  // Use the audio transcription hook
+  const {
+    isRecording,
+    isTranscribing,
+    recordingStartTime,
+    audioLevel,
+    startRecording,
+    stopRecordingAndTranscribe,
+    cancelRecording,
+  } = useAudioTranscription({
+    onTranscriptionComplete: (transcription) => {
+      // Append transcription to existing text or set it as new text
+      const existingText = chatInput.trim();
+      const newText = existingText 
+        ? `${existingText} ${transcription}` 
+        : transcription;
+      setChatInput(newText);
+      // Focus the text input after transcription is complete
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    },
+    onTranscriptionError: (error) => {
+      console.error('Transcription error:', error);
+    },
+  });
   const [completionStats, setCompletionStats] = useState({
     minutes: 0,
     words: 0,
@@ -341,180 +346,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
 
-  // Monitor audio level from recorder state
-  useEffect(() => {
-    if (recorderState.isRecording) {
-      if (recorderState.metering !== undefined && recorderState.metering !== null) {
-        // expo-audio metering values typically range from -160 (silence) to 0 (max volume)
-        const dB = recorderState.metering;
-        
-        // Normalize the dB value to 0-1 range for visualization
-        // We'll use a more responsive range: -60 to 0 dB for better sensitivity
-        const minDb = -60;
-        const maxDb = 0;
-        const clampedDb = Math.max(minDb, Math.min(maxDb, dB));
-        const normalized = (clampedDb - minDb) / (maxDb - minDb);
-        
-        setAudioLevel(normalized);
-      } else {
-        // Fallback: simulate audio levels when metering is not available
-        // Create a more realistic simulation based on recording duration
-        const duration = recorderState.durationMillis || 0;
-        const cycle = Math.sin(duration / 200) + Math.sin(duration / 300); // Varying patterns
-        const simulatedLevel = Math.max(0.1, Math.min(0.8, 0.4 + cycle * 0.2 + Math.random() * 0.1));
-        setAudioLevel(simulatedLevel);
-      }
-    } else {
-      setAudioLevel(0);
-    }
-  }, [recorderState.metering, recorderState.isRecording, recorderState.durationMillis]);
-
-  // Start recording function
-  const startRecording = async () => {
-    try {
-      // Request permissions
-      const { status } = await AudioModule.requestRecordingPermissionsAsync();
-      if (status !== 'granted') {
-        console.error('Permission to record was denied');
-        return;
-      }
-      
-      // Set audio mode with more compatible settings
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
-      
-      await audioRecorder.prepareToRecordAsync({
-        ...RecordingPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
-      audioRecorder.record();
-      
-      setRecordingStartTime(new Date());
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Failed to start recording', err);
-    }
-  };
 
 
 
-  // Stop recording and transcribe
-  const stopRecordingAndTranscribe = async () => {
-    if (!recorderState.isRecording) return;
-    
-    try {
-      await audioRecorder.stop();
-      const uri = audioRecorder.uri;
-      setIsRecording(false);
-      setRecordingStartTime(null);
-      setAudioLevel(0);
-      
-      if (uri) {
-        // Start transcribing
-        setIsTranscribing(true);
-        
-        // Transcribe the audio
-        const transcription = await transcribeAudio(uri);
-        
-        // End transcribing state regardless of outcome
-        setIsTranscribing(false);
-        
-        if (transcription) {
-          // Append transcription to existing text or set it as new text
-          const existingText = chatInput.trim();
-          const newText = existingText 
-            ? `${existingText} ${transcription}` 
-            : transcription;
-          setChatInput(newText);
-          // Focus the text input after transcription is complete
-          setTimeout(() => {
-            textInputRef.current?.focus();
-          }, 100);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to stop recording', err);
-      setIsTranscribing(false);
-    }
-  };
-
-  // Transcribe audio function using OpenAI API directly
-  const transcribeAudio = async (audioUri: string): Promise<string | null> => {
-    try {
-      
-      // Get file info
-      const fileInfo = await FileSystem.getInfoAsync(audioUri);
-      console.log('File info:', fileInfo);
-      
-      // Get the base64 content of the file
-      const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
-      
-      // Create a FormData object to send the file
-      const formData = new FormData();
-      formData.append('file', {
-        uri: audioUri,
-        type: 'audio/m4a',
-        name: `recording-${Date.now()}.m4a`,
-      } as any);
-      formData.append('model', 'whisper-1');
-            
-      // Use fetch API directly
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
-        },
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ OpenAI API Error:', errorText);
-        
-        // Try with a different file format if there's an error
-        if (errorText.includes('file format') || errorText.includes('Invalid file')) {
-          
-          // Create a new FormData with a different file type
-          const retryFormData = new FormData();
-          retryFormData.append('file', {
-            uri: audioUri,
-            type: 'audio/mpeg',
-            name: `recording-${Date.now()}.mp3`,
-          } as any);
-          retryFormData.append('model', 'whisper-1');
-          
-          const retryResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.EXPO_PUBLIC_OPENAI_API_KEY}`,
-            },
-            body: retryFormData,
-          });
-          
-          if (!retryResponse.ok) {
-            const retryErrorText = await retryResponse.text();
-            console.error('❌ Retry failed:', retryErrorText);
-            throw new Error(retryErrorText);
-          }
-          
-          const retryResult = await retryResponse.json();
-          console.log('✅ Transcription successful with alternative format:', retryResult.text);
-          return retryResult.text;
-        }
-        
-        throw new Error(errorText);
-      }
-      
-      const result = await response.json();
-      console.log('✅ Transcription successful:', result.text);
-      return result.text;
-    } catch (error) {
-      console.error('Error transcribing audio:', error);
-      return null;
-    }
-  };
 
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
@@ -534,12 +368,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleRecordingCancel = () => {
-    if (recorderState.isRecording) {
-      audioRecorder.stop();
-    }
-    setIsRecording(false);
-    setRecordingStartTime(null);
-    setAudioLevel(0);
+    cancelRecording();
     setChatInput('');
   };
 

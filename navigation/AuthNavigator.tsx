@@ -9,6 +9,7 @@ import GetStartedScreen from '@/screens/auth/GetStartedScreen';
 import LoginScreen from '@/screens/auth/LoginScreen';
 import OnboardingScreen from '@/screens/auth/Onboarding';
 import OnboardingChatScreen from '@/screens/auth/OnboardingChatScreen';
+import CompassStoryScreen from '@/screens/CompassStoryScreen';
 
 // Define the auth stack param list
 export type AuthStackParamList = {
@@ -23,6 +24,14 @@ export type AuthStackParamList = {
     stressLevel: number;
     coachingStylePosition: { x: number; y: number };
     timeDuration: number;
+  };
+  CompassStory: { 
+    fromOnboarding?: boolean;
+    fromCoaching?: boolean;
+    parsedCoachingData?: {
+      components: Array<{ type: string; props: Record<string, string> }>;
+      rawData: string;
+    };
   };
 };
 
@@ -79,6 +88,13 @@ export default function AuthNavigator() {
               backgroundColor: colors.background,
             },
           }),
+        }}
+      />
+      <Stack.Screen
+        name="CompassStory"
+        component={CompassStoryScreen}
+        options={{
+          gestureEnabled: false,
         }}
       />
     </Stack.Navigator>

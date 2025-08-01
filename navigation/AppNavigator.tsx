@@ -8,6 +8,8 @@ import HomeScreen from '@/navigation/HomeScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
 import InfoScreen from '@/screens/InfoScreen';
 import HomeContent from '@/screens/HomeContent';
+import CompassStoryScreen from '@/screens/CompassStoryScreen';
+import CoachingScreen from '@/screens/CoachingScreen';
 
 
 // Define the app stack param list
@@ -16,6 +18,15 @@ export type AppStackParamList = {
   Settings: undefined;
   Info: undefined;
   JournalEdit: { entryId: string };
+  CompassStory: { 
+    fromOnboarding?: boolean;
+    fromCoaching?: boolean;
+    parsedCoachingData?: {
+      components: Array<{ type: string; props: Record<string, string> }>;
+      rawData: string;
+    };
+  };
+  Coaching: undefined;
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -42,6 +53,20 @@ export default function AppNavigator() {
       <Stack.Screen
         name="Info"
         component={InfoScreen}
+      />
+      <Stack.Screen
+        name="CompassStory"
+        component={CompassStoryScreen}
+        options={{
+          gestureEnabled: false,
+        }}
+      />
+      <Stack.Screen
+        name="Coaching"
+        component={CoachingScreen}
+        options={{
+          gestureEnabled: true,
+        }}
       />
     </Stack.Navigator>
   );

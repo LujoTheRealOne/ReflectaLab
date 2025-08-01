@@ -21,6 +21,9 @@ import {
   where 
 } from 'firebase/firestore';
 import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
@@ -30,7 +33,9 @@ import {
   TextInput,
   TouchableOpacity,
   useColorScheme,
-  View
+  View,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -79,6 +84,29 @@ export default function HomeContent() {
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
+
+  // Audio transcription hook
+  const {
+    isRecording,
+    isTranscribing,
+    recordingStartTime,
+    audioLevel,
+    startRecording,
+    stopRecordingAndTranscribe,
+    cancelRecording,
+  } = useAudioTranscription({
+    onTranscriptionComplete: (transcription) => {
+      // Insert transcription at current cursor position in the editor
+      // For now, we'll append it to the existing content
+      const currentContent = entry;
+      const newContent = currentContent ? `${currentContent} ${transcription}` : transcription;
+      setEntry(newContent);
+      handleContentChange(newContent);
+    },
+    onTranscriptionError: (error) => {
+      console.error('Transcription error:', error);
+    },
+  });
 
   // Create a new entry
   const createNewEntry = useCallback(() => {
@@ -454,7 +482,7 @@ export default function HomeContent() {
                 </View>
 
                 {/* Thoughts Section */}
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginBottom: 80 }}>
                   <Editor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
                 </View>
               </View>
@@ -467,6 +495,50 @@ export default function HomeContent() {
                 <AudioLines size={24} color={colors.background} />
               </TouchableOpacity> */}
             </SafeAreaView>
+
+            {/* Bottom Buttons - Fixed Position */}
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? -20 : 0}
+              style={styles.keyboardAvoidingContainer}
+            >
+              <View style={[styles.bottomButtonsContainer, { paddingBottom: Math.max(useSafeAreaInsets().bottom, 20), backgroundColor: colors.background }]}>
+                {/* Microphone Button */}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  style={{ flex: 1, height: 40 }}
+                  onPress={() => {
+                    if (isRecording) {
+                      stopRecordingAndTranscribe();
+                    } else {
+                      startRecording();
+                    }
+                  }}
+                  disabled={isTranscribing}
+                  iconOnly={
+                    <Ionicons
+                      name={isRecording ? "stop" : "mic"}
+                      size={22}
+                      color="white"
+                    />
+                  }
+                />
+
+                {/* Enter Coach Mode Button */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  iconRight={<Ionicons name="arrow-forward" size={18} color={`${colors.text}99`} />}
+                  style={{ flex: 1, height: 40 }}
+                  onPress={() => {
+                    navigation.navigate('Coaching' as never);
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: `${colors.text}99` }}>Enter coaching</Text>
+                </Button>
+              </View>
+            </KeyboardAvoidingView>
           </Animated.View>
         </Animated.View>
       </PanGestureHandler>
@@ -546,5 +618,19 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  keyboardAvoidingContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+  },
+  bottomButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingTop: 20,
+    paddingHorizontal: 20,
   },
 }); 

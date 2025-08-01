@@ -2,25 +2,21 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
-import { AuthStackParamList } from '@/navigation/AuthNavigator';
-import * as Progress from 'react-native-progress';
+import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
-import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 
-type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
-type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
+type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
 // Spinning animation component
 const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
   const spinValue = useRef(new Animated.Value(0)).current;
   
-  // Animation effect
   useEffect(() => {
     const spinAnimation = Animated.loop(
       Animated.timing(spinValue, {
@@ -37,7 +33,6 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
     };
   }, [spinValue]);
   
-  // Interpolate the spin value to create a full 360 degree rotation
   const spin = spinValue.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg']
@@ -62,9 +57,7 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
 const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
   const totalDots = 6;
   
-  // Calculate which dots should be filled based on audio level
   const isDotActive = (index: number) => {
-    // Each dot represents a segment of the audio level range (0-1)
     const threshold = (index + 1) / totalDots;
     return audioLevel >= threshold;
   };
@@ -118,63 +111,20 @@ const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, co
   );
 };
 
-export default function OnboardingChatScreen() {
-  const navigation = useNavigation<OnboardingChatScreenNavigationProp>();
-  const route = useRoute<OnboardingChatScreenRouteProp>();
+export default function CoachingScreen() {
+  const navigation = useNavigation<CoachingScreenNavigationProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  
+  const { user } = useAuth();
 
-
-  // Extract all the onboarding data from navigation params
-  const {
-    name,
-    selectedRoles,
-    selectedSelfReflection,
-    clarityLevel,
-    stressLevel,
-    coachingStylePosition,
-    timeDuration
-  } = route.params;
-
-  // Use the new AI coaching hook with progress tracking
+  // Use the AI coaching hook
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
-  const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
-  const { completeOnboarding } = useAuth();
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
-  const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
-
-  // Use the audio transcription hook
-  const {
-    isRecording,
-    isTranscribing,
-    recordingStartTime,
-    audioLevel,
-    startRecording,
-    stopRecordingAndTranscribe,
-    cancelRecording,
-  } = useAudioTranscription({
-    onTranscriptionComplete: (transcription) => {
-      // Append transcription to existing text or set it as new text
-      const existingText = chatInput.trim();
-      const newText = existingText 
-        ? `${existingText} ${transcription}` 
-        : transcription;
-      setChatInput(newText);
-      // Focus the text input after transcription is complete
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 100);
-    },
-    onTranscriptionError: (error) => {
-      console.error('Transcription error:', error);
-    },
-  });
   const [completionStats, setCompletionStats] = useState({
     minutes: 0,
     words: 0,
@@ -241,6 +191,33 @@ export default function OnboardingChatScreen() {
     return content.slice(0, finishStartIndex).trim();
   };
 
+  // Use the audio transcription hook
+  const {
+    isRecording,
+    isTranscribing,
+    recordingStartTime,
+    audioLevel,
+    startRecording,
+    stopRecordingAndTranscribe,
+    cancelRecording,
+  } = useAudioTranscription({
+    onTranscriptionComplete: (transcription) => {
+      // Append transcription to existing text or set it as new text
+      const existingText = chatInput.trim();
+      const newText = existingText 
+        ? `${existingText} ${transcription}` 
+        : transcription;
+      setChatInput(newText);
+      // Focus the text input after transcription is complete
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    },
+    onTranscriptionError: (error) => {
+      console.error('Transcription error:', error);
+    },
+  });
+
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
@@ -250,23 +227,20 @@ export default function OnboardingChatScreen() {
       setTimeout(() => {
         const initialMessage: CoachingMessage = {
           id: '1',
-          content: `Good afternoon, ${name}.\n
-Once you're ready, I'd love to hear: If you had to name what's most alive in you right now—what would it be?\n
-Maybe it's a tension you're holding, a quiet longing, or something you don't quite have words for yet. Whatever shows up—start there.`,
+          content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
           role: 'assistant',
           timestamp: new Date()
         };
         setMessages([initialMessage]);
       }, 1000);
     }
-  }, [name, messages.length, setMessages]);
+  }, [user?.firstName, messages.length, setMessages]);
 
-  // Controlled scrolling - only when explicitly needed
+  // Auto-scroll to bottom when new messages arrive
   const scrollToBottomRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   
   useEffect(() => {
-    // Only scroll if we explicitly requested it OR if new AI message arrives
     const shouldScroll = scrollToBottomRef.current || 
       (messages.length > previousMessageCountRef.current && 
        messages.length > 0 && 
@@ -282,57 +256,32 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     previousMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-
-
-  // Check for notification suggestions in new AI messages
-  useEffect(() => {
-    if (messages.length === 0) return;
-
-    const lastMessage = messages[messages.length - 1];
-    
-    // Only check assistant messages that have content and aren't already showing a popup
-    if (lastMessage && 
-        lastMessage.role === 'assistant' && 
-        lastMessage.content.length > 0 &&
-        !showPopupForMessage &&
-        lastMessage.content.toLowerCase().includes('notification')) {
-      
-      // Small delay to ensure message is fully rendered
-      setTimeout(() => {
-        setShowPopupForMessage(lastMessage.id);
-      }, 300);
-    }
-  }, [messages, showPopupForMessage]);
-
   // Check for completion when progress reaches 100%
   useEffect(() => {
     if (progress === 100 && !showCompletionForMessage) {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
-      // Find the final AI message that contains finish tokens
-      const lastAIMessage = [...messages].reverse().find(msg => 
-        msg.role === 'assistant' && 
-        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
-      );
+      // Find the final AI message
+      const lastAIMessage = [...messages].reverse().find(msg => msg.role === 'assistant');
       
       if (lastAIMessage) {
         // Calculate session statistics
         const sessionEndTime = new Date();
         const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
-        const sessionMinutes = Math.round(sessionDurationMs / 60000); // Convert to minutes
+        const sessionMinutes = Math.round(sessionDurationMs / 60000);
         
         // Count words from user messages
         const userMessages = messages.filter(msg => msg.role === 'user');
         const totalWords = userMessages.reduce((count, msg) => {
           return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
         }, 0);
-        
-        // Parse coaching completion data to get accurate insights count
+
+        // Parse coaching completion data if available
         const parsedData = parseCoachingCompletion(lastAIMessage.content);
         const keyInsights = Math.max(parsedData.components.length, 3); // Use actual parsed components count
         
         setCompletionStats({
-          minutes: Math.max(sessionMinutes, 1), // At least 1 minute
+          minutes: Math.max(sessionMinutes, 1),
           words: totalWords,
           keyInsights
         });
@@ -346,10 +295,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
 
-
-
-
-
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
@@ -360,7 +305,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     scrollToBottomRef.current = true;
 
     // Send message using the AI coaching hook
-    await sendMessage(messageContent, 'onboarding-session');
+    await sendMessage(messageContent, 'general-coaching');
   };
 
   const handleMicrophonePress = () => {
@@ -376,47 +321,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     stopRecordingAndTranscribe();
   };
 
-  const handlePopupAction = async (action: string, messageId: string) => {
-    console.log(`Action: ${action} for message: ${messageId}`);
-    setShowPopupForMessage(null);
-    
-    // Handle specific actions here
-    switch (action) {
-      case 'decline':
-        console.log('User declined notification permissions');
-        break;
-      case 'accept':
-        try {
-          const granted = await requestPermissions();
-          if (granted) {
-            console.log('✅ Notification permissions granted and push token saved');
-            
-            // Send confirmation message to chat
-            const confirmationMessage: CoachingMessage = {
-              id: (Date.now() + 3).toString(),
-              role: 'assistant',
-              content: "Perfect! I've saved your notification preferences. You'll receive thoughtful reflection prompts to help you stay connected with your insights and growth.",
-              timestamp: new Date()
-            };
-            setMessages([...messages, confirmationMessage]);
-          } else {
-            console.log('❌ Notification permissions denied');
-            // Add message about manual setup
-            const declineMessage: CoachingMessage = {
-              id: (Date.now() + 3).toString(),
-              role: 'assistant',
-              content: "No problem! You can always enable notifications later in your device settings if you change your mind.",
-              timestamp: new Date()
-            };
-            setMessages([...messages, declineMessage]);
-          }
-        } catch (error) {
-          console.error('Error setting up notifications:', error);
-        }
-        break;
-    }
-  };
-
   const handleCompletionAction = async () => {
     console.log('User clicked End this session');
     console.log('📊 Session Stats:', completionStats);
@@ -428,9 +332,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       });
     }
     
-    // Navigate to compass story instead of completing onboarding directly
+    // Navigate to compass story for coaching completion
     navigation.navigate('CompassStory', { 
-      fromOnboarding: true,
+      fromCoaching: true,
       parsedCoachingData: parsedCoachingData || undefined
     });
     setShowCompletionForMessage(null);
@@ -445,28 +349,13 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       >
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
-            Life Deep Dive
+            Coaching
           </Text>
-          
-          <View style={styles.progressSection}>
-            <Text style={[styles.chatProgressText, { color: `${colors.text}66` }]}>
-              {Math.round(progress)}%
-            </Text>
-            
-            {/* Circular Progress Bar */}
-            <Progress.Circle
-              size={20}
-              animated={true}
-              progress={progress / 100}
-              color={colors.tint}
-              unfilledColor={`${colors.text}20`}
-              borderWidth={0}
-              thickness={4}
-              strokeCap='round'
-              showsText={false}
-            />
-          </View>
+          <View style={{ width: 24 }} />
         </View>
 
         {/* Messages */}
@@ -488,110 +377,68 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
-                <View
-                >
-                  <Text
-                    style={[
-                      styles.messageText,
-                      message.role === 'user'
-                        ? { color: `${colors.text}99` }
-                        : { color: colors.text }
-                    ]}
-                  >
-                    {getDisplayContent(message.content)}
-                  </Text>
-                </View>
+                                 <View>
+                   <Text
+                     style={[
+                       styles.messageText,
+                       message.role === 'user'
+                         ? { color: `${colors.text}99` }
+                         : { color: colors.text }
+                     ]}
+                   >
+                     {getDisplayContent(message.content)}
+                   </Text>
+                 </View>
 
-                                {/* AI Chat Popup */}
-                {message.role === 'assistant' && showPopupForMessage === message.id && (
-                  <View style={[
-                    styles.aiPopup,
-                    {
-                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
-                    }
-                  ]}>
-                    <View style={styles.aiPopupContent}>
-                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
-                        Accept suggested notifications?
-                      </Text>
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
-                        Would you like to implement this notification schedule?
-                      </Text>
+                 {/* Completion Popup - appears on final message when progress reaches 100% */}
+                 {message.role === 'assistant' && showCompletionForMessage === message.id && (
+                   <View style={[
+                     styles.aiPopup,
+                     {
+                       backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                       borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+                     }
+                   ]}>
+                     <View style={styles.aiPopupContent}>
+                       <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
+                         Session complete!
+                       </Text>
+                       <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
+                         Great work on your coaching session.
+                       </Text>
+                       
+                       <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
+                         {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
+                       </Text>
 
-                      <View style={styles.aiPopupButtons}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onPress={() => handlePopupAction('decline', message.id)}
-                          style={{ flex: 1 }}
-                        >
-                          Decline
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={() => handlePopupAction('accept', message.id)}
-                          style={{ flex: 1 }}
-                        >
-                          Accept
-                        </Button>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                {/* Completion Popup - appears on final message when progress reaches 100% */}
-                {message.role === 'assistant' && showCompletionForMessage === message.id && (
-                  <View style={[
-                    styles.aiPopup,
-                    {
-                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
-                    }
-                  ]}>
-                    <View style={styles.aiPopupContent}>
-                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
-                        You've invested in yourself.
-                      </Text>
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
-                        Now let's see what is reflecting.
-                      </Text>
-                      
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
-                        {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
-                      </Text>
-
-                      <View style={styles.aiPopupButtons}>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={handleCompletionAction}
-                          style={{ flex: 1 }}
-                        >
-                          End this session
-                        </Button>
-                      </View>
-                    </View>
-                  </View>
-                )}
-              </View>
-            ))}
+                       <View style={styles.aiPopupButtons}>
+                         <Button
+                           variant="primary"
+                           size="sm"
+                           onPress={handleCompletionAction}
+                           style={{ flex: 1 }}
+                         >
+                           View your compass
+                         </Button>
+                       </View>
+                     </View>
+                   </View>
+                 )}
+               </View>
+             ))}
             {isLoading && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                <View style={styles.messageBubble}>
                   <View style={styles.typingIndicator}>
                     <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
                     <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
                     <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
                   </View>
-                </View>
               </View>
             )}
           </ScrollView>
         </View>
 
-        {/* Input - extends to screen bottom */}
+        {/* Input */}
         <View style={styles.chatInputContainer}>
           <View style={[
             styles.chatInputWrapper,
@@ -601,7 +448,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               borderLeftWidth: 1,
               borderRightWidth: 1,
               borderColor: `${colors.tint}12`,
-              paddingBottom: Math.max(insets.bottom, 20), // Ensure minimum padding + safe area
+              paddingBottom: Math.max(insets.bottom, 20),
               flexDirection: isRecording ? 'column' : 'row',
             }
           ]}>
@@ -621,7 +468,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 onChangeText={setChatInput}
                 onFocus={() => setIsChatInputFocused(true)}
                 onBlur={() => setIsChatInputFocused(false)}
-                placeholder="Share whats on your mind..."
+                placeholder="Share what's on your mind..."
                 placeholderTextColor={`${colors.text}66`}
                 multiline
                 maxLength={500}
@@ -632,7 +479,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               />
             )}
 
-            {/* State 1: Empty input - show microphone only */}
+            {/* Empty input - show microphone only */}
             {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
               <TouchableOpacity
                 style={[styles.microphoneButton, { backgroundColor: colors.text }]}
@@ -646,10 +493,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               </TouchableOpacity>
             )}
 
-            {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
+            {/* Recording state */}
             {isRecording && !isTranscribing && (
               <View style={styles.recordingContainer}>
-                {/* Left side - Cancel button */}
                 <TouchableOpacity
                   style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                   onPress={handleRecordingCancel}
@@ -661,12 +507,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   />
                 </TouchableOpacity>
                 
-                {/* Left-center - Audio level visualization */}
                 <View style={styles.recordingCenterSection}>
                   <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
                 </View>
                 
-                {/* Right side - Timer and confirm button */}
                 <View style={styles.recordingRightSection}>
                   <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
                   <TouchableOpacity
@@ -682,10 +526,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 </View>
               </View>
             )}
-            
 
-
-            {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
+            {/* Text entered - show both microphone and send buttons */}
             {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity
@@ -749,11 +591,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  chatProgressText: {
-    fontSize: 16,
-    fontWeight: '400',
-    textAlign: 'center',
-  },
   messagesContainer: {
     flex: 1,
     paddingHorizontal: 20,
@@ -779,12 +616,6 @@ const styles = StyleSheet.create({
   aiMessageContainer: {
     alignItems: 'flex-start',
   },
-  messageBubble: {
-    maxWidth: '85%',
-    // paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 20,
-  },
   messageText: {
     fontSize: 16,
     fontWeight: '400',
@@ -805,7 +636,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingBottom: 0,
     paddingTop: 0,
-    maxHeight: 180, // Prevent input from taking too much space
+    maxHeight: 180,
   },
   chatInputWrapper: {
     flexDirection: 'row',
@@ -818,14 +649,14 @@ const styles = StyleSheet.create({
     boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
-    maxHeight: 160, // Limit the wrapper height
+    maxHeight: 160,
   },
   chatInput: {
     flex: 1,
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
-    maxHeight: 100, // Reduced to leave room for padding
+    maxHeight: 100,
     paddingVertical: 8,
     paddingHorizontal: 0,
     backgroundColor: 'transparent',
@@ -892,6 +723,40 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  transcribingInputContainer: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    paddingLeft: 4,
+  },
+  loadingSpinner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 20,
+    width: 20,
+  },
+  spinner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#E5E5E5',
+    borderTopColor: '#333333',
+  },
+  audioLevelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  audioLevelDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  recordingTimer: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
   aiPopup: {
     width: '105%',
     alignSelf: 'center',
@@ -923,48 +788,4 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
   },
-  progressSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  transcribingInputContainer: {
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingLeft: 4,
-  },
-  loadingSpinner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 20,
-    width: 20,
-  },
-  spinner: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#E5E5E5',
-    borderTopColor: '#333333',
-  },
-  audioLevelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  audioLevelDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  recordingVisualizer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  recordingTimer: {
-    fontSize: 14,
-    fontWeight: '500',
-  }
 }); 

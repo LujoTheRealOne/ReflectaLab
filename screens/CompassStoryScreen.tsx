@@ -11,7 +11,7 @@ import {
   TouchableWithoutFeedback,
   Image,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { X } from 'lucide-react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useColorScheme } from 'react-native';
 import { Colors } from '@/constants/Colors';
@@ -295,7 +295,7 @@ export default function CompassStoryScreen() {
           style={[styles.closeButton, { backgroundColor: `${colors.text}15` }]}
           onPress={handleCompassComplete}
         >
-          <Ionicons name="close" size={24} color={colors.text} />
+          <X size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 

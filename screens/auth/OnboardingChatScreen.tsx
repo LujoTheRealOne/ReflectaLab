@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Mic, X, Check, ArrowUp } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import * as Progress from 'react-native-progress';
@@ -638,8 +638,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 style={[styles.microphoneButton, { backgroundColor: colors.text }]}
                 onPress={handleMicrophonePress}
               >
-                <Ionicons
-                  name="mic"
+                <Mic
                   size={20}
                   color={colors.background}
                 />
@@ -654,8 +653,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                   onPress={handleRecordingCancel}
                 >
-                  <Ionicons
-                    name="close"
+                  <X
                     size={20}
                     color={colors.text}
                   />
@@ -673,8 +671,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                     style={[styles.recordingButton, { backgroundColor: colors.text }]}
                     onPress={handleRecordingConfirm}
                   >
-                    <Ionicons
-                      name="checkmark"
+                    <Check
                       size={20}
                       color={colors.background}
                     />
@@ -684,7 +681,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             )}
             
 
-
             {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
             {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
               <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -693,8 +689,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   onPress={handleMicrophonePress}
                   disabled={isTranscribing}
                 >
-                  <Ionicons
-                    name="mic"
+                  <Mic
                     size={20}
                     color={colors.background}
                   />
@@ -709,8 +704,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   onPress={handleSendMessage}
                   disabled={isTranscribing}
                 >
-                  <Ionicons
-                    name="arrow-up"
+                  <ArrowUp
                     size={20}
                     color={colors.background}
                   />

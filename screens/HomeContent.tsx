@@ -20,8 +20,7 @@ import {
   updateDoc, 
   where 
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog } from 'lucide-react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog, Mic, Square, MessageCircle } from 'lucide-react-native';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -505,9 +504,22 @@ export default function HomeContent() {
               <View style={[styles.bottomButtonsContainer, { paddingBottom: Math.max(useSafeAreaInsets().bottom, 20), backgroundColor: colors.background }]}>
                 {/* Microphone Button */}
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
-                  style={{ flex: 1, height: 40 }}
+                  iconOnly={
+                    isRecording ? (
+                      <Square
+                        size={22}
+                        color={`${colors.tint}99`}
+                      />
+                    ) : (
+                      <Mic
+                        size={22}
+                        color={`${colors.tint}99`}
+                      />
+                    )
+                  }
+                  style={{ height: 40 }}
                   onPress={() => {
                     if (isRecording) {
                       stopRecordingAndTranscribe();
@@ -516,26 +528,18 @@ export default function HomeContent() {
                     }
                   }}
                   disabled={isTranscribing}
-                  iconOnly={
-                    <Ionicons
-                      name={isRecording ? "stop" : "mic"}
-                      size={22}
-                      color="white"
-                    />
-                  }
                 />
 
                 {/* Enter Coach Mode Button */}
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   size="sm"
-                  iconRight={<Ionicons name="arrow-forward" size={18} color={`${colors.text}99`} />}
-                  style={{ flex: 1, height: 40 }}
+                  iconOnly={<MessageCircle size={18} color={colors.background} />}
+                  style={{ height: 40 }}
                   onPress={() => {
                     navigation.navigate('Coaching' as never);
                   }}
                 >
-                  <Text style={{ fontSize: 14, color: `${colors.text}99` }}>Enter coaching</Text>
                 </Button>
               </View>
             </KeyboardAvoidingView>
@@ -629,7 +633,7 @@ const styles = StyleSheet.create({
   bottomButtonsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 8,
     paddingTop: 20,
     paddingHorizontal: 20,
   },

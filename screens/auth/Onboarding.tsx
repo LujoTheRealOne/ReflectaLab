@@ -10,7 +10,7 @@ import { BlurView } from 'expo-blur';
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
-import { Ionicons } from '@expo/vector-icons';
+import { ChevronLeft } from 'lucide-react-native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -1285,7 +1285,7 @@ close your eyes...`}
               onPress={handleBack}
               style={[styles.backButton, { borderColor: 'transparent', backgroundColor: currentStep === 7 || currentStep >= 14 ? `#FFFFFF11` : `${colors.tint}11` }]}
             >
-              <Ionicons name="chevron-back" size={24} color={currentStep === 7 || currentStep >= 14 ? '#FFFFFF' : colors.text} />
+              <ChevronLeft size={24} color={currentStep === 7 || currentStep >= 14 ? '#FFFFFF' : colors.text} />
             </Button>
           )}
           <Button

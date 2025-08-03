@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { ArrowLeft, Mic, X, Check, ArrowUp } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
@@ -350,7 +350,7 @@ export default function CoachingScreen() {
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
+            <ArrowLeft size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
             Coaching
@@ -485,8 +485,7 @@ export default function CoachingScreen() {
                 style={[styles.microphoneButton, { backgroundColor: colors.text }]}
                 onPress={handleMicrophonePress}
               >
-                <Ionicons
-                  name="mic"
+                <Mic
                   size={20}
                   color={colors.background}
                 />
@@ -500,8 +499,7 @@ export default function CoachingScreen() {
                   style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                   onPress={handleRecordingCancel}
                 >
-                  <Ionicons
-                    name="close"
+                  <X
                     size={20}
                     color={colors.text}
                   />
@@ -517,8 +515,7 @@ export default function CoachingScreen() {
                     style={[styles.recordingButton, { backgroundColor: colors.text }]}
                     onPress={handleRecordingConfirm}
                   >
-                    <Ionicons
-                      name="checkmark"
+                    <Check
                       size={20}
                       color={colors.background}
                     />
@@ -535,8 +532,7 @@ export default function CoachingScreen() {
                   onPress={handleMicrophonePress}
                   disabled={isTranscribing}
                 >
-                  <Ionicons
-                    name="mic"
+                  <Mic
                     size={20}
                     color={colors.background}
                   />
@@ -551,8 +547,7 @@ export default function CoachingScreen() {
                   onPress={handleSendMessage}
                   disabled={isTranscribing}
                 >
-                  <Ionicons
-                    name="arrow-up"
+                  <ArrowUp
                     size={20}
                     color={colors.background}
                   />

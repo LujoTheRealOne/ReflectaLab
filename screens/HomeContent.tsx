@@ -168,8 +168,10 @@ export default function HomeContent() {
     ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
     : today;
 
-  const formattedDate = displayDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'long' });
-  const time = displayDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const weekday = displayDate.toLocaleDateString('en-US', { weekday: 'short' });
+  const day = displayDate.toLocaleDateString('en-US', { day: 'numeric' });
+  const month = displayDate.toLocaleDateString('en-US', { month: 'long' });
+  const formattedDate = `${weekday}, ${month} ${day}`;
 
   // Fetch the latest journal entry
   const fetchLatestEntry = useCallback(async () => {
@@ -465,7 +467,7 @@ export default function HomeContent() {
           <Animated.View style={[styles.safeArea, { backgroundColor: colors.background }, curvedEdgesStyle]}>
             <SafeAreaView style={[styles.safeAreaInner, { marginTop: useSafeAreaInsets().top }]}>
               {/* Header */}
-              <View style={styles.header}>
+              {/* <View style={styles.header}>
                 <TouchableOpacity onPress={() => {
                   navigation.openDrawer();
                 }}>
@@ -475,28 +477,21 @@ export default function HomeContent() {
                   navigation.navigate('Settings' as never);
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}>
-                  {/* <Cog size={24} color={colors.text} /> */}
                   <Image source={{ uri: useAuth().user?.imageUrl }} style={{ width: 32, height: 32, borderRadius: 100, borderWidth: 1.5, borderColor: colors.text }} />
                 </TouchableOpacity>
-              </View>
+              </View> */}
 
               {/* Content */}
               <View style={styles.content}>
-                <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
-                  {getSaveStatusText()}
-                </Text>
                 {/* Date Input */}
-                <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center', paddingTop: 20, justifyContent: 'space-between' }}>
                   <Text
                     style={[styles.dateText, { color: colors.text }]}
                   >
-                    {formattedDate}
+                    {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
                   </Text>
-                  <View style={{ width: 30, height: 3, backgroundColor: 'orange', borderRadius: 5 }} />
-                  <Text
-                    style={[styles.timeText, { color: colors.text, opacity: 0.5 }]}
-                  >
-                    {time}
+                  <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
+                    {getSaveStatusText()}
                   </Text>
                 </View>
 
@@ -538,7 +533,7 @@ export default function HomeContent() {
                       size="sm"
                       iconOnly={
                         <Settings2
-                          size={22}
+                          size={20}
                           color={`${colors.tint}99`}
                         />
                       }
@@ -549,11 +544,11 @@ export default function HomeContent() {
                     />
                   </View>
                 )}
-                
+
                 <View style={[
-                  styles.buttonGroup, 
+                  styles.buttonGroup,
                   { gap: 8 },
-                  !isKeyboardVisible && [styles.buttonBackground, { 
+                  !isKeyboardVisible && [styles.buttonBackground, {
                     backgroundColor: colors.background,
                     borderColor: `${colors.tint}12`
                   }]
@@ -565,7 +560,7 @@ export default function HomeContent() {
                       size="sm"
                       iconOnly={
                         <Settings2
-                          size={22}
+                          size={20}
                           color={`${colors.tint}99`}
                         />
                       }
@@ -582,12 +577,12 @@ export default function HomeContent() {
                     iconOnly={
                       isRecording ? (
                         <Square
-                          size={22}
+                          size={20}
                           color={`${colors.tint}99`}
                         />
                       ) : (
                         <Mic
-                          size={22}
+                          size={20}
                           color={`${colors.tint}99`}
                         />
                       )
@@ -606,7 +601,7 @@ export default function HomeContent() {
                   <Button
                     variant="primary"
                     size="sm"
-                    iconOnly={<MessageCircle size={18} color={colors.background} />}
+                    iconOnly={<MessageCircle size={20} color={colors.background} />}
                     style={{ width: 70, height: 40 }}
                     onPress={() => {
                       navigation.navigate('Coaching' as never);

@@ -8,19 +8,19 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
-import { 
-  addDoc, 
-  collection, 
-  doc, 
-  getDocs, 
-  limit, 
-  orderBy, 
-  query, 
-  serverTimestamp, 
-  updateDoc, 
-  where 
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog, Mic, Square, MessageCircle } from 'lucide-react-native';
+import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,7 +34,8 @@ import {
   useColorScheme,
   View,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Keyboard
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -45,6 +46,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 
 type DrawerNavigation = DrawerNavigationProp<any>;
 
@@ -80,7 +82,8 @@ export default function HomeContent() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [originalContent, setOriginalContent] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(false);
-  
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
 
@@ -135,7 +138,7 @@ export default function HomeContent() {
   useEffect(() => {
     const selectedEntry = (route.params as any)?.selectedEntry;
     const createNew = (route.params as any)?.createNew;
-    
+
     if (selectedEntry) {
       setLatestEntry(selectedEntry);
       setEntry(selectedEntry.content || '');
@@ -143,13 +146,13 @@ export default function HomeContent() {
       lastSavedContentRef.current = selectedEntry.content || '';
       setSaveStatus('saved');
       setIsNewEntry(false);
-      
+
       // Clear the route params to prevent re-loading on re-renders
       navigation.setParams({ selectedEntry: undefined } as any);
     } else if (createNew) {
       // Create a new entry when explicitly requested
       createNewEntry();
-      
+
       // Clear the route params to prevent re-loading on re-renders
       navigation.setParams({ createNew: undefined } as any);
     }
@@ -161,10 +164,10 @@ export default function HomeContent() {
   }, [latestEntry, setCurrentEntryId]);
 
   // Calculate display values based on latest entry or fallback to today
-  const displayDate = (latestEntry && !isNewEntry) 
+  const displayDate = (latestEntry && !isNewEntry)
     ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
     : today;
-  
+
   const formattedDate = displayDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'long' });
   const time = displayDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
@@ -184,7 +187,7 @@ export default function HomeContent() {
       );
 
       const querySnapshot = await getDocs(entriesQuery);
-      
+
       if (!querySnapshot.empty) {
         const doc = querySnapshot.docs[0];
         const entryData = doc.data() as Omit<JournalEntry, 'id'>;
@@ -192,7 +195,7 @@ export default function HomeContent() {
           id: doc.id,
           ...entryData
         };
-        
+
         setLatestEntry(latestEntryData);
         setEntry(latestEntryData.content || '');
         setOriginalContent(latestEntryData.content || '');
@@ -226,7 +229,7 @@ export default function HomeContent() {
 
     try {
       setSaveStatus('saving');
-      
+
       if (latestEntry && !isNewEntry) {
         // Update existing entry
         const entryRef = doc(db, 'journal_entries', latestEntry.id);
@@ -234,7 +237,7 @@ export default function HomeContent() {
           content,
           lastUpdated: serverTimestamp()
         });
-        
+
         // Track journal entry update
         trackEntryUpdated({
           entry_id: latestEntry.id,
@@ -248,14 +251,14 @@ export default function HomeContent() {
           timestamp: serverTimestamp(),
           lastUpdated: serverTimestamp()
         };
-        
+
         const docRef = await addDoc(collection(db, 'journal_entries'), newEntry);
-        
+
         // Track journal entry creation
         trackEntryCreated({
           entry_id: docRef.id,
         });
-        
+
         // Update local state with new entry info from database
         setLatestEntry({
           id: docRef.id,
@@ -266,7 +269,7 @@ export default function HomeContent() {
         });
         setIsNewEntry(false);
       }
-      
+
       lastSavedContentRef.current = content;
       setSaveStatus('saved');
     } catch (error) {
@@ -278,21 +281,21 @@ export default function HomeContent() {
   // Handle content changes with debounced save
   const handleContentChange = useCallback((newContent: string) => {
     setEntry(newContent);
-    
+
     // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     // Check if content has actually changed
     if (newContent === lastSavedContentRef.current) {
       setSaveStatus('saved');
       return;
     }
-    
+
     // Set status to unsaved immediately
     setSaveStatus('unsaved');
-    
+
     // Set new timeout for auto-save
     saveTimeoutRef.current = setTimeout(() => {
       saveEntry(newContent);
@@ -305,6 +308,23 @@ export default function HomeContent() {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+    };
+  }, []);
+
+  // Keyboard visibility listeners
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+
+    return () => {
+      keyboardWillShowListener?.remove();
+      keyboardWillHideListener?.remove();
     };
   }, []);
 
@@ -321,7 +341,7 @@ export default function HomeContent() {
     if (isNewEntry && (!entry || entry.trim() === '' || entry === '<p></p>')) {
       return 'Creating new entry';
     }
-    
+
     switch (saveStatus) {
       case 'saving':
         return 'Saving...';
@@ -371,19 +391,19 @@ export default function HomeContent() {
     onEnd: () => {
       // Check if we should create a new entry based on final position
       const shouldCreateEntry = translateY.value >= TRIGGER_THRESHOLD;
-      
+
       // Always snap back to original position with controlled spring
       translateY.value = withSpring(0, {
         damping: 20,
         stiffness: 300,
         overshootClamping: true
       });
-      
+
       // Create new entry only if released beyond threshold
       if (shouldCreateEntry) {
         runOnJS(triggerNewEntry)();
       }
-      
+
       runOnJS(resetHapticFlag)();
     },
   });
@@ -496,51 +516,104 @@ export default function HomeContent() {
             </SafeAreaView>
 
             {/* Bottom Buttons - Fixed Position */}
-            <KeyboardAvoidingView 
+            <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={Platform.OS === 'ios' ? -20 : 0}
               style={styles.keyboardAvoidingContainer}
             >
-              <View style={[styles.bottomButtonsContainer, { paddingBottom: Math.max(useSafeAreaInsets().bottom, 20), backgroundColor: colors.background }]}>
-                {/* Microphone Button */}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  iconOnly={
-                    isRecording ? (
-                      <Square
-                        size={22}
-                        color={`${colors.tint}99`}
-                      />
-                    ) : (
-                      <Mic
-                        size={22}
-                        color={`${colors.tint}99`}
-                      />
-                    )
-                  }
-                  style={{ height: 40 }}
-                  onPress={() => {
-                    if (isRecording) {
-                      stopRecordingAndTranscribe();
-                    } else {
-                      startRecording();
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: isKeyboardVisible ? 'space-between' : 'center',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingTop: 20,
+                paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
+                backgroundColor: colors.background
+              }}>
+                {isKeyboardVisible && (
+                  <View style={styles.buttonGroup}>
+                    {/* Settings Button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconOnly={
+                        <Settings2
+                          size={22}
+                          color={`${colors.tint}99`}
+                        />
+                      }
+                      style={{ width: 70, height: 40 }}
+                      onPress={() => {
+                        navigation.navigate('Settings' as never);
+                      }}
+                    />
+                  </View>
+                )}
+                
+                <View style={[
+                  styles.buttonGroup, 
+                  { gap: 8 },
+                  !isKeyboardVisible && [styles.buttonBackground, { 
+                    backgroundColor: colors.background,
+                    borderColor: `${colors.tint}12`
+                  }]
+                ]}>
+                  {!isKeyboardVisible && (
+                    /* Settings Button - shown in center when keyboard is hidden */
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconOnly={
+                        <Settings2
+                          size={22}
+                          color={`${colors.tint}99`}
+                        />
+                      }
+                      style={{ width: 70, height: 40 }}
+                      onPress={() => {
+                        navigation.navigate('Settings' as never);
+                      }}
+                    />
+                  )}
+                  {/* Microphone Button */}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    iconOnly={
+                      isRecording ? (
+                        <Square
+                          size={22}
+                          color={`${colors.tint}99`}
+                        />
+                      ) : (
+                        <Mic
+                          size={22}
+                          color={`${colors.tint}99`}
+                        />
+                      )
                     }
-                  }}
-                  disabled={isTranscribing}
-                />
-
-                {/* Enter Coach Mode Button */}
-                <Button
-                  variant="primary"
-                  size="sm"
-                  iconOnly={<MessageCircle size={18} color={colors.background} />}
-                  style={{ height: 40 }}
-                  onPress={() => {
-                    navigation.navigate('Coaching' as never);
-                  }}
-                >
-                </Button>
+                    style={{ width: 70, height: 40 }}
+                    onPress={() => {
+                      if (isRecording) {
+                        stopRecordingAndTranscribe();
+                      } else {
+                        startRecording();
+                      }
+                    }}
+                    disabled={isTranscribing}
+                  />
+                  {/* Enter Coach Mode Button */}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    iconOnly={<MessageCircle size={18} color={colors.background} />}
+                    style={{ width: 70, height: 40 }}
+                    onPress={() => {
+                      navigation.navigate('Coaching' as never);
+                    }}
+                  >
+                  </Button>
+                </View>
               </View>
             </KeyboardAvoidingView>
           </Animated.View>
@@ -636,5 +709,23 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingTop: 20,
     paddingHorizontal: 20,
+  },
+  buttonGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonBackground: {
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 0.5,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 0.5,
+    },
+    shadowOpacity: 0.02,
+    shadowRadius: 20.9,
+    elevation: 2,
   },
 }); 

@@ -515,16 +515,20 @@ export default function OnboardingScreen() {
             // Update user account in Firestore with onboarding data and completion status
             await FirestoreService.updateUserAccount(firebaseUser.uid, {
               // Mark onboarding as completed
-              onboardingCompleted: true,
               // Store all onboarding data for future reference
+              firstName:name,
               onboardingData: {
-                name,
-                selectedRoles,
-                selectedSelfReflection,
-                clarityLevel,
-                stressLevel,
-                coachingStylePosition,
-                timeDuration
+                onboardingCompleted: true,
+                onboardingCompletedAt: Date.now(),
+                whatDoYouDoInLife: selectedRoles,
+                selfReflectionPracticesTried: selectedSelfReflection,
+                clarityInLife: clarityLevel,
+                stressInLife: stressLevel,
+              },
+              coachingConfig: {
+                challengeDegree: coachingStylePosition.x < 0.3 ? 'gentle' : coachingStylePosition.x < 0.6 ? 'moderate' : coachingStylePosition.x < 0.8 ? 'challenging' : 'intense',
+                harshToneDegree: coachingStylePosition.y < 0.3 ? 'supportive' : coachingStylePosition.y < 0.6 ? 'direct' : coachingStylePosition.y < 0.8 ? 'firm' : 'harsh',
+                investingTime: timeDuration,
               },
               updatedAt: new Date()
             });

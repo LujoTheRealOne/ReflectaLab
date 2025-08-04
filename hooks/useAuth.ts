@@ -65,7 +65,7 @@ export function useAuth() {
         setUserAccount(account);
         
         // Check if user needs onboarding
-        setNeedsOnboarding(account.onboardingCompleted !== true);
+        setNeedsOnboarding(account.onboardingData.onboardingCompleted !== true);
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality
@@ -153,7 +153,14 @@ export function useAuth() {
       try {
         // Update user account in Firestore
         await FirestoreService.updateUserAccount(firebaseUser.uid, {
-          onboardingCompleted: true,
+          onboardingData: {
+            onboardingCompleted: true,
+            onboardingCompletedAt: Date.now(),
+            whatDoYouDoInLife: [],
+            selfReflectionPracticesTried: [],
+            clarityInLife: 0,
+            stressInLife: 0,
+          },
         });
         setNeedsOnboarding(false);
       } catch (error) {

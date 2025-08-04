@@ -63,7 +63,7 @@ export default function SettingsScreen() {
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        const enabled = userData?.enablePushNotifications ?? false;
+        const enabled = userData?.mobilePushNotifications?.enabled ?? false;
         setPushNotificationsEnabled(enabled);
         console.log('📱 Loaded push notification preference:', enabled);
       }
@@ -79,7 +79,7 @@ export default function SettingsScreen() {
     try {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       await updateDoc(userDocRef, {
-        enablePushNotifications: enabled,
+        'mobilePushNotifications.enabled': enabled,
         updatedAt: new Date()
       });
       console.log('📱 Saved push notification preference:', enabled);
@@ -352,7 +352,7 @@ export default function SettingsScreen() {
         {/* Push Notifications for AI */}
         <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
           <View style={styles.settingHeader}>
-            <Text style={[styles.settingTitle, { color: colors.text }]}>Sage AI</Text>
+            <Text style={[styles.settingTitle, { color: colors.text }]}>AI Coach</Text>
           </View>
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
@@ -473,7 +473,8 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingTop: 30,
+    paddingBottom: 15,
   },
   backButton: {
     flexDirection: 'row',

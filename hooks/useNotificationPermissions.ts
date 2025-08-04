@@ -90,7 +90,7 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
       // Check if token already exists to avoid duplicates
       const userDoc = await getDoc(userDocRef);
       const userData = userDoc.data();
-      const existingTokens = userData?.expoPushTokens || [];
+      const existingTokens = userData?.mobilePushNotifications?.expoPushTokens || [];
       
       if (existingTokens.includes(token)) {
         console.log('ℹ️ Push token already exists in Firestore');
@@ -99,7 +99,7 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
 
       // Add token using arrayUnion to avoid overwriting
       await updateDoc(userDocRef, {
-        expoPushTokens: arrayUnion(token),
+        'mobilePushNotifications.expoPushTokens': arrayUnion(token),
         updatedAt: new Date(),
       });
 

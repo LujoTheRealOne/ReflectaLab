@@ -15,29 +15,30 @@ import { UserAccount, MorningGuidance } from '@/types/journal';
 // Firestore user account interface
 export interface FirestoreUserAccount {
   uid: string;
-  currentMorningGuidance?: {
-    journalQuestion: string;
-    detailedMorningPrompt: string;
-    reasoning: string;
-    generatedAt: Timestamp | FieldValue;
-    usedAt?: Timestamp | FieldValue;
-  };
-  alignment?: string;
+  firstName: string;
   createdAt: Timestamp | FieldValue;
   updatedAt: Timestamp | FieldValue;
-  onboardingCompleted?: boolean; // Track if user has completed onboarding
-  onboardingData?: {
-    name: string;
-    selectedRoles: string[];
-    selectedSelfReflection: string[];
-    clarityLevel: number;
-    stressLevel: number;
-    coachingStylePosition: {
-      x: number;
-      y: number;
-    };
-    timeDuration: number;
+  onboardingData: {
+    onboardingCompleted: boolean;
+    onboardingCompletedAt: number; // unix timestamp
+    whatDoYouDoInLife: string[]; // string of tags selected
+    selfReflectionPracticesTried: string[]; // string of tags selected
+    clarityInLife: number; // 0 being totally unclear, 10 being very clear
+    stressInLife: number; // 0 being totally not stressed, 10 being very stressed
   };
+  coachingConfig: {
+    challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
+    harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
+    coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
+    investingTime: number;
+    enableCoachingMessages?: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
+  };
+  mobilePushNotifications?: {
+    enabled: boolean;
+    expoPushTokens: string[]; // array of expo tokens
+    lastNotificationSentAt?: number; // unix timestamp
+  };
+  userTimezone: string; // timezone of the user (e.g. "America/New_York")
 }
 
 // Convert Firestore document to UserAccount
@@ -54,34 +55,30 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
   
   const createdAt = data.createdAt ? (data.createdAt as Timestamp).toDate() : (data.updatedAt as Timestamp).toDate();
   
-  let currentMorningGuidance: MorningGuidance | undefined = undefined;
-  if (data.currentMorningGuidance) {
-    currentMorningGuidance = {
-      journalQuestion: data.currentMorningGuidance.journalQuestion,
-      detailedMorningPrompt: data.currentMorningGuidance.detailedMorningPrompt,
-      reasoning: data.currentMorningGuidance.reasoning,
-      generatedAt: data.currentMorningGuidance.generatedAt ? (data.currentMorningGuidance.generatedAt as Timestamp).toDate() : new Date(),
-      usedAt: data.currentMorningGuidance.usedAt ? (data.currentMorningGuidance.usedAt as Timestamp).toDate() : undefined
-    };
-  }
-  
   return {
     uid: data.uid as string,
-    currentMorningGuidance,
-    alignment: data.alignment as string | undefined,
-    onboardingCompleted: data.onboardingCompleted as boolean | undefined,
+    firstName: data.firstName as string,
     onboardingData: data.onboardingData as {
-      name: string;
-      selectedRoles: string[];
-      selectedSelfReflection: string[];
-      clarityLevel: number;
-      stressLevel: number;
-      coachingStylePosition: {
-        x: number;
-        y: number;
-      };
-      timeDuration: number;
-    } | undefined,
+      onboardingCompleted: boolean;
+      onboardingCompletedAt: number;
+      whatDoYouDoInLife: string[];
+      selfReflectionPracticesTried: string[];
+      clarityInLife: number;
+      stressInLife: number;
+    },
+    coachingConfig: data.coachingConfig as {
+      challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
+      harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
+      coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
+      investingTime: number;
+      enableCoachingMessages?: boolean;
+    },
+    mobilePushNotifications: data.mobilePushNotifications as {
+      enabled: boolean;
+      expoPushTokens: string[];
+      lastNotificationSentAt?: number;
+    },
+    userTimezone: data.userTimezone as string,
     createdAt,
     updatedAt: (data.updatedAt as Timestamp).toDate()
   };
@@ -96,27 +93,24 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
     ...(userAccount.createdAt ? { createdAt: Timestamp.fromDate(userAccount.createdAt) } : { createdAt: now })
   };
 
-  if (userAccount.currentMorningGuidance) {
-    data.currentMorningGuidance = {
-      journalQuestion: userAccount.currentMorningGuidance.journalQuestion,
-      detailedMorningPrompt: userAccount.currentMorningGuidance.detailedMorningPrompt,
-      reasoning: userAccount.currentMorningGuidance.reasoning,
-      generatedAt: Timestamp.fromDate(userAccount.currentMorningGuidance.generatedAt),
-      ...(userAccount.currentMorningGuidance.usedAt && {
-        usedAt: Timestamp.fromDate(userAccount.currentMorningGuidance.usedAt)
-      })
-    };
+  if (userAccount.firstName !== undefined) {
+    data.firstName = userAccount.firstName;
   }
 
-  if (userAccount.alignment !== undefined) {
-    data.alignment = userAccount.alignment;
-  }
-
-  // Always include onboardingCompleted field, defaulting to false if not provided
-  data.onboardingCompleted = userAccount.onboardingCompleted ?? false;
-  
   if (userAccount.onboardingData !== undefined) {
     data.onboardingData = userAccount.onboardingData;
+  }
+
+  if (userAccount.coachingConfig !== undefined) {
+    data.coachingConfig = userAccount.coachingConfig;
+  }
+
+  if (userAccount.mobilePushNotifications !== undefined) {
+    data.mobilePushNotifications = userAccount.mobilePushNotifications;
+  }
+
+  if (userAccount.userTimezone !== undefined) {
+    data.userTimezone = userAccount.userTimezone;
   }
 
   return data;
@@ -145,10 +139,30 @@ export class FirestoreService {
           // Delete the corrupted document and create a new one
           await deleteDoc(docRef);
           
-          // Create new user account
+          // Create new user account with default values
           const newUserAccount: UserAccount = {
             uid: userId,
-            onboardingCompleted: false, // Set to false for new users
+            firstName: '', // Will need to be set during onboarding
+            onboardingData: {
+              onboardingCompleted: false,
+              onboardingCompletedAt: 0,
+              whatDoYouDoInLife: [],
+              selfReflectionPracticesTried: [],
+              clarityInLife: 0,
+              stressInLife: 0
+            },
+            coachingConfig: {
+              challengeDegree: 'moderate',
+              harshToneDegree: 'supportive',
+              coachingMessageFrequency: 'daily',
+              investingTime: 0,
+              enableCoachingMessages: false
+            },
+            mobilePushNotifications: {
+              enabled: false,
+              expoPushTokens: []
+            },
+            userTimezone: 'America/New_York', // Default timezone
             createdAt: new Date(),
             updatedAt: new Date()
           };
@@ -169,10 +183,30 @@ export class FirestoreService {
         
         return convertFirestoreUserAccount({ id: docSnap.id, data: () => docSnap.data() });
       } else {
-        // Create new user account
+        // Create new user account with default values
         const newUserAccount: UserAccount = {
           uid: userId,
-          onboardingCompleted: false, // Set to false for new users
+          firstName: '', // Will need to be set during onboarding
+          onboardingData: {
+            onboardingCompleted: false,
+            onboardingCompletedAt: 0,
+            whatDoYouDoInLife: [],
+            selfReflectionPracticesTried: [],
+            clarityInLife: 0,
+            stressInLife: 0
+          },
+          coachingConfig: {
+            challengeDegree: 'moderate',
+            harshToneDegree: 'supportive',
+            coachingMessageFrequency: 'daily',
+            investingTime: 0,
+            enableCoachingMessages: false
+          },
+          mobilePushNotifications: {
+            enabled: false,
+            expoPushTokens: []
+          },
+          userTimezone: 'America/New_York', // Default timezone
           createdAt: new Date(),
           updatedAt: new Date()
         };

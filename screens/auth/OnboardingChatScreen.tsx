@@ -255,6 +255,38 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       }, 1000);
     }
   }, [name, messages.length, setMessages]);
+  
+  // Function to skip to completion for testing purposes
+  const handleTestSkip = () => {
+    console.log('🧪 TEST: Triggering completion popup');
+    
+    // Create a message with finish tokens that will trigger completion
+    const testCompletionMessage: CoachingMessage = {
+      id: Date.now().toString(),
+      content: `This is a test completion message.\n\n[finish-start]
+[focus:focus="Self-reflection",context="Testing completion flow"]
+[insight:insight="This is a test insight",context="For development purposes"]
+[insight:insight="Another test insight",context="Skip onboarding"]
+[finish-end]`,
+      role: 'assistant',
+      timestamp: new Date()
+    };
+    
+    // Set completion stats for a realistic experience
+    setCompletionStats({
+      minutes: 5,
+      words: 250,
+      keyInsights: 3
+    });
+    
+    // Add the message to the chat
+    setMessages([...messages, testCompletionMessage]);
+    
+    // After a short delay, show the completion popup for the new message
+    setTimeout(() => {
+      setShowCompletionForMessage(testCompletionMessage.id);
+    }, 300);
+  };
 
   // Controlled scrolling - only when explicitly needed
   const scrollToBottomRef = useRef(false);
@@ -806,18 +838,32 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               />
             )}
 
-            {/* State 1: Empty input - show microphone only */}
+            {/* State 1: Empty input - show microphone and test button */}
             {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
-              <TouchableOpacity
-                style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                onPress={handleMicrophonePress}
-              >
-                <Ionicons
-                  name="mic"
-                  size={20}
-                  color={colors.background}
-                />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                  onPress={handleMicrophonePress}
+                >
+                  <Ionicons
+                    name="mic"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+                
+                {/* Test button - only for development */}
+                <TouchableOpacity
+                  style={[styles.microphoneButton, { backgroundColor: '#FF5733' }]}
+                  onPress={handleTestSkip}
+                >
+                  <Ionicons
+                    name="bug"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+              </View>
             )}
 
             {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
@@ -859,7 +905,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             
 
 
-            {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
+            {/* State 3: Text entered or transcribing - show microphone, send, and test buttons */}
             {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity
@@ -885,6 +931,19 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 >
                   <Ionicons
                     name="arrow-up"
+                    size={20}
+                    color={colors.background}
+                  />
+                </TouchableOpacity>
+                
+                {/* Test button - only for development */}
+                <TouchableOpacity
+                  style={[styles.microphoneButton, { backgroundColor: '#FF5733' }]}
+                  onPress={handleTestSkip}
+                  disabled={isTranscribing}
+                >
+                  <Ionicons
+                    name="bug"
                     size={20}
                     color={colors.background}
                   />

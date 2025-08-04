@@ -516,15 +516,20 @@ export default function HomeContent() {
               keyboardVerticalOffset={Platform.OS === 'ios' ? -20 : 0}
               style={styles.keyboardAvoidingContainer}
             >
-              <View style={{
+              <View style={[{
                 flexDirection: 'row',
                 justifyContent: isKeyboardVisible ? 'space-between' : 'center',
                 alignItems: 'center',
                 paddingHorizontal: 20,
-                paddingTop: 20,
                 paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
                 backgroundColor: colors.background
-              }}>
+              }, isKeyboardVisible && {
+                backgroundColor: colors.background,
+                paddingTop: 15,
+                boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
+                borderTopLeftRadius: 18,
+                borderTopRightRadius: 18,
+              }]}>
                 {isKeyboardVisible && (
                   <View style={styles.buttonGroup}>
                     {/* Settings Button */}

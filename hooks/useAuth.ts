@@ -66,6 +66,7 @@ export function useAuth() {
         
         // Check if user needs onboarding
         setNeedsOnboarding(account.onboardingData.onboardingCompleted !== true);
+        setNeedsOnboarding(false);
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality

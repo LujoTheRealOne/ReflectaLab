@@ -1,4 +1,4 @@
-import Editor from '@/components/TipTap';
+import NativeEditor from '../components/NativeEditor';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -496,8 +496,9 @@ export default function HomeContent() {
                 </View>
 
                 {/* Thoughts Section */}
+                {/* TODO: This is where we need a native text editor */}
                 <View style={{ flex: 1, marginBottom: 80 }}>
-                  <Editor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
+                  <NativeEditor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
                 </View>
               </View>
               {/* <TouchableOpacity

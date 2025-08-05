@@ -23,9 +23,10 @@ export interface UserAccount {
   coachingConfig: {
       challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
       harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
-      investingTime: number;
       coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
       enableCoachingMessages?: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
+      lastCoachingMessageSentAt?: number; // unix timestamp
+      coachingMessageTimePreference?: 'morning' | 'afternoon' | 'evening';
   };
   mobilePushNotifications?: {
     enabled: boolean;
@@ -33,7 +34,7 @@ export interface UserAccount {
     lastNotificationSentAt?: number; // unix timestamp
   };
   userTimezone: string; // timezone of the user (e.g. "America/New_York")
-
+  nextCoachingMessageDue?: number; // unix timestamp when next coaching message should be sent
 }
 
 export interface MorningGuidance {

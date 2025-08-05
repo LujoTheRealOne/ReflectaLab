@@ -64,8 +64,9 @@ export function useAuth() {
         const account = await FirestoreService.getUserAccount(firebaseUser.uid);
         setUserAccount(account);
         
-        // Check if user needs onboarding
-        setNeedsOnboarding(account.onboardingData.onboardingCompleted !== true);
+        // Check if user needs onboarding (with safe access in case of missing data)
+        const needsOnboarding = !account.onboardingData || account.onboardingData.onboardingCompleted !== true;
+        setNeedsOnboarding(needsOnboarding);
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality
@@ -151,6 +152,7 @@ export function useAuth() {
   const completeOnboarding = useCallback(async () => {
     if (firebaseUser?.uid) {
       try {
+        console.log('🚀 Updating onboarding status in Firestore...');
         // Update user account in Firestore
         await FirestoreService.updateUserAccount(firebaseUser.uid, {
           onboardingData: {
@@ -162,9 +164,21 @@ export function useAuth() {
             stressInLife: 0,
           },
         });
-        setNeedsOnboarding(false);
+        
+        console.log('✅ Firestore updated, now refreshing user account...');
+        // Refresh the user account data to get the updated onboarding status
+        const updatedAccount = await FirestoreService.getUserAccount(firebaseUser.uid);
+        setUserAccount(updatedAccount);
+        const needsOnboarding = !updatedAccount.onboardingData || updatedAccount.onboardingData.onboardingCompleted !== true;
+        setNeedsOnboarding(needsOnboarding);
+        
+        console.log('🧭 User account refreshed:', { 
+          onboardingCompleted: updatedAccount.onboardingData.onboardingCompleted,
+          needsOnboarding: updatedAccount.onboardingData.onboardingCompleted !== true
+        });
       } catch (error) {
         console.error('Failed to update onboarding status:', error);
+        throw error; // Re-throw to handle in the UI
       }
     }
   }, [firebaseUser?.uid]);

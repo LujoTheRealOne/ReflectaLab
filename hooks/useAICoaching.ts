@@ -15,7 +15,7 @@ interface UseAICoachingReturn {
   isLoading: boolean;
   error: string | null;
   progress: number; // 0-100
-  sendMessage: (content: string, sessionId?: string) => Promise<void>;
+  sendMessage: (content: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => Promise<void>;
   clearMessages: () => void;
   setMessages: (messages: CoachingMessage[]) => void;
 }
@@ -55,7 +55,7 @@ export function useAICoaching(): UseAICoachingReturn {
       const token = await getToken();
       if (!token) return;
 
-      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/prototype/progress-evaluation`, {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/progress`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -81,10 +81,11 @@ export function useAICoaching(): UseAICoachingReturn {
     }
   };
 
-  const sendMessage = useCallback(async (content: string, sessionId?: string) => {
+  const sendMessage = useCallback(async (content: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => {
     if (!content.trim()) return;
-
-    const currentSessionId = sessionId || 'mobile-session';
+    if (!sessionId || !sessionId.trim()) {
+      throw new Error('Session ID is required for coaching messages');
+    }
 
     // Cancel any ongoing request
     if (abortControllerRef.current) {
@@ -114,7 +115,7 @@ export function useAICoaching(): UseAICoachingReturn {
       }
 
       // Call the web app API endpoint
-      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/prototype/coach`, {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,7 +123,9 @@ export function useAICoaching(): UseAICoachingReturn {
         },
         body: JSON.stringify({
           message: content.trim(),
-          sessionId: sessionId || 'mobile-session',
+          sessionId: sessionId,
+          sessionType: options?.sessionType || 'default-session',
+          sessionDuration: options?.sessionDuration,
           conversationHistory: messages // Include conversation history for context
         }),
         signal: abortControllerRef.current.signal,
@@ -191,7 +194,7 @@ export function useAICoaching(): UseAICoachingReturn {
         // Evaluate progress after response is complete (unless finish token detected)
         if (!hasFinishToken) {
           const updatedMessages = [...messages, userMessage, { ...aiMessage, content: fullContent }];
-          await evaluateProgress(sessionId || 'mobile-session', updatedMessages);
+          await evaluateProgress(sessionId, updatedMessages);
         }
         
         return;
@@ -233,7 +236,7 @@ export function useAICoaching(): UseAICoachingReturn {
                 } else {
                   // Evaluate progress after response is complete
                   const updatedMessages = [...messages, userMessage, { ...aiMessage, content: fullContent }];
-                  await evaluateProgress(sessionId || 'mobile-session', updatedMessages);
+                  await evaluateProgress(sessionId, updatedMessages);
                 }
                 break;
               } else if (data.type === 'error') {
@@ -271,7 +274,7 @@ export function useAICoaching(): UseAICoachingReturn {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [messages, getToken, progress, evaluateProgress, simulateTypewriter]);
+  }, [messages, getToken, progress]);
 
   const clearMessages = useCallback(() => {
     // Track coaching completion

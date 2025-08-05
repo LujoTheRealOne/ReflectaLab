@@ -1,9 +1,10 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Mic, X, Check, ArrowUp } from 'lucide-react-native';
+import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import * as Progress from 'react-native-progress';
@@ -12,6 +13,8 @@ import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { FirestoreService } from '@/lib/firestore';
+import { UserAccount } from '@/types/journal';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -141,12 +144,24 @@ export default function OnboardingChatScreen() {
   // Use the new AI coaching hook with progress tracking
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
-  const { completeOnboarding } = useAuth();
+  const { completeOnboarding, firebaseUser, getToken } = useAuth();
+
+  // Session ID state - will be generated when first message is sent
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  
+  // Generate unique session ID using proper UUID
+  const generateSessionId = (): string => {
+    return Crypto.randomUUID();
+  };
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
+  const [showSchedulingForMessage, setShowSchedulingForMessage] = useState<string | null>(null);
+  const [selectedFrequency, setSelectedFrequency] = useState<string>('once a week');
+  const [confirmedSchedulingForMessage, setConfirmedSchedulingForMessage] = useState<string | null>(null);
+  const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
 
   // Use the audio transcription hook
@@ -185,24 +200,14 @@ export default function OnboardingChatScreen() {
     rawData: string;
   } | null>(null);
 
-  // Function to parse coaching completion data between finish tokens
-  const parseCoachingCompletion = (content: string) => {
-    const finishStartIndex = content.indexOf('[finish-start]');
-    const finishEndIndex = content.indexOf('[finish-end]');
-    
-    if (finishStartIndex === -1 || finishEndIndex === -1) {
-      return { components: [], rawData: '' };
-    }
-    
-    // Extract content between finish tokens
-    const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
-    
-    // Parse component markers like [focus:focus="...",context="..."]
+  // Function to parse coaching cards from any content
+  const parseCoachingCards = (content: string) => {
+    // Parse component markers like [checkin:frequency="once a day",what="morning routine progress",notes="..."]
     const componentRegex = /\[(\w+):([^\]]+)\]/g;
     const components: Array<{ type: string; props: Record<string, string> }> = [];
     
     let match;
-    while ((match = componentRegex.exec(finishContent)) !== null) {
+    while ((match = componentRegex.exec(content)) !== null) {
       const componentType = match[1];
       const propsString = match[2];
       
@@ -219,6 +224,24 @@ export default function OnboardingChatScreen() {
       components.push({ type: componentType, props });
     }
     
+    return components;
+  };
+
+  // Function to parse coaching completion data between finish tokens
+  const parseCoachingCompletion = (content: string) => {
+    const finishStartIndex = content.indexOf('[finish-start]');
+    const finishEndIndex = content.indexOf('[finish-end]');
+    
+    if (finishStartIndex === -1 || finishEndIndex === -1) {
+      return { components: [], rawData: '' };
+    }
+    
+    // Extract content between finish tokens
+    const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
+    
+    // Use the general parsing function
+    const components = parseCoachingCards(finishContent);
+    
     console.log('🎯 Parsed coaching completion:', { 
       componentsCount: components.length, 
       components,
@@ -228,17 +251,137 @@ export default function OnboardingChatScreen() {
     return { components, rawData: finishContent };
   };
 
-  // Function to clean message content by removing finish tokens and structured data
+  // Function to call coaching chat API for coaching blocks
+  const callCoachingInteractionAPI = async (entryContent: string) => {
+    try {
+      // Validate input
+      if (!entryContent || entryContent.trim().length === 0) {
+        throw new Error('Entry content is required and cannot be empty');
+      }
+
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication token not available');
+      }
+
+      // Ensure we have a sessionId - generate one if needed
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        currentSessionId = generateSessionId();
+        setSessionId(currentSessionId);
+        console.log(`🆔 Generated new session ID for API call: ${currentSessionId}`);
+      }
+
+      const requestBody = {
+        message: entryContent.trim(),
+        sessionId: currentSessionId,
+        sessionType: 'initial-life-deep-dive',
+        sessionDuration: timeDuration,
+        conversationHistory: messages.slice(0, 5) // Limit history to avoid large requests
+      };
+
+      console.log('📤 API Request:', {
+        endpoint: `${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`,
+        messageLength: requestBody.message.length,
+        sessionId: requestBody.sessionId,
+        historyCount: requestBody.conversationHistory.length
+      });
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('❌ Coaching Chat API Error:', errorText);
+        throw new Error(`API Error: ${response.status} - ${errorText}`);
+      }
+
+      // Note: The coaching/chat endpoint returns streaming SSE, but we're just checking if the call succeeds
+      // for now since we're using it to trigger backend processing
+      console.log('✅ API call successful');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error calling coaching chat API:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  };
+
+  // Function to map UI frequency to UserAccount type and update coaching config
+  const updateCoachingConfiguration = async (selectedFrequency: string) => {
+    if (!firebaseUser?.uid) {
+      console.error('❌ No user ID available for updating coaching config');
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    try {
+      // Map UI frequency to UserAccount type
+      const frequencyMap: Record<string, 'daily' | 'multipleTimesPerWeek' | 'onceAWeek'> = {
+        'once a week': 'onceAWeek',
+        'couple times a week': 'multipleTimesPerWeek',
+        'daily': 'daily'
+      };
+
+      const mappedFrequency = frequencyMap[selectedFrequency];
+      if (!mappedFrequency) {
+        console.error('❌ Invalid frequency:', selectedFrequency);
+        return { success: false, error: 'Invalid frequency' };
+      }
+
+      console.log('📊 Updating coaching configuration:', {
+        userId: firebaseUser.uid,
+        frequency: selectedFrequency,
+        mappedFrequency,
+        enableCoachingMessages: true
+      });
+
+      // Get current user account to preserve existing coaching settings
+      const currentAccount = await FirestoreService.getUserAccount(firebaseUser.uid);
+      
+      // Update user's coaching configuration in Firestore, preserving existing settings
+      const updates: Partial<UserAccount> = {
+        coachingConfig: {
+          challengeDegree: currentAccount.coachingConfig?.challengeDegree || 'moderate',
+          harshToneDegree: currentAccount.coachingConfig?.harshToneDegree || 'supportive',
+          coachingMessageFrequency: mappedFrequency,
+          enableCoachingMessages: true
+        }
+      };
+
+      await FirestoreService.updateUserAccount(firebaseUser.uid, updates);
+      
+      console.log('✅ Successfully updated coaching configuration');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error updating coaching configuration:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  };
+
+  // Function to clean message content by removing finish tokens and coaching cards
   const getDisplayContent = (content: string) => {
-    const finishStartIndex = content.indexOf('[finish-start]');
+    let cleanContent = content;
     
-    // If no finish tokens, return original content
-    if (finishStartIndex === -1) {
-      return content;
+    // Remove finish tokens and everything after them
+    const finishStartIndex = cleanContent.indexOf('[finish-start]');
+    if (finishStartIndex !== -1) {
+      cleanContent = cleanContent.slice(0, finishStartIndex).trim();
     }
     
-    // Return only the content before the finish tokens
-    return content.slice(0, finishStartIndex).trim();
+    // Remove coaching card syntax like [checkin:...], [focus:...], etc.
+    const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
+    cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
+    
+    // Clean up extra whitespace/newlines that might be left
+    cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple newlines with double newlines
+    cleanContent = cleanContent.trim();
+    
+    return cleanContent;
   };
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -304,6 +447,37 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [messages, showPopupForMessage]);
 
+  // Check for scheduling/checkin cards in new AI messages
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    
+    // Only check assistant messages that have content and aren't already showing a popup
+    if (lastMessage && 
+        lastMessage.role === 'assistant' && 
+        lastMessage.content.length > 0 &&
+        !showSchedulingForMessage &&
+        !showPopupForMessage &&
+        !showCompletionForMessage &&
+        !confirmedSchedulingForMessage) {
+      
+      // Parse coaching cards from the message
+      const coachingCards = parseCoachingCards(lastMessage.content);
+      const hasCheckinCard = coachingCards.some(card => card.type === 'checkin');
+      
+      if (hasCheckinCard && !confirmedSchedulingMessages.has(lastMessage.id)) {
+        console.log('📅 Found checkin card in message:', lastMessage.id, coachingCards);
+        
+        // Small delay to ensure message is fully rendered
+        setTimeout(() => {
+          setShowSchedulingForMessage(lastMessage.id);
+          setSelectedFrequency('once a week');
+        }, 300);
+      }
+    }
+  }, [messages, showSchedulingForMessage, showPopupForMessage, showCompletionForMessage, confirmedSchedulingMessages]);
+
   // Check for completion when progress reaches 100%
   useEffect(() => {
     if (progress === 100 && !showCompletionForMessage) {
@@ -353,14 +527,25 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
+    // Generate session ID for first user message if not already set
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      currentSessionId = generateSessionId();
+      setSessionId(currentSessionId);
+      console.log(`🆔 Generated new session ID for onboarding: ${currentSessionId}`);
+    }
+
     const messageContent = chatInput.trim();
     setChatInput('');
     
     // Trigger scroll after sending message
     scrollToBottomRef.current = true;
 
-    // Send message using the AI coaching hook
-    await sendMessage(messageContent, 'onboarding-session');
+    // Send message using the AI coaching hook with session ID, type, and duration
+    await sendMessage(messageContent, currentSessionId, {
+      sessionType: 'initial-life-deep-dive',
+      sessionDuration: timeDuration
+    });
   };
 
   const handleMicrophonePress = () => {
@@ -417,6 +602,115 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
+  const handleSchedulingAction = async (action: string, messageId: string, frequency?: string) => {
+    console.log(`Scheduling action: ${action} for message: ${messageId}`, { frequency, selectedFrequency });
+    
+    // Find the message with checkin card
+    const message = messages.find(msg => msg.id === messageId);
+    if (!message) return;
+    
+    const coachingCards = parseCoachingCards(message.content);
+    const checkinCard = coachingCards.find(card => card.type === 'checkin');
+    
+    if (!checkinCard) return;
+    
+    switch (action) {
+      case 'decline':
+        console.log('User declined scheduling checkins');
+        setShowSchedulingForMessage(null);
+        // Add optional decline message
+        const declineMessage: CoachingMessage = {
+          id: (Date.now() + 3).toString(),
+          role: 'assistant',
+          content: "No worries! You can always set up check-ins later when you're ready to dive deeper into your growth journey.",
+          timestamp: new Date()
+        };
+        setMessages([...messages, declineMessage]);
+        break;
+        
+      case 'toggle-frequency':
+        if (frequency) {
+          console.log('User toggled frequency to:', frequency);
+          setSelectedFrequency(frequency);
+        }
+        break;
+        
+      case 'confirm':
+        try {
+          console.log('✅ User confirmed scheduling:', { frequency: selectedFrequency, checkinCard: checkinCard.props });
+          
+          // Show confirmed state immediately
+          setShowSchedulingForMessage(null);
+          setConfirmedSchedulingForMessage(messageId);
+          setConfirmedSchedulingMessages(prev => new Set([...prev, messageId]));
+          
+          // 1. Update user's coaching configuration in Firestore
+          console.log('💾 Saving coaching configuration to user profile...');
+          const configResult = await updateCoachingConfiguration(selectedFrequency);
+          
+          // 2. Call coaching interaction API with user's current context
+          const userMessages = messages.filter(msg => msg.role === 'user');
+          const contextContent = userMessages.map(msg => msg.content).join(' ').trim();
+          
+          // Provide a meaningful message for the API call
+          const apiMessage = contextContent || `User confirmed ${selectedFrequency} check-ins about ${checkinCard.props.what || 'their progress'}`;
+          
+          console.log('📤 Sending to API:', { message: apiMessage, contextLength: contextContent.length });
+          const apiResult = await callCoachingInteractionAPI(apiMessage);
+          
+          // 3. Show appropriate confirmation message based on results
+          const what = checkinCard.props.what || 'your progress';
+          
+          if (configResult.success && apiResult && apiResult.success) {
+            console.log('📅 Both config update and API call successful');
+            
+            const confirmationMessage: CoachingMessage = {
+              id: (Date.now() + 3).toString(),
+              role: 'assistant',
+              content: `Perfect! I've scheduled ${selectedFrequency} check-ins about ${what}. You'll receive thoughtful prompts to help you stay on track with your goals.`,
+              timestamp: new Date()
+            };
+            setMessages([...messages, confirmationMessage]);
+          } else if (configResult.success) {
+            console.log('📊 Config saved successfully, API call failed');
+            
+            const confirmationMessage: CoachingMessage = {
+              id: (Date.now() + 3).toString(),
+              role: 'assistant',
+              content: `Great! I've saved your preference for ${selectedFrequency} check-ins about ${what}. Your coaching schedule is now active.`,
+              timestamp: new Date()
+            };
+            setMessages([...messages, confirmationMessage]);
+          } else {
+            console.log('⚠️ Config update failed, showing fallback message');
+            
+            const confirmationMessage: CoachingMessage = {
+              id: (Date.now() + 3).toString(),
+              role: 'assistant',
+              content: `Got it! I've noted your preference for ${selectedFrequency} check-ins about ${what}. This will help you stay accountable to your goals.`,
+              timestamp: new Date()
+            };
+            setMessages([...messages, confirmationMessage]);
+          }
+          
+          // Keep confirmed popup visible permanently
+          
+        } catch (error) {
+          console.error('Error setting up scheduling:', error);
+          setShowSchedulingForMessage(null);
+          // Add error message
+          const errorMessage: CoachingMessage = {
+            id: (Date.now() + 3).toString(),
+            role: 'assistant',
+            content: "I had trouble setting up the scheduling right now, but don't worry - we can try again later.",
+            timestamp: new Date()
+          };
+          setMessages([...messages, errorMessage]);
+        }
+        break;
+    }
+  };
+
   const handleCompletionAction = async () => {
     console.log('User clicked End this session');
     console.log('📊 Session Stats:', completionStats);
@@ -434,6 +728,27 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       parsedCoachingData: parsedCoachingData || undefined
     });
     setShowCompletionForMessage(null);
+  };
+
+  const handleEnterApp = async () => {
+    console.log('User clicked Enter App');
+    console.log('📊 Session Stats:', completionStats);
+    console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
+    
+    try {
+      // Complete onboarding first
+      console.log('🚀 Starting onboarding completion...');
+      await completeOnboarding();
+      console.log('✅ Onboarding completion finished successfully');
+      
+      // Add a small delay to ensure state propagation
+      setTimeout(() => {
+        console.log('🧭 Navigation should now be updated automatically');
+      }, 100);
+      
+    } catch (error) {
+      console.error('❌ Error completing onboarding:', error);
+    }
   };
 
   return (
@@ -569,12 +884,105 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                           onPress={handleCompletionAction}
                           style={{ flex: 1 }}
                         >
-                          End this session
+                          View Compass Results
                         </Button>
                       </View>
                     </View>
                   </View>
                 )}
+
+                                {/* Scheduling Popup - appears when checkin cards are detected */}
+                {message.role === 'assistant' && showSchedulingForMessage === message.id && (() => {
+                  const coachingCards = parseCoachingCards(message.content);
+                  const checkinCard = coachingCards.find(card => card.type === 'checkin');
+                  const what = checkinCard?.props.what || 'your progress';
+                  
+                  return (
+                    <View style={[
+                      styles.aiPopup,
+                      {
+                        backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                        borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+                      }
+                    ]}>
+                      <View style={styles.aiPopupContent}>
+                        <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
+                          How often would you like check-ins?
+                        </Text>
+                        <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
+                          Choose a frequency for check-ins about {what}
+                        </Text>
+
+                        {/* Frequency Toggle Options */}
+                        <View style={[styles.aiPopupButtons, { flexDirection: 'column', gap: 8, marginBottom: 8 }]}>
+                          <Button
+                            variant={selectedFrequency === 'once a week' ? 'primary' : 'secondary'}
+                            size="sm"
+                            onPress={() => handleSchedulingAction('toggle-frequency', message.id, 'once a week')}
+                            style={{ width: '100%' }}
+                          >
+                            Once a week
+                          </Button>
+                          <Button
+                            variant={selectedFrequency === 'couple times a week' ? 'primary' : 'secondary'}
+                            size="sm"
+                            onPress={() => handleSchedulingAction('toggle-frequency', message.id, 'couple times a week')}
+                            style={{ width: '100%' }}
+                          >
+                            Couple times a week
+                          </Button>
+                        </View>
+
+                        {/* Action Buttons */}
+                        <View style={styles.aiPopupButtons}>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onPress={() => handleSchedulingAction('confirm', message.id)}
+                            style={{ width: '100%' }}
+                          >
+                            Confirm
+                          </Button>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                {/* Confirmed Scheduling Popup - appears after user confirms */}
+                {message.role === 'assistant' && confirmedSchedulingForMessage === message.id && (() => {
+                  return (
+                    <View style={[
+                      styles.aiPopup,
+                      {
+                        backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                        borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+                      }
+                    ]}>
+                      <View style={styles.aiPopupContent}>
+                        <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
+                          Check-in schedule confirmed
+                        </Text>
+                        <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
+                          You'll receive {selectedFrequency} reminders to help you stay on track.
+                        </Text>
+
+                        {/* Confirmed Button */}
+                        <View style={styles.aiPopupButtons}>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onPress={() => {}} // No action needed, disabled state
+                            style={{ width: '100%', opacity: 0.6 }}
+                            disabled={true}
+                          >
+                            Confirmed
+                          </Button>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()}
               </View>
             ))}
             {isLoading && (
@@ -591,128 +999,143 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           </ScrollView>
         </View>
 
-        {/* Input - extends to screen bottom */}
-        <View style={styles.chatInputContainer}>
-          <View style={[
-            styles.chatInputWrapper,
-            {
-              backgroundColor: colors.background,
-              borderTopWidth: 1,
-              borderLeftWidth: 1,
-              borderRightWidth: 1,
-              borderColor: `${colors.tint}12`,
-              paddingBottom: Math.max(insets.bottom, 20), // Ensure minimum padding + safe area
-              flexDirection: isRecording ? 'column' : 'row',
-            }
-          ]}>
-            {isTranscribing ? (
-              <View style={[styles.chatInput, styles.transcribingInputContainer]}>
-                <SpinningAnimation colorScheme={colorScheme} />
-              </View>
-            ) : (
-              <TextInput
-                ref={textInputRef}
-                style={[
-                  styles.chatInput,
-                  { color: colors.text },
-                  isRecording && { flex: 0, width: '100%', textAlign: 'left' }
-                ]}
-                value={chatInput}
-                onChangeText={setChatInput}
-                onFocus={() => setIsChatInputFocused(true)}
-                onBlur={() => setIsChatInputFocused(false)}
-                placeholder="Share whats on your mind..."
-                placeholderTextColor={`${colors.text}66`}
-                multiline
-                maxLength={500}
-                returnKeyType='default'
-                onSubmitEditing={handleSendMessage}
-                cursorColor={colors.tint}
-                editable={!isRecording}
-              />
-            )}
-
-            {/* State 1: Empty input - show microphone only */}
-            {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
-              <TouchableOpacity
-                style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                onPress={handleMicrophonePress}
-              >
-                <Mic
-                  size={20}
-                  color={colors.background}
+        {/* Input or Enter App Button - based on progress */}
+        {progress === 100 ? (
+          /* Enter App Button when progress is complete */
+          <View style={[styles.enterAppContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <Button
+              variant="primary"
+              size="default"
+              onPress={handleEnterApp}
+              style={styles.enterAppButton}
+            >
+              Enter App
+            </Button>
+          </View>
+        ) : (
+          /* Input - extends to screen bottom */
+          <View style={styles.chatInputContainer}>
+            <View style={[
+              styles.chatInputWrapper,
+              {
+                backgroundColor: colors.background,
+                borderTopWidth: 1,
+                borderLeftWidth: 1,
+                borderRightWidth: 1,
+                borderColor: `${colors.tint}12`,
+                paddingBottom: Math.max(insets.bottom, 20), // Ensure minimum padding + safe area
+                flexDirection: isRecording ? 'column' : 'row',
+              }
+            ]}>
+              {isTranscribing ? (
+                <View style={[styles.chatInput, styles.transcribingInputContainer]}>
+                  <SpinningAnimation colorScheme={colorScheme} />
+                </View>
+              ) : (
+                <TextInput
+                  ref={textInputRef}
+                  style={[
+                    styles.chatInput,
+                    { color: colors.text },
+                    isRecording && { flex: 0, width: '100%', textAlign: 'left' }
+                  ]}
+                  value={chatInput}
+                  onChangeText={setChatInput}
+                  onFocus={() => setIsChatInputFocused(true)}
+                  onBlur={() => setIsChatInputFocused(false)}
+                  placeholder="Share whats on your mind..."
+                  placeholderTextColor={`${colors.text}66`}
+                  multiline
+                  maxLength={500}
+                  returnKeyType='default'
+                  onSubmitEditing={handleSendMessage}
+                  cursorColor={colors.tint}
+                  editable={!isRecording}
                 />
-              </TouchableOpacity>
-            )}
+              )}
 
-            {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
-            {isRecording && !isTranscribing && (
-              <View style={styles.recordingContainer}>
-                {/* Left side - Cancel button */}
-                <TouchableOpacity
-                  style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
-                  onPress={handleRecordingCancel}
-                >
-                  <X
-                    size={20}
-                    color={colors.text}
-                  />
-                </TouchableOpacity>
-                
-                {/* Left-center - Audio level visualization */}
-                <View style={styles.recordingCenterSection}>
-                  <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
-                </View>
-                
-                {/* Right side - Timer and confirm button */}
-                <View style={styles.recordingRightSection}>
-                  <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
-                  <TouchableOpacity
-                    style={[styles.recordingButton, { backgroundColor: colors.text }]}
-                    onPress={handleRecordingConfirm}
-                  >
-                    <Check
-                      size={20}
-                      color={colors.background}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-            
-
-            {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
-            {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+              {/* State 1: Empty input - show microphone only */}
+              {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
                 <TouchableOpacity
                   style={[styles.microphoneButton, { backgroundColor: colors.text }]}
                   onPress={handleMicrophonePress}
-                  disabled={isTranscribing}
                 >
                   <Mic
                     size={20}
                     color={colors.background}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.sendButton, 
-                    { 
-                      backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
-                    }
-                  ]}
-                  onPress={handleSendMessage}
-                  disabled={isTranscribing}
-                >
-                  <ArrowUp
-                    size={20}
-                    color={colors.background}
-                  />
-                </TouchableOpacity>
-              </View>
-            )}
+              )}
+
+              {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
+              {isRecording && !isTranscribing && (
+                <View style={styles.recordingContainer}>
+                  {/* Left side - Cancel button */}
+                  <TouchableOpacity
+                    style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
+                    onPress={handleRecordingCancel}
+                  >
+                    <X
+                      size={20}
+                      color={colors.text}
+                    />
+                  </TouchableOpacity>
+                  
+                  {/* Left-center - Audio level visualization */}
+                  <View style={styles.recordingCenterSection}>
+                    <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
+                  </View>
+                  
+                  {/* Right side - Timer and confirm button */}
+                  <View style={styles.recordingRightSection}>
+                    <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
+                    <TouchableOpacity
+                      style={[styles.recordingButton, { backgroundColor: colors.text }]}
+                      onPress={handleRecordingConfirm}
+                    >
+                      <Check
+                        size={20}
+                        color={colors.background}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              
+
+              {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
+              {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity
+                    style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                    onPress={handleMicrophonePress}
+                    disabled={isTranscribing}
+                  >
+                    <Mic
+                      size={20}
+                      color={colors.background}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sendButton, 
+                      { 
+                        backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
+                      }
+                    ]}
+                    onPress={handleSendMessage}
+                    disabled={isTranscribing}
+                  >
+                    <ArrowUp
+                      size={20}
+                      color={colors.background}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -960,5 +1383,15 @@ const styles = StyleSheet.create({
   recordingTimer: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  enterAppContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    backgroundColor: 'transparent',
+  },
+  enterAppButton: {
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   }
 }); 

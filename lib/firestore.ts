@@ -30,7 +30,6 @@ export interface FirestoreUserAccount {
     challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
     harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
     coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
-    investingTime: number;
     enableCoachingMessages?: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
   };
   mobilePushNotifications?: {
@@ -55,30 +54,37 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
   
   const createdAt = data.createdAt ? (data.createdAt as Timestamp).toDate() : (data.updatedAt as Timestamp).toDate();
   
+  // Provide default onboarding data for safety (should be rare after migration)
+  const defaultOnboardingData = {
+    onboardingCompleted: false,
+    onboardingCompletedAt: 0,
+    whatDoYouDoInLife: [],
+    selfReflectionPracticesTried: [],
+    clarityInLife: 0,
+    stressInLife: 0
+  };
+
+  // Provide default coaching config for safety
+  const defaultCoachingConfig = {
+    challengeDegree: 'moderate' as const,
+    harshToneDegree: 'supportive' as const,
+    coachingMessageFrequency: 'daily' as const,
+    enableCoachingMessages: false
+  };
+
+  // Provide default mobile push notifications for safety
+  const defaultMobilePushNotifications = {
+    enabled: false,
+    expoPushTokens: []
+  };
+
   return {
     uid: data.uid as string,
-    firstName: data.firstName as string,
-    onboardingData: data.onboardingData as {
-      onboardingCompleted: boolean;
-      onboardingCompletedAt: number;
-      whatDoYouDoInLife: string[];
-      selfReflectionPracticesTried: string[];
-      clarityInLife: number;
-      stressInLife: number;
-    },
-    coachingConfig: data.coachingConfig as {
-      challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
-      harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
-      coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
-      investingTime: number;
-      enableCoachingMessages?: boolean;
-    },
-    mobilePushNotifications: data.mobilePushNotifications as {
-      enabled: boolean;
-      expoPushTokens: string[];
-      lastNotificationSentAt?: number;
-    },
-    userTimezone: data.userTimezone as string,
+    firstName: data.firstName || '',
+    onboardingData: data.onboardingData || defaultOnboardingData,
+    coachingConfig: data.coachingConfig || defaultCoachingConfig,
+    mobilePushNotifications: data.mobilePushNotifications || defaultMobilePushNotifications,
+    userTimezone: data.userTimezone || 'America/New_York',
     createdAt,
     updatedAt: (data.updatedAt as Timestamp).toDate()
   };
@@ -155,7 +161,6 @@ export class FirestoreService {
               challengeDegree: 'moderate',
               harshToneDegree: 'supportive',
               coachingMessageFrequency: 'daily',
-              investingTime: 0,
               enableCoachingMessages: false
             },
             mobilePushNotifications: {
@@ -173,6 +178,69 @@ export class FirestoreService {
           return newUserAccount;
         }
         
+        // Check if user is missing onboarding data (migration for web users)
+        if (!userData.onboardingData) {
+          console.log('🔧 [MIGRATION] Web user detected - adding missing onboarding data...', { userId });
+          
+          const onboardingDataUpdate = {
+            onboardingData: {
+              onboardingCompleted: false,
+              onboardingCompletedAt: 0,
+              whatDoYouDoInLife: [],
+              selfReflectionPracticesTried: [],
+              clarityInLife: 0,
+              stressInLife: 0
+            },
+            coachingConfig: {
+              challengeDegree: 'moderate',
+              harshToneDegree: 'supportive',
+              coachingMessageFrequency: 'daily',
+              enableCoachingMessages: false
+            },
+            mobilePushNotifications: {
+              enabled: false,
+              expoPushTokens: []
+            },
+            userTimezone: userData.userTimezone || 'America/New_York',
+            firstName: userData.firstName || ''
+          };
+          
+          await updateDoc(docRef, onboardingDataUpdate);
+          console.log('✅ Added onboarding data for web user:', userId);
+        }
+        
+        // Check if user is missing coachingConfig (partial migration)
+        if (!userData.coachingConfig) {
+          console.log('🔧 [MIGRATION] Adding missing coaching config...', { userId });
+          
+          const coachingConfigUpdate = {
+            coachingConfig: {
+              challengeDegree: 'moderate',
+              harshToneDegree: 'supportive',
+              coachingMessageFrequency: 'daily',
+              enableCoachingMessages: false
+            }
+          };
+          
+          await updateDoc(docRef, coachingConfigUpdate);
+          console.log('✅ Added coaching config for user:', userId);
+        }
+        
+        // Check if user is missing mobilePushNotifications
+        if (!userData.mobilePushNotifications) {
+          console.log('🔧 [MIGRATION] Adding missing mobile push notifications config...', { userId });
+          
+          const pushNotificationsUpdate = {
+            mobilePushNotifications: {
+              enabled: false,
+              expoPushTokens: []
+            }
+          };
+          
+          await updateDoc(docRef, pushNotificationsUpdate);
+          console.log('✅ Added mobile push notifications config for user:', userId);
+        }
+        
         // Fix missing createdAt field for existing documents
         if (!userData.createdAt && userData.updatedAt) {
           console.log('🔧 [FIX] Adding missing createdAt field to existing document');
@@ -181,7 +249,9 @@ export class FirestoreService {
           });
         }
         
-        return convertFirestoreUserAccount({ id: docSnap.id, data: () => docSnap.data() });
+        // Re-fetch the document data after any migrations to ensure we have the complete structure
+        const updatedDocSnap = await getDoc(docRef);
+        return convertFirestoreUserAccount({ id: updatedDocSnap.id, data: () => updatedDocSnap.data() });
       } else {
         // Create new user account with default values
         const newUserAccount: UserAccount = {
@@ -199,7 +269,6 @@ export class FirestoreService {
             challengeDegree: 'moderate',
             harshToneDegree: 'supportive',
             coachingMessageFrequency: 'daily',
-            investingTime: 0,
             enableCoachingMessages: false
           },
           mobilePushNotifications: {

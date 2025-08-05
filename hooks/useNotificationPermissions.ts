@@ -99,6 +99,7 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
 
       // Add token using arrayUnion to avoid overwriting
       await updateDoc(userDocRef, {
+        'mobilePushNotifications.enabled': true,
         'mobilePushNotifications.expoPushTokens': arrayUnion(token),
         updatedAt: new Date(),
       });

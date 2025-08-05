@@ -100,24 +100,81 @@ export default function CompassStoryScreen() {
   // Get route parameters
   const { fromOnboarding = false, fromCoaching = false, parsedCoachingData } = route.params || {};
   
-  // For now, use dummy data to test the visual design
-  const dummyCoachingData = {
-    focus: {
-      title: "Your Main Focus",
-      content: "Design transformative first-time experience.",
-      context: "Building trust and depth in first 15 minutes."
-    },
-    blockers: {
-      title: "Key Blockers",
-      content: "Why the current experience falls flat.",
-      context: "Lacks emotional depth, clear insights, and structured outcome format."
-    },
-    plan: {
-      title: "Your Plan", 
-      content: "What to do next.",
-      context: "1. Map ideal emotional journey\n2. Design trust-building opening\n3. Create insight+action template"
+  // Debug: Log the received coaching data
+  useEffect(() => {
+    if (parsedCoachingData) {
+      console.log('🧭 CompassStory received parsed coaching data:', parsedCoachingData);
+      console.log('  Components count:', parsedCoachingData.components?.length || 0);
+      parsedCoachingData.components?.forEach((comp: any, index: number) => {
+        console.log(`  ${index + 1}. ${comp.type}:`, comp.props);
+      });
+    } else {
+      console.log('🧭 CompassStory: No parsed coaching data received, using fallback');
     }
+  }, [parsedCoachingData]);
+  
+  // Process parsed coaching data or fallback to dummy data
+  const processCoachingData = () => {
+    if (parsedCoachingData && parsedCoachingData.components && parsedCoachingData.components.length > 0) {
+      const data: any = {};
+      
+      parsedCoachingData.components.forEach((component: any) => {
+        const { type, props } = component;
+        
+        switch (type) {
+          case 'focus':
+            data.focus = {
+              title: "Your Main Focus",
+              content: props.focus || "Main focus not specified",
+              context: props.context || null
+            };
+            break;
+            
+          case 'blockers':
+            const blockerItems = props.items ? props.items.split('|').filter(Boolean) : [];
+            data.blockers = {
+              title: props.title || "Key Blockers",
+              content: blockerItems.length > 0 ? `${blockerItems.length} obstacles identified` : "No blockers specified",
+              context: blockerItems.length > 0 ? blockerItems.map((item: string) => `• ${item}`).join('\n') : null
+            };
+            break;
+            
+          case 'actions':
+            const actionItems = props.items ? props.items.split('|').filter(Boolean) : [];
+            data.plan = {
+              title: props.title || "Your Plan",
+              content: actionItems.length > 0 ? `${actionItems.length} action steps ready` : "No actions specified",
+              context: actionItems.length > 0 ? actionItems.map((item: string, index: number) => `${index + 1}. ${item}`).join('\n') : null
+            };
+            break;
+        }
+      });
+      
+      console.log('🎯 Processed coaching data for compass:', data);
+      return data;
+    }
+    
+    // Fallback dummy data for testing when no real data is available
+    return {
+      focus: {
+        title: "Your Main Focus",
+        content: "Design transformative first-time experience.",
+        context: "Building trust and depth in first 15 minutes."
+      },
+      blockers: {
+        title: "Key Blockers",
+        content: "Why the current experience falls flat.",
+        context: "Lacks emotional depth, clear insights, and structured outcome format."
+      },
+      plan: {
+        title: "Your Plan", 
+        content: "What to do next.",
+        context: "1. Map ideal emotional journey\n2. Design trust-building opening\n3. Create insight+action template"
+      }
+    };
   };
+  
+  const compassData = processCoachingData();
   
   // Simple story content - first 3 pages stay the same, 4-6 will use special layout
   const storyContent = [...baseStoryContent, "", "", ""]; // Placeholders for pages 4-6
@@ -215,8 +272,8 @@ export default function CompassStoryScreen() {
     const currentType = pageTypes[pageIndex];
     const currentColor = pageColors[pageIndex];
     
-    // Use dummy data for now
-    const currentData = dummyCoachingData[currentType];
+    // Use processed coaching data
+    const currentData = compassData[currentType];
     if (!currentData) return null;
 
     const { title, content, context } = currentData;

@@ -1,9 +1,10 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { ArrowLeft, Mic, X, Check, ArrowUp } from 'lucide-react-native';
+import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
@@ -116,7 +117,15 @@ export default function CoachingScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
+
+  // Session ID state - will be generated when first message is sent
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  
+  // Generate unique session ID using proper UUID
+  const generateSessionId = (): string => {
+    return Crypto.randomUUID();
+  };
 
   // Use the AI coaching hook
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
@@ -298,14 +307,22 @@ export default function CoachingScreen() {
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
+    // Generate session ID for first user message if not already set
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      currentSessionId = generateSessionId();
+      setSessionId(currentSessionId);
+      console.log(`🆔 Generated new session ID: ${currentSessionId}`);
+    }
+
     const messageContent = chatInput.trim();
     setChatInput('');
     
     // Trigger scroll after sending message
     scrollToBottomRef.current = true;
 
-    // Send message using the AI coaching hook
-    await sendMessage(messageContent, 'general-coaching');
+    // Send message using the AI coaching hook with session ID
+    await sendMessage(messageContent, currentSessionId);
   };
 
   const handleMicrophonePress = () => {

@@ -64,15 +64,9 @@ export function useAuth() {
         const account = await FirestoreService.getUserAccount(firebaseUser.uid);
         setUserAccount(account);
         
-<<<<<<< HEAD
         // Check if user needs onboarding (with safe access in case of missing data)
         const needsOnboarding = !account.onboardingData || account.onboardingData.onboardingCompleted !== true;
         setNeedsOnboarding(needsOnboarding);
-=======
-        // Check if user needs onboarding
-        setNeedsOnboarding(account.onboardingData.onboardingCompleted !== true);
-        setNeedsOnboarding(false);
->>>>>>> 0377c30 (prototype for rich text editor)
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality

@@ -23,15 +23,15 @@ export interface UserAccount {
   coachingConfig: {
       challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
       harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
-      coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
-      enableCoachingMessages?: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
-      lastCoachingMessageSentAt?: number; // unix timestamp
-      coachingMessageTimePreference?: 'morning' | 'afternoon' | 'evening';
+      coachingMessageFrequency: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
+      enableCoachingMessages: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
+      lastCoachingMessageSentAt: number; // unix timestamp
+      coachingMessageTimePreference: 'morning' | 'afternoon' | 'evening';
   };
-  mobilePushNotifications?: {
+  mobilePushNotifications: {
     enabled: boolean;
     expoPushTokens: string[]; // array of expo tokens
-    lastNotificationSentAt?: number; // unix timestamp
+    lastNotificationSentAt: number; // unix timestamp
   };
   userTimezone: string; // timezone of the user (e.g. "America/New_York")
   nextCoachingMessageDue?: number; // unix timestamp when next coaching message should be sent

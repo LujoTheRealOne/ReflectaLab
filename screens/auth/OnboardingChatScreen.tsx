@@ -349,7 +349,9 @@ export default function OnboardingChatScreen() {
           challengeDegree: currentAccount.coachingConfig?.challengeDegree || 'moderate',
           harshToneDegree: currentAccount.coachingConfig?.harshToneDegree || 'supportive',
           coachingMessageFrequency: mappedFrequency,
-          enableCoachingMessages: true
+          enableCoachingMessages: true,
+          lastCoachingMessageSentAt: 0,
+          coachingMessageTimePreference: 'morning',
         }
       };
 

@@ -321,8 +321,10 @@ export default function CoachingScreen() {
     // Trigger scroll after sending message
     scrollToBottomRef.current = true;
 
-    // Send message using the AI coaching hook with session ID
-    await sendMessage(messageContent, currentSessionId);
+    // Send message using the AI coaching hook with session ID and default session type
+    await sendMessage(messageContent, currentSessionId, {
+      sessionType: 'default-session'
+    });
   };
 
   const handleMicrophonePress = () => {

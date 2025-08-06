@@ -29,15 +29,18 @@ export interface FirestoreUserAccount {
   coachingConfig: {
     challengeDegree: 'gentle' | 'moderate' | 'challenging' | 'intense';
     harshToneDegree: 'supportive' | 'direct' | 'firm' | 'harsh';
-    coachingMessageFrequency?: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
-    enableCoachingMessages?: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
+    coachingMessageFrequency: 'daily' | 'multipleTimesPerWeek' | 'onceAWeek';
+    enableCoachingMessages: boolean; // if true, based on frequency messages will be sent. this should be a setting in the user doc.
+    lastCoachingMessageSentAt: number; // unix timestamp
+    coachingMessageTimePreference: 'morning' | 'afternoon' | 'evening';
   };
-  mobilePushNotifications?: {
+  mobilePushNotifications: {
     enabled: boolean;
     expoPushTokens: string[]; // array of expo tokens
-    lastNotificationSentAt?: number; // unix timestamp
+    lastNotificationSentAt: number; // unix timestamp
   };
   userTimezone: string; // timezone of the user (e.g. "America/New_York")
+  nextCoachingMessageDue?: number; // unix timestamp when next coaching message should be sent
 }
 
 // Convert Firestore document to UserAccount
@@ -68,14 +71,17 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
   const defaultCoachingConfig = {
     challengeDegree: 'moderate' as const,
     harshToneDegree: 'supportive' as const,
-    coachingMessageFrequency: 'daily' as const,
-    enableCoachingMessages: false
+    coachingMessageFrequency: 'multipleTimesPerWeek' as const,
+    enableCoachingMessages: true,
+    lastCoachingMessageSentAt: 0,
+    coachingMessageTimePreference: 'morning' as const
   };
 
   // Provide default mobile push notifications for safety
   const defaultMobilePushNotifications = {
     enabled: false,
-    expoPushTokens: []
+    expoPushTokens: [],
+    lastNotificationSentAt: 0
   };
 
   return {
@@ -85,6 +91,7 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
     coachingConfig: data.coachingConfig || defaultCoachingConfig,
     mobilePushNotifications: data.mobilePushNotifications || defaultMobilePushNotifications,
     userTimezone: data.userTimezone || 'America/New_York',
+    nextCoachingMessageDue: data.nextCoachingMessageDue,
     createdAt,
     updatedAt: (data.updatedAt as Timestamp).toDate()
   };
@@ -117,6 +124,10 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
 
   if (userAccount.userTimezone !== undefined) {
     data.userTimezone = userAccount.userTimezone;
+  }
+
+  if (userAccount.nextCoachingMessageDue !== undefined) {
+    data.nextCoachingMessageDue = userAccount.nextCoachingMessageDue;
   }
 
   return data;
@@ -160,12 +171,15 @@ export class FirestoreService {
             coachingConfig: {
               challengeDegree: 'moderate',
               harshToneDegree: 'supportive',
-              coachingMessageFrequency: 'daily',
-              enableCoachingMessages: false
+              coachingMessageFrequency: 'multipleTimesPerWeek',
+              enableCoachingMessages: true,
+              lastCoachingMessageSentAt: 0,
+              coachingMessageTimePreference: 'morning'
             },
             mobilePushNotifications: {
               enabled: false,
-              expoPushTokens: []
+              expoPushTokens: [],
+              lastNotificationSentAt: 0
             },
             userTimezone: 'America/New_York', // Default timezone
             createdAt: new Date(),
@@ -254,6 +268,22 @@ export class FirestoreService {
         return convertFirestoreUserAccount({ id: updatedDocSnap.id, data: () => updatedDocSnap.data() });
       } else {
         // Create new user account with default values
+        // Try to detect user's timezone, fallback to America/New_York
+        const detectedTimezone = (() => {
+          try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+          } catch {
+            return 'America/New_York';
+          }
+        })();
+
+        const now = new Date();
+        
+        // Calculate initial coaching message time (1-13 hours from now for multipleTimesPerWeek)
+        // This matches the bootstrap logic in the scheduler
+        const bootstrapHours = Math.random() * 12 + 1; // 1-13 hours
+        const initialCoachingDue = now.getTime() + (bootstrapHours * 60 * 60 * 1000);
+
         const newUserAccount: UserAccount = {
           uid: userId,
           firstName: '', // Will need to be set during onboarding
@@ -268,14 +298,18 @@ export class FirestoreService {
           coachingConfig: {
             challengeDegree: 'moderate',
             harshToneDegree: 'supportive',
-            coachingMessageFrequency: 'daily',
-            enableCoachingMessages: false
+            coachingMessageFrequency: 'multipleTimesPerWeek',
+            enableCoachingMessages: true, // Enabled by default
+            lastCoachingMessageSentAt: 0,
+            coachingMessageTimePreference: 'morning'
           },
           mobilePushNotifications: {
-            enabled: false,
-            expoPushTokens: []
+            enabled: false, // Disabled by default for privacy
+            expoPushTokens: [],
+            lastNotificationSentAt: 0
           },
-          userTimezone: 'America/New_York', // Default timezone
+          userTimezone: detectedTimezone,
+          nextCoachingMessageDue: initialCoachingDue, // Set initial timestamp so user is immediately eligible
           createdAt: new Date(),
           updatedAt: new Date()
         };

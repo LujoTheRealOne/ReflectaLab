@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
-import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 
@@ -164,7 +164,7 @@ export default function OnboardingChatScreen() {
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
 
-  // Use the audio transcription hook
+  // Use the audio transcription hook with expo-av
   const {
     isRecording,
     isTranscribing,
@@ -173,7 +173,7 @@ export default function OnboardingChatScreen() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscription({
+  } = useAudioTranscriptionAv({
     onTranscriptionComplete: (transcription) => {
       // Append transcription to existing text or set it as new text
       const existingText = chatInput.trim();

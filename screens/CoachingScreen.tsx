@@ -10,7 +10,7 @@ import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
-import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -209,7 +209,7 @@ export default function CoachingScreen() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscription({
+  } = useAudioTranscriptionAv({
     onTranscriptionComplete: (transcription) => {
       // Append transcription to existing text or set it as new text
       const existingText = chatInput.trim();

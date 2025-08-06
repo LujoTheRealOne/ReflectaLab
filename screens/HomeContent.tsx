@@ -21,7 +21,7 @@ import {
   where
 } from 'firebase/firestore';
 import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
-import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -96,7 +96,7 @@ export default function HomeContent() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscription({
+  } = useAudioTranscriptionAv({
     onTranscriptionComplete: (transcription) => {
       // Insert transcription at current cursor position in the editor
       // For now, we'll append it to the existing content

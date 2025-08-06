@@ -71,7 +71,7 @@ const convertFirestoreUserAccount = (doc: { id: string; data: () => any }): User
   const defaultCoachingConfig = {
     challengeDegree: 'moderate' as const,
     harshToneDegree: 'supportive' as const,
-    coachingMessageFrequency: 'multipleTimesPerWeek' as const,
+    coachingMessageFrequency: 'daily' as const,
     enableCoachingMessages: true,
     lastCoachingMessageSentAt: 0,
     coachingMessageTimePreference: 'morning' as const
@@ -171,7 +171,7 @@ export class FirestoreService {
             coachingConfig: {
               challengeDegree: 'moderate',
               harshToneDegree: 'supportive',
-              coachingMessageFrequency: 'multipleTimesPerWeek',
+              coachingMessageFrequency: 'daily',
               enableCoachingMessages: true,
               lastCoachingMessageSentAt: 0,
               coachingMessageTimePreference: 'morning'
@@ -298,7 +298,7 @@ export class FirestoreService {
           coachingConfig: {
             challengeDegree: 'moderate',
             harshToneDegree: 'supportive',
-            coachingMessageFrequency: 'multipleTimesPerWeek',
+            coachingMessageFrequency: 'daily',
             enableCoachingMessages: true, // Enabled by default
             lastCoachingMessageSentAt: 0,
             coachingMessageTimePreference: 'morning'

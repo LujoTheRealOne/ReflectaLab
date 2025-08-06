@@ -103,7 +103,7 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
   const data: Partial<FirestoreUserAccount> = {
     uid: userAccount.uid!,
     updatedAt: now,
-    ...(userAccount.createdAt ? { createdAt: Timestamp.fromDate(userAccount.createdAt) } : { createdAt: now })
+    ...(userAccount.createdAt && { createdAt: Timestamp.fromDate(userAccount.createdAt) })
   };
 
   if (userAccount.firstName !== undefined) {
@@ -181,7 +181,7 @@ export class FirestoreService {
               expoPushTokens: [],
               lastNotificationSentAt: 0
             },
-            userTimezone: 'America/New_York', // Default timezone
+            userTimezone: userData.userTimezone || 'America/New_York', // Default timezone
             createdAt: new Date(),
             updatedAt: new Date()
           };

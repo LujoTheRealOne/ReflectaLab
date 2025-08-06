@@ -527,7 +527,7 @@ export default function OnboardingScreen() {
               },
               coachingConfig: {
                 challengeDegree: coachingStylePosition.x < 0.3 ? 'gentle' : coachingStylePosition.x < 0.6 ? 'moderate' : coachingStylePosition.x < 0.8 ? 'challenging' : 'intense',
-                harshToneDegree: coachingStylePosition.y < 0.3 ? 'supportive' : coachingStylePosition.y < 0.6 ? 'direct' : coachingStylePosition.y < 0.8 ? 'firm' : 'harsh',
+                harshToneDegree: coachingStylePosition.y > 0.7 ? 'harsh' : coachingStylePosition.y > 0.4 ? 'firm' : coachingStylePosition.y > 0.2 ? 'direct' : 'supportive',
                 coachingMessageFrequency: 'multipleTimesPerWeek',
                 enableCoachingMessages: true,
                 lastCoachingMessageSentAt: 0,

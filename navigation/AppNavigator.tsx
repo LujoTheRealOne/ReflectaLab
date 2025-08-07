@@ -1,4 +1,4 @@
-import { createStackNavigator } from '@react-navigation/stack';
+import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 import React from 'react';
 import { useColorScheme } from 'react-native';
 
@@ -66,6 +66,24 @@ export default function AppNavigator() {
         component={CoachingScreen}
         options={{
           gestureEnabled: true,
+          ...TransitionPresets.SlideFromRightIOS,
+          cardStyleInterpolator: ({ current, layouts }) => {
+            return {
+              cardStyle: {
+                transform: [
+                  {
+                    translateX: current.progress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [layouts.screen.width, 0],
+                    }),
+                  },
+                ],
+              },
+              overlayStyle: {
+                opacity: 0, // Remove overlay to show both screens side by side
+              },
+            };
+          },
         }}
       />
     </Stack.Navigator>

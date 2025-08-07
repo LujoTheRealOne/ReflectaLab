@@ -159,7 +159,7 @@ export default function OnboardingChatScreen() {
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [showSchedulingForMessage, setShowSchedulingForMessage] = useState<string | null>(null);
-  const [selectedFrequency, setSelectedFrequency] = useState<string>('once a week');
+  const [selectedFrequency, setSelectedFrequency] = useState<string>('daily');
   const [confirmedSchedulingForMessage, setConfirmedSchedulingForMessage] = useState<string | null>(null);
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
@@ -474,7 +474,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         // Small delay to ensure message is fully rendered
         setTimeout(() => {
           setShowSchedulingForMessage(lastMessage.id);
-          setSelectedFrequency('once a week');
+          setSelectedFrequency('daily');
         }, 300);
       }
     }
@@ -927,6 +927,14 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
                         {/* Frequency Toggle Options */}
                         <View style={[styles.aiPopupButtons, { flexDirection: 'column', gap: 8, marginBottom: 8 }]}>
+                          <Button
+                            variant={selectedFrequency === 'daily' ? 'primary' : 'secondary'}
+                            size="sm"
+                            onPress={() => handleSchedulingAction('toggle-frequency', message.id, 'daily')}
+                            style={{ width: '100%' }}
+                          >
+                            Daily
+                          </Button>
                           <Button
                             variant={selectedFrequency === 'once a week' ? 'primary' : 'secondary'}
                             size="sm"

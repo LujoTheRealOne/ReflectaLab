@@ -646,11 +646,15 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           setConfirmedSchedulingForMessage(messageId);
           setConfirmedSchedulingMessages(prev => new Set([...prev, messageId]));
           
-          // 1. Update user's coaching configuration in Firestore
+          // 1. Request notification permissions and save push token
+          console.log('📱 Requesting notification permissions for check-ins...');
+          const notificationGranted = await requestPermissions();
+          
+          // 2. Update user's coaching configuration in Firestore
           console.log('💾 Saving coaching configuration to user profile...');
           const configResult = await updateCoachingConfiguration(selectedFrequency);
           
-          // 2. Call coaching interaction API with user's current context
+          // 3. Call coaching interaction API with user's current context
           const userMessages = messages.filter(msg => msg.role === 'user');
           const contextContent = userMessages.map(msg => msg.content).join(' ').trim();
           
@@ -660,7 +664,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           console.log('📤 Sending to API:', { message: apiMessage, contextLength: contextContent.length });
           const apiResult = await callCoachingInteractionAPI(apiMessage);
           
-          // 3. Show appropriate confirmation message based on results
+          // 4. Show appropriate confirmation message based on results
           const what = checkinCard.props.what || 'your progress';
           
           if (configResult.success && apiResult && apiResult.success) {
@@ -669,7 +673,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             const confirmationMessage: CoachingMessage = {
               id: (Date.now() + 3).toString(),
               role: 'assistant',
-              content: `Perfect! I've scheduled ${selectedFrequency} check-ins about ${what}. You'll receive thoughtful prompts to help you stay on track with your goals.`,
+              content: notificationGranted 
+                ? `Perfect! I've scheduled ${selectedFrequency} check-ins about ${what}. You'll receive thoughtful prompts to help you stay on track with your goals.`
+                : `Great! I've scheduled ${selectedFrequency} check-ins about ${what}. You can enable notifications in your device settings to receive prompts directly.`,
               timestamp: new Date()
             };
             setMessages([...messages, confirmationMessage]);
@@ -679,7 +685,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             const confirmationMessage: CoachingMessage = {
               id: (Date.now() + 3).toString(),
               role: 'assistant',
-              content: `Great! I've saved your preference for ${selectedFrequency} check-ins about ${what}. Your coaching schedule is now active.`,
+              content: notificationGranted
+                ? `Great! I've saved your preference for ${selectedFrequency} check-ins about ${what}. Your coaching schedule is now active and you'll receive notifications.`
+                : `Great! I've saved your preference for ${selectedFrequency} check-ins about ${what}. Your coaching schedule is now active.`,
               timestamp: new Date()
             };
             setMessages([...messages, confirmationMessage]);
@@ -689,7 +697,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             const confirmationMessage: CoachingMessage = {
               id: (Date.now() + 3).toString(),
               role: 'assistant',
-              content: `Got it! I've noted your preference for ${selectedFrequency} check-ins about ${what}. This will help you stay accountable to your goals.`,
+              content: notificationGranted
+                ? `Got it! I've noted your preference for ${selectedFrequency} check-ins about ${what}. This will help you stay accountable to your goals, and you'll receive notifications when it's time to check in.`
+                : `Got it! I've noted your preference for ${selectedFrequency} check-ins about ${what}. This will help you stay accountable to your goals.`,
               timestamp: new Date()
             };
             setMessages([...messages, confirmationMessage]);

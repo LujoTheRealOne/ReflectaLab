@@ -20,17 +20,14 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, AudioLines, Check, Cog, Settings, UserCog, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
+import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Image,
   SafeAreaView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   useColorScheme,
   View,
   KeyboardAvoidingView,
@@ -531,8 +528,22 @@ export default function HomeContent() {
                 borderTopRightRadius: 18,
               }]}>
                 {isKeyboardVisible && (
-                  <View style={styles.buttonGroup}>
+                  <View style={[styles.buttonGroup, { gap: 8 }]}>
                     {/* Settings Button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconOnly={
+                        <AlignLeft
+                          size={20}
+                          color={`${colors.tint}99`}
+                        />
+                      }
+                      style={{ width: 40, height: 40 }}
+                      onPress={() => {
+                        navigation.openDrawer();
+                      }}
+                    />
                     <Button
                       variant="outline"
                       size="sm"
@@ -560,20 +571,36 @@ export default function HomeContent() {
                 ]}>
                   {!isKeyboardVisible && (
                     /* Settings Button - shown in center when keyboard is hidden */
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconOnly={
-                        <Settings2
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      }
-                      style={{ width: 70, height: 40 }}
-                      onPress={() => {
-                        navigation.navigate('Settings' as never);
-                      }}
-                    />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconOnly={
+                          <AlignLeft
+                            size={20}
+                            color={`${colors.tint}99`}
+                          />
+                        }
+                        style={{ width: 40, height: 40 }}
+                        onPress={() => {
+                          navigation.openDrawer();
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconOnly={
+                          <Settings2
+                            size={20}
+                            color={`${colors.tint}99`}
+                          />
+                        }
+                        style={{ width: 70, height: 40 }}
+                        onPress={() => {
+                          navigation.navigate('Settings' as never);
+                        }}
+                      />
+                    </View>
                   )}
                   {/* Microphone Button */}
                   <Button

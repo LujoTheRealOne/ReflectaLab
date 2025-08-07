@@ -277,13 +277,6 @@ export class FirestoreService {
           }
         })();
 
-        const now = new Date();
-        
-        // Calculate initial coaching message time (1-13 hours from now for multipleTimesPerWeek)
-        // This matches the bootstrap logic in the scheduler
-        const bootstrapHours = Math.random() * 12 + 1; // 1-13 hours
-        const initialCoachingDue = now.getTime() + (bootstrapHours * 60 * 60 * 1000);
-
         const newUserAccount: UserAccount = {
           uid: userId,
           firstName: '', // Will need to be set during onboarding
@@ -309,7 +302,7 @@ export class FirestoreService {
             lastNotificationSentAt: 0
           },
           userTimezone: detectedTimezone,
-          nextCoachingMessageDue: initialCoachingDue, // Set initial timestamp so user is immediately eligible
+          nextCoachingMessageDue: 0,
           createdAt: new Date(),
           updatedAt: new Date()
         };

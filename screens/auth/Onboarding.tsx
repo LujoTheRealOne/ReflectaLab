@@ -20,6 +20,7 @@ import { useAudioPlayer } from 'expo-audio';
 import { setAudioModeAsync } from 'expo-audio';
 import { FirestoreService } from '@/lib/firestore';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
 
@@ -456,6 +457,9 @@ export default function OnboardingScreen() {
       setIsTimerRunning(false);
       setTimerEnded(false);
 
+      // Activate keep awake to prevent screen from sleeping during meditation
+      activateKeepAwakeAsync();
+
       // Start timer after 2 seconds
       const startTimeout = setTimeout(() => {
         setIsTimerRunning(true);
@@ -465,7 +469,12 @@ export default function OnboardingScreen() {
         clearTimeout(startTimeout);
         setIsTimerRunning(false);
         setTimerEnded(false);
+        // Deactivate keep awake when leaving case 16
+        deactivateKeepAwake();
       };
+    } else {
+      // Ensure keep awake is deactivated when not in case 16
+      deactivateKeepAwake();
     }
   }, [currentStep]);
 
@@ -487,6 +496,9 @@ export default function OnboardingScreen() {
       setIsTimerRunning(false);
       setTimerEnded(true);
 
+      // Deactivate keep awake when meditation timer ends
+      deactivateKeepAwake();
+
       // Play meditation bell sound
       playMeditationBell();
 
@@ -502,6 +514,13 @@ export default function OnboardingScreen() {
       if (interval) clearInterval(interval);
     };
   }, [isTimerRunning, timerMinutes, timerSeconds, timerEnded]);
+
+  // Cleanup keep awake on component unmount
+  useEffect(() => {
+    return () => {
+      deactivateKeepAwake();
+    };
+  }, []);
 
   const handleContinue = async () => {
     if (currentStep < 16) {

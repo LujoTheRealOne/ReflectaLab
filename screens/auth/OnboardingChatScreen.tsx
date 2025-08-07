@@ -427,6 +427,19 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     previousMessageCountRef.current = messages.length;
   }, [messages.length]);
 
+  // Auto-scroll during streaming when AI message content updates
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      // If last message is from assistant and we're not loading (streaming in progress)
+      if (lastMessage?.role === 'assistant' && !isLoading && scrollViewRef.current) {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100); // Shorter delay for streaming updates
+      }
+    }
+  }, [messages, isLoading]); // Trigger on messages array changes (content updates)
+
 
 
   // Check for notification suggestions in new AI messages
@@ -1047,6 +1060,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 flexDirection: isRecording ? 'column' : 'row',
               }
             ]}>
+              {/* Full-width TextInput with text constrained to left side */}
               {isTranscribing ? (
                 <View style={[styles.chatInput, styles.transcribingInputContainer]}>
                   <SpinningAnimation colorScheme={colorScheme} />
@@ -1074,20 +1088,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 />
               )}
 
-              {/* State 1: Empty input - show microphone only */}
-              {chatInput.trim().length === 0 && !isRecording && !isTranscribing && (
-                <TouchableOpacity
-                  style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                  onPress={handleMicrophonePress}
-                >
-                  <Mic
-                    size={20}
-                    color={colors.background}
-                  />
-                </TouchableOpacity>
-              )}
-
-              {/* State 2: Recording - show audio level visualization, timer, and controls based on screenshot */}
+              {/* Recording state */}
               {isRecording && !isTranscribing && (
                 <View style={styles.recordingContainer}>
                   {/* Left side - Cancel button */}
@@ -1121,36 +1122,53 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   </View>
                 </View>
               )}
-              
 
-              {/* State 3: Text entered or transcribing - show both microphone and send buttons */}
-              {(chatInput.trim().length > 0 || isTranscribing) && !isRecording && (
-                <View style={{ flexDirection: 'row', gap: 12 }}>
-                  <TouchableOpacity
-                    style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                    onPress={handleMicrophonePress}
-                    disabled={isTranscribing}
-                  >
-                    <Mic
-                      size={20}
-                      color={colors.background}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.sendButton, 
-                      { 
-                        backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
-                      }
-                    ]}
-                    onPress={handleSendMessage}
-                    disabled={isTranscribing}
-                  >
-                    <ArrowUp
-                      size={20}
-                      color={colors.background}
-                    />
-                  </TouchableOpacity>
+              {/* Absolutely positioned buttons overlay */}
+              {!isRecording && (
+                <View style={styles.buttonOverlay}>
+                  {/* Empty input - show microphone only */}
+                  {chatInput.trim().length === 0 && !isTranscribing && (
+                    <TouchableOpacity
+                      style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                      onPress={handleMicrophonePress}
+                    >
+                      <Mic
+                        size={20}
+                        color={colors.background}
+                      />
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Text entered - show both microphone and send buttons */}
+                  {(chatInput.trim().length > 0 || isTranscribing) && (
+                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                      <TouchableOpacity
+                        style={[styles.microphoneButton, { backgroundColor: colors.text }]}
+                        onPress={handleMicrophonePress}
+                        disabled={isTranscribing}
+                      >
+                        <Mic
+                          size={20}
+                          color={colors.background}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.sendButton, 
+                          { 
+                            backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
+                          }
+                        ]}
+                        onPress={handleSendMessage}
+                        disabled={isTranscribing}
+                      >
+                        <ArrowUp
+                          size={20}
+                          color={colors.background}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -1245,26 +1263,34 @@ const styles = StyleSheet.create({
     maxHeight: 180, // Prevent input from taking too much space
   },
   chatInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    position: 'relative',
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     paddingHorizontal: 20,
     paddingTop: 20,
-    gap: 12,
     boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     maxHeight: 160, // Limit the wrapper height
   },
+  buttonOverlay: {
+    position: 'absolute',
+    right: 20,
+    bottom: 30,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+    zIndex: 10,
+  },
   chatInput: {
-    flex: 1,
+    width: '100%',
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
     maxHeight: 100, // Reduced to leave room for padding
     paddingVertical: 8,
     paddingHorizontal: 0,
+    paddingRight: 90, // Space for buttons to prevent text overlap
     backgroundColor: 'transparent',
   },
   sendButton: {

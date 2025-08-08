@@ -364,11 +364,12 @@ export default function CoachingScreen() {
       });
     }
     
-    // Navigate to compass story for coaching completion
+    // Navigate to compass story for coaching completion immediately
     navigation.navigate('CompassStory', { 
       fromCoaching: true,
+      sessionId: sessionId || undefined,
       parsedCoachingData: parsedCoachingData || undefined
-    });
+    } as any);
     setShowCompletionForMessage(null);
   };
 

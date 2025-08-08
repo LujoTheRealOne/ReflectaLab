@@ -1033,9 +1033,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         </View>
 
         {/* Input or Enter App Button - based on progress */}
-        {progress === 100 ? (
+        {progress === 100 && (
           /* Enter App Button when progress is complete */
-          <View style={[styles.enterAppContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={[styles.enterAppContainer, { paddingBottom: 15 }]}>
             <Button
               variant="primary"
               size="default"
@@ -1045,7 +1045,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               Enter App
             </Button>
           </View>
-        ) : (
+        )}
+
           /* Input - extends to screen bottom */
           <View style={styles.chatInputContainer}>
             <View style={[
@@ -1173,7 +1174,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               )}
             </View>
           </View>
-        )}
       </KeyboardAvoidingView>
     </View>
   );

@@ -28,6 +28,7 @@ export type AuthStackParamList = {
   CompassStory: { 
     fromOnboarding?: boolean;
     fromCoaching?: boolean;
+    sessionId?: string;
     parsedCoachingData?: {
       components: Array<{ type: string; props: Record<string, string> }>;
       rawData: string;

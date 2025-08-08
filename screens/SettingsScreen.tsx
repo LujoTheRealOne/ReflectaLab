@@ -665,6 +665,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   compassImageContainer: {
+    marginTop: -20,
     alignItems: 'center',
   },
   compassSection: {

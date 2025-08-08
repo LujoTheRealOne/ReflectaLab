@@ -117,7 +117,7 @@ export default function CoachingScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { user, firebaseUser } = useAuth();
+  const { user, firebaseUser, getToken } = useAuth();
 
   // Session ID state - will be generated when first message is sent
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -371,6 +371,60 @@ export default function CoachingScreen() {
       parsedCoachingData: parsedCoachingData || undefined
     } as any);
     setShowCompletionForMessage(null);
+    
+    // Trigger insight extraction in background if we have a session ID
+    if (sessionId) {
+      console.log('🧠 Starting insight extraction for session:', sessionId);
+      triggerInsightExtraction(sessionId); // Don't await - run in background
+    }
+  };
+
+  // Function to trigger insight extraction
+  const triggerInsightExtraction = async (sessionId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        console.error('❌ No auth token available for insight extraction');
+        return;
+      }
+
+      console.log('📤 Calling insight extraction API...', {
+        endpoint: `${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`,
+        sessionId: sessionId,
+        hasToken: !!token
+      });
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId: sessionId
+        }),
+      });
+
+      console.log('📥 Insight extraction API response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Insight extraction successful:', result);
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Insight extraction failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error calling insight extraction API:', error);
+    }
   };
 
   return (

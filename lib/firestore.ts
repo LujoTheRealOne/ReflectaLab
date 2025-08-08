@@ -7,10 +7,17 @@ import {
   deleteDoc,
   Timestamp,
   serverTimestamp,
-  FieldValue
+  FieldValue,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { UserAccount, MorningGuidance } from '@/types/journal';
+import { userInsight } from '@/types/insights';
 
 // Firestore user account interface
 export interface FirestoreUserAccount {
@@ -135,6 +142,7 @@ const convertToFirestoreUserData = (userAccount: Partial<UserAccount>): Partial<
 
 export class FirestoreService {
   private static USERS_COLLECTION_NAME = 'users';
+  private static INSIGHTS_COLLECTION_NAME = 'userInsights';
   
   // Get or create user account
   static async getUserAccount(userId: string): Promise<UserAccount> {
@@ -339,6 +347,89 @@ export class FirestoreService {
     } catch (error) {
       console.error('🚨 [ERROR] Error updating user account:', error);
       throw new Error('Failed to update user account in Firestore');
+    }
+  }
+
+  // User Insights Methods
+  
+  /**
+   * Get user insights from userInsights collection
+   */
+  static async getUserInsights(userId: string): Promise<userInsight | null> {
+    try {
+      const q = query(
+        collection(db, this.INSIGHTS_COLLECTION_NAME),
+        where('userId', '==', userId),
+        orderBy('updatedAt', 'desc'),
+        limit(1)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return null;
+      }
+      
+      const doc = querySnapshot.docs[0];
+      const data = doc.data();
+      
+      return {
+        mainFocus: data.mainFocus,
+        keyBlockers: data.keyBlockers,
+        plan: data.plan,
+        userId: data.userId,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
+      };
+    } catch (error) {
+      console.error('Error fetching user insights:', error);
+      throw new Error('Failed to fetch insights from Firestore');
+    }
+  }
+
+  /**
+   * Real-time listener for user insights
+   */
+  static subscribeToUserInsights(
+    userId: string,
+    callback: (insights: userInsight | null) => void
+  ): () => void {
+    try {
+      const q = query(
+        collection(db, this.INSIGHTS_COLLECTION_NAME),
+        where('userId', '==', userId),
+        orderBy('updatedAt', 'desc'),
+        limit(1)
+      );
+
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        if (querySnapshot.empty) {
+          callback(null);
+          return;
+        }
+
+        const doc = querySnapshot.docs[0];
+        const data = doc.data();
+        
+        const insights: userInsight = {
+          mainFocus: data.mainFocus,
+          keyBlockers: data.keyBlockers,
+          plan: data.plan,
+          userId: data.userId,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt
+        };
+
+        callback(insights);
+      }, (error) => {
+        console.error('Error in insights subscription:', error);
+        callback(null);
+      });
+
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error setting up insights subscription:', error);
+      return () => {}; // Return empty unsubscribe function
     }
   }
 } 

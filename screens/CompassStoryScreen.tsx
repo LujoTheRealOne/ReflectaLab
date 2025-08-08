@@ -18,10 +18,55 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
+import SourcesModal, { InsightSource } from '@/components/SourcesModal';
+import { useInsights } from '@/hooks/useInsights';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const STORY_DURATION = 10000; // 10 seconds per story
 const TOTAL_STORIES = 6;
+
+// Animated Spinner Component
+const AnimatedSpinner = ({ size = 12, colors, style }: { size?: number, colors: any, style?: any }) => {
+  const spinValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const spinAnimation = Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    );
+
+    spinAnimation.start();
+
+    return () => {
+      spinAnimation.stop();
+    };
+  }, [spinValue]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: Math.max(1.5, size / 8),
+          borderColor: `${colors.text}20`,
+          borderTopColor: `${colors.text}80`,
+          transform: [{ rotate: spin }],
+        },
+        style,
+      ]}
+    />
+  );
+};
 
 type CompassStoryRouteProp = RouteProp<AppStackParamList, 'CompassStory'> | RouteProp<AuthStackParamList, 'CompassStory'>;
 
@@ -97,10 +142,31 @@ export default function CompassStoryScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const { completeOnboarding } = useAuth();
   
-  // Get route parameters
-  const { fromOnboarding = false, fromCoaching = false, parsedCoachingData } = route.params || {};
+  // Real insights data
+  const { insights, loading: insightsLoading, error: insightsError, hasInsights } = useInsights();
   
-  // Debug: Log the received coaching data
+  // Sources Modal State
+  const [showSourcesModal, setShowSourcesModal] = useState(false);
+  const [selectedSources, setSelectedSources] = useState<{
+    title: string;
+    sources: InsightSource[];
+  } | null>(null);
+  const sourcesModalOpacity = useRef(new Animated.Value(0)).current;
+  
+  // Get route parameters  
+  const routeParams = route.params as {
+    fromOnboarding?: boolean;
+    fromCoaching?: boolean;
+    sessionId?: string;
+    parsedCoachingData?: {
+      components: Array<{ type: string; props: Record<string, string> }>;
+      rawData: string;
+    };
+  } | undefined;
+  
+  const { fromOnboarding = false, fromCoaching = false, sessionId, parsedCoachingData } = routeParams || {};
+  
+  // Debug: Log the received coaching data and insights status
   useEffect(() => {
     if (parsedCoachingData) {
       console.log('🧭 CompassStory received parsed coaching data:', parsedCoachingData);
@@ -112,10 +178,78 @@ export default function CompassStoryScreen() {
       console.log('🧭 CompassStory: No parsed coaching data received, using fallback');
     }
   }, [parsedCoachingData]);
+
+  // Log insights loading status and detailed content
+  useEffect(() => {
+    console.log('🧭 Insights status:', { 
+      loading: insightsLoading, 
+      hasInsights, 
+      error: insightsError,
+      insightsAvailable: !!insights 
+    });
+
+    // Log detailed insights data when available
+    if (insights) {
+      console.log('🧭 Full insights data:', {
+        mainFocus: {
+          headline: insights.mainFocus.headline,
+          sourcesCount: insights.mainFocus.sources?.length || 0,
+          sources: insights.mainFocus.sources
+        },
+        keyBlockers: {
+          headline: insights.keyBlockers.headline,
+          sourcesCount: insights.keyBlockers.sources?.length || 0,
+          sources: insights.keyBlockers.sources
+        },
+        plan: {
+          headline: insights.plan.headline,
+          sourcesCount: insights.plan.sources?.length || 0,
+          sources: insights.plan.sources
+        },
+        userId: insights.userId,
+        updatedAt: insights.updatedAt
+      });
+    }
+  }, [insightsLoading, hasInsights, insightsError, insights]);
   
-  // Process parsed coaching data or fallback to dummy data
-  const processCoachingData = () => {
+  // Debug: Log session information
+  useEffect(() => {
+    if (sessionId) {
+      console.log('🧭 Compass screen opened with session ID:', sessionId);
+      console.log('🔄 Insights should be extracted automatically or need manual trigger...');
+    }
+  }, [sessionId]);
+  
+  // Process real insights data or fallback to coaching/placeholder data
+  const processCompassData = () => {
+    // Priority 1: Use real insights data if available
+    if (insights) {
+      console.log('🎯 Using real insights data for compass:', insights);
+      return {
+        focus: {
+          title: "Your Main Focus",
+          content: insights.mainFocus.headline,
+          context: insights.mainFocus.description,
+          sources: insights.mainFocus.sources
+        },
+        blockers: {
+          title: "Key Blockers",
+          content: insights.keyBlockers.headline,
+          context: insights.keyBlockers.description,
+          sources: insights.keyBlockers.sources
+        },
+        plan: {
+          title: "Your Plan",
+          content: insights.plan.headline,
+          context: insights.plan.description,
+          sources: insights.plan.sources
+        }
+      };
+    }
+
+    // Priority 2: Use coaching data if available (from route params) - temporary display
     if (parsedCoachingData && parsedCoachingData.components && parsedCoachingData.components.length > 0) {
+      console.log('🎯 Using temporary coaching data for compass (insights processing):', parsedCoachingData);
       const data: any = {};
       
       parsedCoachingData.components.forEach((component: any) => {
@@ -126,7 +260,8 @@ export default function CompassStoryScreen() {
             data.focus = {
               title: "Your Main Focus",
               content: props.focus || "Main focus not specified",
-              context: props.context || null
+              context: props.context || null,
+              sources: [] // No sources yet - will be available after insight extraction
             };
             break;
             
@@ -135,7 +270,8 @@ export default function CompassStoryScreen() {
             data.blockers = {
               title: props.title || "Key Blockers",
               content: blockerItems.length > 0 ? `${blockerItems.length} obstacles identified` : "No blockers specified",
-              context: blockerItems.length > 0 ? blockerItems.map((item: string) => `• ${item}`).join('\n') : null
+              context: blockerItems.length > 0 ? blockerItems.map((item: string) => `• ${item}`).join('\n') : null,
+              sources: []
             };
             break;
             
@@ -144,37 +280,74 @@ export default function CompassStoryScreen() {
             data.plan = {
               title: props.title || "Your Plan",
               content: actionItems.length > 0 ? `${actionItems.length} action steps ready` : "No actions specified",
-              context: actionItems.length > 0 ? actionItems.map((item: string, index: number) => `${index + 1}. ${item}`).join('\n') : null
+              context: actionItems.length > 0 ? actionItems.map((item: string, index: number) => `${index + 1}. ${item}`).join('\n') : null,
+              sources: []
             };
             break;
         }
       });
       
-      console.log('🎯 Processed coaching data for compass:', data);
       return data;
     }
     
-    // Fallback dummy data for testing when no real data is available
+    // Priority 3: Fallback placeholder data
+    console.log('🎯 Using placeholder data - no insights or coaching data available');
     return {
       focus: {
         title: "Your Main Focus",
-        content: "Design transformative first-time experience.",
-        context: "Building trust and depth in first 15 minutes."
+        content: "Complete a coaching session to see your insights.",
+        context: "Your personal insights will appear here after coaching.",
+        sources: []
       },
       blockers: {
         title: "Key Blockers",
-        content: "Why the current experience falls flat.",
-        context: "Lacks emotional depth, clear insights, and structured outcome format."
+        content: "Insights will show what's blocking your progress.",
+        context: "Sources from your conversations will appear here.",
+        sources: []
       },
       plan: {
         title: "Your Plan", 
-        content: "What to do next.",
-        context: "1. Map ideal emotional journey\n2. Design trust-building opening\n3. Create insight+action template"
+        content: "Your personalized action plan will appear here.",
+        context: "Based on your coaching conversations and insights.",
+        sources: []
       }
     };
   };
+
+  // Helper function to format last updated time
+  const formatLastUpdated = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    
+    if (diffInHours < 1) return 'Updated from current session';
+    if (diffInHours < 24) return `Updated from session ${diffInHours} hours ago`;
+    if (diffInHours < 48) return 'Updated from session yesterday';
+    return `Updated from session ${Math.floor(diffInHours / 24)} days ago`;
+  };
+
+  const compassData = processCompassData();
   
-  const compassData = processCoachingData();
+  // Debug: Log processed compass data
+  useEffect(() => {
+    console.log('🎯 Compass data processed:', {
+      focus: { 
+        title: compassData.focus?.title, 
+        sourcesCount: compassData.focus?.sources?.length || 0,
+        sources: compassData.focus?.sources 
+      },
+      blockers: { 
+        title: compassData.blockers?.title, 
+        sourcesCount: compassData.blockers?.sources?.length || 0,
+        sources: compassData.blockers?.sources 
+      },
+      plan: { 
+        title: compassData.plan?.title, 
+        sourcesCount: compassData.plan?.sources?.length || 0,
+        sources: compassData.plan?.sources 
+      }
+    });
+  }, [compassData]);
   
   // Simple story content - first 3 pages stay the same, 4-6 will use special layout
   const storyContent = [...baseStoryContent, "", "", ""]; // Placeholders for pages 4-6
@@ -263,6 +436,31 @@ export default function CompassStoryScreen() {
     }
   };
 
+  // Sources Modal Functions
+  const openSourcesModal = (title: string, sources: InsightSource[]) => {
+    console.log('🔍 Opening sources modal:', { title, sourcesCount: sources?.length, sources });
+    setSelectedSources({ title, sources: sources || [] });
+    setShowSourcesModal(true);
+    
+    // Animate modal appearance
+    Animated.timing(sourcesModalOpacity, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeSourcesModal = () => {
+    Animated.timing(sourcesModalOpacity, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowSourcesModal(false);
+      setSelectedSources(null);
+    });
+  };
+
   // Render the enhanced coaching insight pages (4-6)
   const renderCoachingInsightPage = () => {
     const pageIndex = currentStory - 3; // 0, 1, 2 for pages 4, 5, 6
@@ -277,6 +475,13 @@ export default function CompassStoryScreen() {
     if (!currentData) return null;
 
     const { title, content, context } = currentData;
+    
+    console.log('🎯 Rendering insight page:', { 
+      currentType, 
+      title, 
+      sourcesCount: currentData.sources?.length || 0,
+      sources: currentData.sources 
+    });
 
     return (
       <View style={styles.insightPageContainer}>
@@ -311,14 +516,74 @@ export default function CompassStoryScreen() {
 
         {/* Bottom Section */}
         <View style={styles.insightFooter}>
-          <Text style={[styles.updatedText, { color: `${colors.text}60` }]}>
-            Updated from today's session.
-          </Text>
-          
-          <TouchableOpacity style={[styles.viewSourcesButton, { backgroundColor: `${colors.text}10` }]}>
-            <Text style={[styles.viewSourcesText, { color: `${colors.text}80` }]}>
-              View Sources 5+
+          {insightsError ? (
+            <Text style={[styles.errorText, { color: '#EF4444' }]}>
+              Failed to load insights
             </Text>
+          ) : insightsLoading ? (
+            <View style={styles.loadingContainer}>
+              <AnimatedSpinner size={12} colors={colors} />
+              <Text style={[styles.loadingText, { color: `${colors.text}60` }]}>
+                Extracting insights...
+              </Text>
+            </View>
+          ) : insights ? (
+            <Text style={[styles.updatedText, { color: `${colors.text}60` }]}>
+              {formatLastUpdated(
+                currentData.sources && currentData.sources.length > 0 
+                  ? Math.max(...(currentData.sources as InsightSource[]).map(s => s.extractedAt)) 
+                  : insights.updatedAt
+              )}
+            </Text>
+          ) : sessionId ? (
+            <View style={styles.processingContainer}>
+              <AnimatedSpinner size={16} colors={colors} style={{ marginBottom: 4 }} />
+              <Text style={[styles.processingText, { color: `${colors.text}60` }]}>
+                AI is analyzing your session...
+              </Text>
+              <Text style={[styles.processingSubtext, { color: `${colors.text}40` }]}>
+                This usually takes 30-60 seconds
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.updatedText, { color: `${colors.text}60` }]}>
+              Complete a coaching session to generate insights
+            </Text>
+          )}
+          
+          <TouchableOpacity 
+            style={[
+              styles.viewSourcesButton, 
+              { 
+                backgroundColor: (insightsLoading || sessionId && !insights) ? `${colors.text}05` : `${colors.text}10` 
+              }
+            ]}
+            onPress={() => {
+              console.log('🔍 View Sources button pressed:', { 
+                title, 
+                sourcesData: currentData.sources,
+                sourcesLength: currentData.sources?.length,
+                hasInsights: !!insights,
+                sessionId,
+                isLoading: insightsLoading
+              });
+              
+              openSourcesModal(title, currentData.sources || []);
+            }}
+            disabled={insightsLoading}
+          >
+            {(insightsLoading || (sessionId && !insights)) ? (
+              <View style={styles.buttonLoadingContainer}>
+                <AnimatedSpinner size={10} colors={colors} />
+                <Text style={[styles.viewSourcesText, { color: `${colors.text}40` }]}>
+                  Processing...
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.viewSourcesText, { color: `${colors.text}80` }]}>
+                View Sources {currentData.sources ? currentData.sources.length : 0}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -350,7 +615,9 @@ export default function CompassStoryScreen() {
         <Text style={[styles.title, { color: colors.text }]}>Compass</Text>
         <TouchableOpacity
           style={[styles.closeButton, { backgroundColor: `${colors.text}15` }]}
-          onPress={handleCompassComplete}
+          onPress={() => {
+            navigation.goBack();
+          }}
         >
           <X size={24} color={colors.text} />
         </TouchableOpacity>
@@ -372,6 +639,18 @@ export default function CompassStoryScreen() {
           </View>
         </View>
       </TouchableWithoutFeedback>
+
+      {/* Sources Modal */}
+      {showSourcesModal && selectedSources && (
+        <SourcesModal
+          isVisible={showSourcesModal}
+          onClose={closeSourcesModal}
+          title={selectedSources.title}
+          sources={selectedSources.sources}
+          overlayOpacity={sourcesModalOpacity}
+          isProcessing={insightsLoading || (sessionId !== undefined && !insights)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -490,6 +769,11 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     textAlign: 'center',
   },
+  errorText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
   viewSourcesButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -498,5 +782,34 @@ const styles = StyleSheet.create({
   viewSourcesText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  // Loading states
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: '400',
+  },
+  processingContainer: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  processingText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  processingSubtext: {
+    fontSize: 12,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+  buttonLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
 }); 

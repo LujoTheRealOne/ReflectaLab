@@ -736,6 +736,54 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
+  // Function to trigger insight extraction
+  const triggerInsightExtraction = async (sessionId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        console.error('❌ No auth token available for insight extraction');
+        return;
+      }
+
+      console.log('📤 Calling insight extraction API...', {
+        endpoint: `${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`,
+        sessionId: sessionId,
+        hasToken: !!token
+      });
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId: sessionId
+        }),
+      });
+
+      console.log('📥 Insight extraction API response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Insight extraction successful:', result);
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Insight extraction failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error calling insight extraction API:', error);
+    }
+  };
+
   const handleCompletionAction = async () => {
     console.log('User clicked End this session');
     console.log('📊 Session Stats:', completionStats);
@@ -747,12 +795,19 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       });
     }
     
-    // Navigate to compass story instead of completing onboarding directly
+    // Navigate to compass story instead of completing onboarding directly - immediate navigation
     navigation.navigate('CompassStory', { 
       fromOnboarding: true,
+      sessionId: sessionId || undefined, // Pass sessionId for insight tracking
       parsedCoachingData: parsedCoachingData || undefined
     });
     setShowCompletionForMessage(null);
+
+    // Trigger insight extraction in background if we have a session ID
+    if (sessionId) {
+      console.log('🧠 Starting insight extraction for onboarding session:', sessionId);
+      triggerInsightExtraction(sessionId); // Don't await - run in background
+    }
   };
 
   const handleEnterApp = async () => {

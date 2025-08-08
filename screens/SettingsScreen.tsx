@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
@@ -30,12 +31,13 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user, signOut, firebaseUser } = useAuth();
-  const { 
-    requestPermissions, 
-    expoPushToken, 
-    savePushTokenToFirestore, 
+  const { insights, loading: insightsLoading, hasInsights } = useInsights();
+  const {
+    requestPermissions,
+    expoPushToken,
+    savePushTokenToFirestore,
     permissionStatus,
-    checkPermissions 
+    checkPermissions
   } = useNotificationPermissions();
 
   // State for toggles
@@ -60,7 +62,7 @@ export default function SettingsScreen() {
     try {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
-      
+
       if (userDoc.exists()) {
         const userData = userDoc.data();
         const enabled = userData?.mobilePushNotifications?.enabled ?? false;
@@ -98,17 +100,17 @@ export default function SettingsScreen() {
   // Handle push notification toggle
   const handlePushNotificationToggle = useCallback(async (newValue: boolean) => {
     if (isLoading) return;
-    
+
     // Optimistic update - toggle immediately for better UX
     const previousValue = pushNotificationsEnabled;
     setPushNotificationsEnabled(newValue);
     setIsLoading(true);
-    
+
     try {
       if (newValue) {
         // Enabling notifications - request permissions first
         const granted = await requestPermissions();
-        
+
         if (granted) {
           // Permissions granted, save preference and token
           await savePushNotificationPreference(true);
@@ -133,7 +135,7 @@ export default function SettingsScreen() {
       // Revert to previous state on error
       setPushNotificationsEnabled(previousValue);
       Alert.alert(
-        'Error', 
+        'Error',
         'Failed to update notification settings. Please try again.',
         [{ text: 'OK', style: 'default' }]
       );
@@ -211,6 +213,28 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleViewInsights = () => {
+    navigation.navigate('CompassStory' as never);
+  };
+
+  // Helper function to format the last updated time
+  const formatLastUpdated = (timestamp?: number) => {
+    if (!timestamp) return 'No insights yet';
+
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    const diffInHours = Math.floor(diffInMinutes / 60);
+
+    if (diffInMinutes < 1) return 'Updated just now';
+    if (diffInMinutes < 60) return `Updated ${diffInMinutes} min ago`;
+    if (diffInHours < 24) return `Updated ${diffInHours} hours ago`;
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays === 1) return 'Updated yesterday';
+    return `Updated ${diffInDays} days ago`;
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -224,6 +248,33 @@ export default function SettingsScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Settings Title */}
         <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+
+        {/* Your Compass Section */}
+        <View style={styles.compassImageContainer}>
+          <Image
+            source={require('@/assets/images/Compass-Preview.png')}
+            style={{
+              width: 280,
+              height: 360,
+            }}
+            resizeMode="contain"
+          />
+        </View>
+
+        <View style={styles.compassSection}>
+          <Text style={[styles.compassTitle, { color: colors.text }]}>Your Compass</Text>
+          <Text style={[styles.compassTimestamp, { color: '#999' }]}>
+            {formatLastUpdated(insights?.updatedAt)}
+          </Text>
+          <Button
+            variant="primary"
+            size="sm"
+            style={{ paddingHorizontal: 20 }}
+            onPress={handleViewInsights}
+          >
+            View Insights
+          </Button>
+        </View>
 
         {/* Account Section */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
@@ -612,5 +663,22 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     textAlign: 'center',
     opacity: 0.5,
+  },
+  compassImageContainer: {
+    alignItems: 'center',
+  },
+  compassSection: {
+    alignItems: 'center',
+    marginBottom: 30,
+    marginTop: -80,
+  },
+  compassTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  compassTimestamp: {
+    fontSize: 16,
+    marginBottom: 20,
   },
 }); 

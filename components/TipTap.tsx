@@ -13,9 +13,16 @@ import Highlight from "@tiptap/extension-highlight";
 import { CoachingBlockExtension } from "./CoachingBlockExtension";
 import AIChatInterface from "./AIChatInterface";
 import { AIMode, CoachingInteractionRequest } from "@/types/coaching";
-import aiCoachingService from "@/services/aiCoachingService";
 
-export default function Editor({ content, onUpdate, isLoaded }: { content: string, onUpdate: (content: string) => void, isLoaded: (content: boolean) => void }) {
+interface EditorProps {
+  content: string;
+  onUpdate: (content: string) => void;
+  isLoaded: (content: boolean) => void;
+  getAuthToken?: () => Promise<string | null>;
+  apiBaseUrl?: string;
+}
+
+export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiBaseUrl }: EditorProps) {
   const colorScheme = useColorScheme();
   const editorRef = useRef<HTMLDivElement>(null);
   const [showAIChat, setShowAIChat] = useState(false);
@@ -104,7 +111,7 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
     }
   });
 
-  // Generate coaching block with AI
+  // Generate coaching block with AI using real API
   const generateCoachingBlock = useCallback(async () => {
     if (!editor || isGeneratingCoaching) return;
 
@@ -126,59 +133,131 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
       // Get current content for context
       const currentContent = editor.getHTML().replace(/<[^>]*>/g, ''); // Strip HTML tags
       
-      // Generate entry ID if not set
-      const currentEntryId = entryId || `entry-${Date.now()}`;
-      if (!entryId) {
-        setEntryId(currentEntryId);
+      // Get authentication token
+      if (!getAuthToken) {
+        throw new Error('Authentication not available - AI coaching is disabled');
+      }
+      
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Authentication token not available');
       }
 
-      // Create request
-      const request: CoachingInteractionRequest = {
-        entryId: currentEntryId,
-        entryContent: currentContent
+      // Call the real API endpoint
+      if (!apiBaseUrl) {
+        throw new Error('API base URL not available - coaching is disabled');
+      }
+      
+      const apiUrl = `${apiBaseUrl}api/coaching/chat`;
+      console.log('🔗 Calling API:', { 
+        apiUrl,
+        apiBaseUrl,
+        hasToken: !!token,
+        contentLength: currentContent.length 
+      });
+
+      const requestBody = {
+        message: currentContent.trim() || "I'm writing in my journal.",
+        sessionType: 'default-session',
+        // Generate a temporary session ID for this coaching block
+        sessionId: `coaching-block-${Date.now()}`
       };
 
-      // Get AI response
-      const response = await aiCoachingService.generateCoachingResponse(request);
+      console.log('📤 Request body:', requestBody);
 
-      if (response.success && response.coachingBlock) {
-        // Find and replace the loading coaching block
-        const { state } = editor;
-        const { doc } = state;
-        
-        let coachingBlockPos = -1;
-        doc.descendants((node, pos) => {
-          if (node.type.name === 'coachingBlock' && 
-              node.attrs.data?.content === "Generating coaching prompt...") {
-            coachingBlockPos = pos;
-            return false; // Stop iteration
-          }
-        });
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-        if (coachingBlockPos !== -1) {
-          const newCoachingBlock = state.schema.nodes.coachingBlock.create({ 
-            data: { 
-              content: response.coachingBlock.content,
-              variant: response.coachingBlock.variant,
-              options: response.coachingBlock.options,
-              thinking: response.coachingBlock.thinking
+      console.log('📥 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`API Error: ${response.status} - ${errorText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      // Handle streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let streamedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.type === 'content' && data.content) {
+                streamedContent += data.content;
+              } else if (data.type === 'done') {
+                // Parse the XML response to extract coaching block data
+                const coachingData = parseCoachingResponse(streamedContent);
+                
+                // Find and replace the loading coaching block
+                const { state } = editor;
+                const { doc } = state;
+                
+                let coachingBlockPos = -1;
+                doc.descendants((node, pos) => {
+                  if (node.type.name === 'coachingBlock' && 
+                      node.attrs.data?.content === "Generating coaching prompt...") {
+                    coachingBlockPos = pos;
+                    return false; // Stop iteration
+                  }
+                });
+
+                if (coachingBlockPos !== -1) {
+                  const newCoachingBlock = state.schema.nodes.coachingBlock.create({ 
+                    data: { 
+                      content: coachingData.content,
+                      variant: coachingData.variant,
+                      options: coachingData.options,
+                      thinking: coachingData.thinking
+                    }
+                  });
+                  
+                  const tr = state.tr.replaceWith(
+                    coachingBlockPos, 
+                    coachingBlockPos + 1, 
+                    newCoachingBlock
+                  );
+                  
+                  editor.view.dispatch(tr);
+                }
+                return; // Exit the function
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Stream error');
+              }
+            } catch (parseError) {
+              // Ignore invalid JSON lines
             }
-          });
-          
-          const tr = state.tr.replaceWith(
-            coachingBlockPos, 
-            coachingBlockPos + 1, 
-            newCoachingBlock
-          );
-          
-          editor.view.dispatch(tr);
+          }
         }
-      } else {
-        throw new Error(response.error || 'Failed to generate coaching response');
       }
 
     } catch (error) {
       console.error('Error generating coaching block:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : 'Unknown',
+        apiUrl: apiBaseUrl ? `${apiBaseUrl}api/coaching/chat` : 'API URL not available',
+        apiBaseUrl: apiBaseUrl
+      });
       
       // Replace loading block with error message
       const { state } = editor;
@@ -196,7 +275,7 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
       if (coachingBlockPos !== -1) {
         const errorBlock = state.schema.nodes.coachingBlock.create({ 
           data: { 
-            content: "I'm having trouble generating a coaching prompt right now. Please try using the web app to use the AI coach instead.",
+            content: "I'm having trouble generating a coaching prompt right now. Please try again.",
             variant: "text",
             thinking: "There was an error connecting to the AI service."
           }
@@ -219,7 +298,57 @@ export default function Editor({ content, onUpdate, isLoaded }: { content: strin
     } finally {
       setIsGeneratingCoaching(false);
     }
-  }, [editor, entryId, isGeneratingCoaching]);
+  }, [editor, getAuthToken, isGeneratingCoaching]);
+
+  // Helper function to parse XML coaching response
+  const parseCoachingResponse = (xmlContent: string) => {
+    // Default values
+    let content = "What stands out to you most about what you've just written?";
+    let variant: 'text' | 'buttons' | 'multi-select' = 'text';
+    let options: string[] | undefined;
+    let thinking = "Generated coaching response";
+
+    try {
+      // Extract content
+      const contentMatch = xmlContent.match(/<content>([\s\S]*?)<\/content>/);
+      if (contentMatch) {
+        content = contentMatch[1].trim();
+      }
+
+      // Extract variant
+      const variantMatch = xmlContent.match(/<variant>([\s\S]*?)<\/variant>/);
+      if (variantMatch) {
+        const variantValue = variantMatch[1].trim();
+        if (variantValue === 'buttons' || variantValue === 'multi-select') {
+          variant = variantValue;
+        }
+      }
+
+      // Extract options if variant is buttons or multi-select
+      if (variant === 'buttons' || variant === 'multi-select') {
+        const optionsMatch = xmlContent.match(/<options>([\s\S]*?)<\/options>/);
+        if (optionsMatch) {
+          const optionMatches = optionsMatch[1].match(/<option>([\s\S]*?)<\/option>/g);
+          if (optionMatches) {
+            options = optionMatches.map(match => 
+              match.replace(/<\/?option>/g, '').trim()
+            );
+          }
+        }
+      }
+
+      // Extract thinking
+      const thinkingMatch = xmlContent.match(/<thinking>([\s\S]*?)<\/thinking>/);
+      if (thinkingMatch) {
+        thinking = thinkingMatch[1].trim();
+      }
+    } catch (parseError) {
+      console.error('Error parsing coaching response:', parseError);
+      // Use default values
+    }
+
+    return { content, variant, options, thinking };
+  };
 
   // Insert coaching block from AI chat
   const insertCoachingBlockFromChat = useCallback((content: string, variant: 'text' | 'buttons' | 'multi-select', options?: string[], thinking?: string) => {

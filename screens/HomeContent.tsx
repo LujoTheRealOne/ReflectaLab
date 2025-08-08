@@ -62,7 +62,7 @@ export default function HomeContent() {
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { firebaseUser, isFirebaseReady } = useAuth();
+  const { firebaseUser, isFirebaseReady, getToken } = useAuth();
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated } = useAnalytics();
 
@@ -494,7 +494,13 @@ export default function HomeContent() {
 
                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: 80 }}>
-                  <Editor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
+                  <Editor 
+                    content={entry} 
+                    onUpdate={handleContentChange} 
+                    isLoaded={setEditorLoaded} 
+                    getAuthToken={getToken}
+                    apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
+                  />
                 </View>
               </View>
               {/* <TouchableOpacity

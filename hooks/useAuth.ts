@@ -152,20 +152,6 @@ export function useAuth() {
   const completeOnboarding = useCallback(async () => {
     if (firebaseUser?.uid) {
       try {
-        console.log('🚀 Updating onboarding status in Firestore...');
-        // Update user account in Firestore
-        await FirestoreService.updateUserAccount(firebaseUser.uid, {
-          onboardingData: {
-            onboardingCompleted: true,
-            onboardingCompletedAt: Date.now(),
-            whatDoYouDoInLife: [],
-            selfReflectionPracticesTried: [],
-            clarityInLife: 0,
-            stressInLife: 0,
-          },
-        });
-        
-        console.log('✅ Firestore updated, now refreshing user account...');
         // Refresh the user account data to get the updated onboarding status
         const updatedAccount = await FirestoreService.getUserAccount(firebaseUser.uid);
         setUserAccount(updatedAccount);

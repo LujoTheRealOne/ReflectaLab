@@ -818,13 +818,14 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     try {
       // Complete onboarding first
       console.log('🚀 Starting onboarding completion...');
-      await completeOnboarding();
-      console.log('✅ Onboarding completion finished successfully');
+      const result = await completeOnboarding();
+      console.log('✅ Onboarding completion finished successfully', result);
       
-      // Add a small delay to ensure state propagation
-      setTimeout(() => {
-        console.log('🧭 Navigation should now be updated automatically');
-      }, 100);
+      if (result?.needsOnboarding === false) {
+        console.log('🎯 Onboarding completed successfully - navigation should update automatically');
+      } else {
+        console.warn('⚠️ Onboarding may not have completed properly', result);
+      }
       
     } catch (error) {
       console.error('❌ Error completing onboarding:', error);

@@ -159,14 +159,21 @@ export function useAuth() {
         setNeedsOnboarding(needsOnboarding);
         
         console.log('🧭 User account refreshed:', { 
-          onboardingCompleted: updatedAccount.onboardingData.onboardingCompleted,
-          needsOnboarding: updatedAccount.onboardingData.onboardingCompleted !== true
+          onboardingCompleted: updatedAccount.onboardingData?.onboardingCompleted,
+          needsOnboarding
         });
+
+        // Force a re-render by triggering a state update
+        // This ensures the navigation component re-evaluates the needsOnboarding state
+        setUserAccount(prevAccount => ({ ...updatedAccount }));
+        
+        return { needsOnboarding, account: updatedAccount };
       } catch (error) {
         console.error('Failed to update onboarding status:', error);
         throw error; // Re-throw to handle in the UI
       }
     }
+    return { needsOnboarding: true, account: null };
   }, [firebaseUser?.uid]);
 
   return {

@@ -172,7 +172,8 @@ export const useAudioTranscriptionAv = (options: UseAudioTranscriptionOptions = 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+        // This could be causing app to crash when recording in background, changing to true for now until further investigation 
+        staysActiveInBackground: true,
         // Fix for invalid interruptionModeIOS value
         interruptionModeIOS: 1,
         interruptionModeAndroid: 1,

@@ -489,7 +489,9 @@ export default function CompassStoryScreen() {
         <View style={styles.compassImageContainer}>
           <Image 
             source={compassImages[currentType]}
-            style={styles.compassImage}
+            style={[styles.compassImage, {
+              tintColor: colors.tint
+            }]}
             resizeMode="contain"
           />
         </View>

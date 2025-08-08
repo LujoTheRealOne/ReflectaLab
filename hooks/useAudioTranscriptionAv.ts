@@ -28,7 +28,7 @@ export const useAudioTranscriptionAv = (options: UseAudioTranscriptionOptions = 
     return () => {
       // Clean up recording if it exists
       if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(console.error);
+        recordingRef.current.stopAndUnloadAsync();
         recordingRef.current = null;
       }
       

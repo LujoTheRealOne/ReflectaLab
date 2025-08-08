@@ -1,4 +1,4 @@
-import RichTextEditor, { RichTextEditorHandle } from '@/components/RichTextEditor';
+import Editor from '@/components/TipTap';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -73,7 +73,6 @@ export default function HomeContent() {
 
   const [entry, setEntry] = useState('');
   const [editorLoaded, setEditorLoaded] = useState(false);
-  const editorRef = useRef<RichTextEditorHandle | null>(null);
   const [hasTriggeredHaptic, setHasTriggeredHaptic] = useState(false);
   const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
   const [isLoadingEntry, setIsLoadingEntry] = useState(true);
@@ -81,11 +80,8 @@ export default function HomeContent() {
   const [originalContent, setOriginalContent] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [hasTypedContent, setHasTypedContent] = useState(false);
-  const [contentKey, setContentKey] = useState<string>('');
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const saveInFlightRef = useRef<boolean>(false);
   const lastSavedContentRef = useRef<string>('');
 
   // Audio transcription hook
@@ -98,17 +94,13 @@ export default function HomeContent() {
     stopRecordingAndTranscribe,
     cancelRecording,
   } = useAudioTranscriptionAv({
-    onTranscriptionComplete: async (transcription) => {
-      // Append transcription to the editor content using the editor ref
-      try {
-        const currentContent = (await editorRef.current?.getHtml()) || '';
-        const newContent = currentContent ? `${currentContent} ${transcription}` : transcription;
-        editorRef.current?.setHtml(newContent);
-        setHasTypedContent(true);
-        handleContentChange(newContent);
-      } catch (e) {
-        console.error('Failed updating editor with transcription', e);
-      }
+    onTranscriptionComplete: (transcription) => {
+      // Insert transcription at current cursor position in the editor
+      // For now, we'll append it to the existing content
+      const currentContent = entry;
+      const newContent = currentContent ? `${currentContent} ${transcription}` : transcription;
+      setEntry(newContent);
+      handleContentChange(newContent);
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
@@ -151,7 +143,6 @@ export default function HomeContent() {
       lastSavedContentRef.current = selectedEntry.content || '';
       setSaveStatus('saved');
       setIsNewEntry(false);
-      setContentKey(String(selectedEntry.id));
 
       // Clear the route params to prevent re-loading on re-renders
       navigation.setParams({ selectedEntry: undefined } as any);
@@ -210,7 +201,6 @@ export default function HomeContent() {
         lastSavedContentRef.current = latestEntryData.content || '';
         setSaveStatus('saved');
         setIsNewEntry(false);
-        setContentKey(String(latestEntryData.id));
       } else {
         setLatestEntry(null);
         setEntry('');
@@ -218,17 +208,15 @@ export default function HomeContent() {
         lastSavedContentRef.current = '';
         setSaveStatus('saved');
         setIsNewEntry(false);
-        setContentKey('');
       }
     } catch (error) {
       console.error('Error fetching latest entry:', error);
-        setLatestEntry(null);
+      setLatestEntry(null);
       setEntry('');
       setOriginalContent('');
       lastSavedContentRef.current = '';
       setSaveStatus('saved');
       setIsNewEntry(false);
-        setContentKey('');
     } finally {
       setIsLoadingEntry(false);
     }
@@ -237,14 +225,9 @@ export default function HomeContent() {
   // Save entry to database
   const saveEntry = useCallback(async (content: string) => {
     if (!firebaseUser) return;
-    if (saveInFlightRef.current) {
-      // Skip overlapping saves; next debounced cycle will handle latest content
-      return;
-    }
 
     try {
       setSaveStatus('saving');
-      saveInFlightRef.current = true;
 
       if (latestEntry && !isNewEntry) {
         // Update existing entry
@@ -292,15 +275,12 @@ export default function HomeContent() {
       console.error('Error saving entry:', error);
       setSaveStatus('unsaved');
     }
-    finally {
-      saveInFlightRef.current = false;
-    }
   }, [firebaseUser, latestEntry, isNewEntry, trackEntryCreated, trackEntryUpdated]);
 
   // Handle content changes with debounced save
   const handleContentChange = useCallback((newContent: string) => {
-    // Avoid storing full HTML in React state on every keystroke to reduce memory pressure
-    setHasTypedContent((prev) => prev || (newContent?.replace(/<[^>]*>/g, '').trim().length > 0));
+    setEntry(newContent);
+
     // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -315,16 +295,10 @@ export default function HomeContent() {
     // Set status to unsaved immediately
     setSaveStatus('unsaved');
 
-    // Set new timeout for auto-save (backoff on very large documents)
-    const baseDelay = 2500;
-    const docLength = newContent?.length || 0;
-    const extraDelay = docLength > 30000 ? 2000 : docLength > 15000 ? 1000 : 0;
-    const delay = baseDelay + extraDelay;
+    // Set new timeout for auto-save
     saveTimeoutRef.current = setTimeout(() => {
-      // Update entry state to the last saved version to keep it in sync without per-keystroke updates
-      setEntry(newContent);
       saveEntry(newContent);
-    }, delay);
+    }, 2000); // 2 seconds delay
   }, [saveEntry]);
 
   // Clean up timeout on unmount
@@ -363,7 +337,7 @@ export default function HomeContent() {
   // Get save status text
   const getSaveStatusText = () => {
     // Show "Creating new entry" when we have a new entry with no content
-    if (isNewEntry && !hasTypedContent && (!entry || entry.trim() === '' || entry === '<p></p>')) {
+    if (isNewEntry && (!entry || entry.trim() === '' || entry === '<p></p>')) {
       return 'Creating new entry';
     }
 
@@ -520,16 +494,7 @@ export default function HomeContent() {
 
                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: 80 }}>
-                  <RichTextEditor
-                    ref={editorRef}
-                    // Keep initialHTML stable; rely on onHTMLChange for updates to avoid re-initialization
-                    initialHTML={originalContent}
-                    contentKey={contentKey}
-                    onHTMLChange={handleContentChange}
-                    onLoaded={setEditorLoaded}
-                    onFocus={() => setIsKeyboardVisible(true)}
-                    onBlur={() => setIsKeyboardVisible(false)}
-                  />
+                  <Editor content={entry} onUpdate={handleContentChange} isLoaded={setEditorLoaded} />
                 </View>
               </View>
               {/* <TouchableOpacity

@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
+import Constants from 'expo-constants';
 
 export type PermissionStatus = 'undetermined' | 'granted' | 'denied';
 
@@ -58,13 +59,13 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
         });
       }
 
-      const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
       
       if (!projectId) {
-        throw new Error('EXPO_PUBLIC_EAS_PROJECT_ID not found set in .env');
+        throw new Error('Project ID not found set in app.json');
       }
       
-      console.log('🔑 Getting Expo push token with project ID from .env:', projectId);
+      console.log('🔑 Getting Expo push token with project ID from app.json:', projectId);
       
       const { data: token } = await Notifications.getExpoPushTokenAsync({
         projectId,

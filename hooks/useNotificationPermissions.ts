@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
@@ -58,15 +59,27 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
         });
       }
 
+      // Get project ID from app.json configuration
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      
+      if (!projectId) {
+        throw new Error('Project ID not found in app.json. Please ensure extra.eas.projectId is configured.');
+      }
+      
+      console.log('🔑 Getting Expo push token with project ID from app.json:', projectId);
+      
       const { data: token } = await Notifications.getExpoPushTokenAsync({
-        projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
+        projectId,
       });
       
       console.log('✅ Expo push token retrieved:', token);
       setExpoPushToken(token);
       return token;
     } catch (error) {
-      console.error('Error getting Expo push token:', error);
+      console.error('❌ Error getting Expo push token:', error);
+      console.error('   Project ID from app.json:', Constants.expoConfig?.extra?.eas?.projectId);
+      console.error('   Full Constants.expoConfig:', Constants.expoConfig);
+      console.error('   Error details:', JSON.stringify(error, null, 2));
       return null;
     }
   }, []);
@@ -74,7 +87,7 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
   // Save push token to Firestore
   const savePushTokenToFirestore = useCallback(async (): Promise<boolean> => {
     if (!firebaseUser || !firebaseUser.uid) {
-      console.error('❌ No authenticated user found');
+      console.error('❌ No authenticated user found for push token saving');
       return false;
     }
 

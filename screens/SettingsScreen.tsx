@@ -241,13 +241,14 @@ export default function SettingsScreen() {
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <ChevronLeft size={24} color={colors.text} />
-          <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
+          <Text style={[styles.backText, { color: colors.text }]}>Settings</Text>
+          <View style={{ width: 24 }} />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Settings Title */}
-        <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+        {/* <Text style={[styles.title, { color: colors.text }]}>Settings</Text> */}
 
         {/* Your Compass Section */}
         <View style={styles.compassImageContainer}>
@@ -279,7 +280,7 @@ export default function SettingsScreen() {
         {/* Account Section */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
 
-        <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <Text style={[styles.settingTitle, { color: colors.text }]}>Account Information</Text>
           <Text style={[styles.settingDescription, { color: '#999' }]}>
             View your account information
@@ -317,7 +318,7 @@ export default function SettingsScreen() {
         {/* Notifications Section */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Notifications</Text>
 
-        <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>Push Notifications</Text>
           </View>
@@ -349,9 +350,9 @@ export default function SettingsScreen() {
         </View>
 
         {/* App Settings */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
+        {/* <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
 
-        <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>Appearance</Text>
           </View>
@@ -381,7 +382,7 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+          <View style={[styles.subsettingItem, { borderColor: colorScheme === 'dark' ? '#' : '#EAEAEA' }]}>
             <View style={styles.settingRow}>
               <View style={styles.settingInfo}>
                 <Text style={[styles.settingLabel, { color: colors.text }]}>Language</Text>
@@ -394,14 +395,14 @@ export default function SettingsScreen() {
                 <Ionicons name="chevron-down" size={20} color="#999" />
               </TouchableOpacity>
             </View>
-          </View> */}
-        </View>
+          </View>
+        </View> */}
 
         {/* AI Features */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>AI Features</Text>
 
         {/* Push Notifications for AI */}
-        <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>AI Coach</Text>
           </View>
@@ -438,7 +439,7 @@ export default function SettingsScreen() {
         {/* Journal Settings */}
         {/* <Text style={[styles.sectionTitle, { color: colors.text }]}>Journal Settings</Text>
 
-        <View style={[styles.settingItem, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '# ' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>Journal Template</Text>
           </View>
@@ -461,13 +462,17 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>More Information</Text>
 
         <View style={styles.sectionGap}>
-          <View style={[styles.settingContainer, { borderColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]}>
+          <View style={[styles.settingItem, { gap: 10, backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
             <Button
               variant="ghost"
               iconLeft={<FileText size={20} color={colors.text} />}
               style={styles.infoButton}
               onPress={() => {
-                Linking.openURL('https://reflecta.so/privacy');
+                WebBrowser.openBrowserAsync('https://reflecta.so/privacy', {
+                  controlsColor: colors.tint,
+                  toolbarColor: colors.background,
+                  showTitle: true,
+                });
               }}
             >
               Privacy Policy
@@ -478,7 +483,11 @@ export default function SettingsScreen() {
               iconLeft={<FileText size={20} color={colors.text} />}
               style={styles.infoButton}
               onPress={() => {
-                Linking.openURL('https://reflecta.so/terms');
+                WebBrowser.openBrowserAsync('https://reflecta.so/terms', {
+                  controlsColor: colors.tint,
+                  toolbarColor: colors.background,
+                  showTitle: true,
+                });
               }}
             >
               Terms of Service
@@ -528,7 +537,9 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
   },
   backButton: {
+    width: '100%',
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     gap: 5,
   },
@@ -553,16 +564,16 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   settingItem: {
-    padding: 15,
-    borderWidth: 1,
-    borderRadius: 24,
+    gap: 5,
+    opacity: 1,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    padding: 16,
     marginBottom: 10,
-  },
-  settingContainer: {
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 15,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
   },
   settingHeader: {
     flexDirection: 'row',

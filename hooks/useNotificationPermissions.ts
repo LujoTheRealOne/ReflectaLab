@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
@@ -59,14 +58,13 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
         });
       }
 
-      // Get project ID from app.json configuration
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
       
       if (!projectId) {
-        throw new Error('Project ID not found in app.json. Please ensure extra.eas.projectId is configured.');
+        throw new Error('EXPO_PUBLIC_EAS_PROJECT_ID not found set in .env');
       }
       
-      console.log('🔑 Getting Expo push token with project ID from app.json:', projectId);
+      console.log('🔑 Getting Expo push token with project ID from .env:', projectId);
       
       const { data: token } = await Notifications.getExpoPushTokenAsync({
         projectId,
@@ -77,8 +75,6 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
       return token;
     } catch (error) {
       console.error('❌ Error getting Expo push token:', error);
-      console.error('   Project ID from app.json:', Constants.expoConfig?.extra?.eas?.projectId);
-      console.error('   Full Constants.expoConfig:', Constants.expoConfig);
       console.error('   Error details:', JSON.stringify(error, null, 2));
       return null;
     }

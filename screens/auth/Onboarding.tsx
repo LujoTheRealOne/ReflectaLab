@@ -10,7 +10,7 @@ import { BlurView } from 'expo-blur';
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Headphones } from 'lucide-react-native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -1211,8 +1211,9 @@ export default function OnboardingScreen() {
       case 15:
         return (
           <>
-            <View style={[styles.headerContainer, { gap: 40, flex: 1, justifyContent: 'center', width: '100%' }]}>
-              <Text style={[styles.mainText, { color: '#FFFFFF', textAlign: 'center', fontSize: 16, fontWeight: '500', lineHeight: 24, opacity: 0.6, paddingHorizontal: 20 }]}>
+            <View style={[styles.headerContainer, { gap: 30, flex: 1, justifyContent: 'center', width: '100%', opacity: 0.6, alignItems: 'center' }]}>
+              <Headphones size={64} color={colors.background} />
+              <Text style={[styles.mainText, { color: '#FFFFFF', textAlign: 'center', fontSize: 16, fontWeight: '500', lineHeight: 24, paddingHorizontal: 20 }]}>
                 Please find a quiet place and consider using headphones.
               </Text>
             </View>

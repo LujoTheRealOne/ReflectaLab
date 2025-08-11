@@ -272,6 +272,7 @@ export default function SettingsScreen() {
             size="sm"
             style={{ paddingHorizontal: 20 }}
             onPress={handleViewInsights}
+            disabled={!hasInsights}
           >
             View Insights
           </Button>

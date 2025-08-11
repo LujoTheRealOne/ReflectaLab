@@ -75,6 +75,9 @@ export default function OnboardingScreen() {
 
   // Initialize audio player for meditation bell
   const bellPlayer = useAudioPlayer(require('@/assets/mediation_bell.mp3'));
+  
+  // Initialize audio player for meditation audio from local asset
+  const meditationPlayer = useAudioPlayer(require('@/assets/5m_meditation.wav'));
 
   // Function to play meditation bell sound
   const playMeditationBell = async () => {
@@ -88,6 +91,66 @@ export default function OnboardingScreen() {
       bellPlayer.play();
     } catch (error) {
       console.log('Error playing meditation bell:', error);
+    }
+  };
+
+  // Function to prepare meditation audio (local asset is already loaded)
+  const loadMeditationAudio = async () => {
+    try {
+      // Configure audio to play even in silent mode
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+      });
+
+      console.log('Meditation audio loaded from local asset');
+      console.log('Audio player isLoaded:', meditationPlayer.isLoaded);
+    } catch (error) {
+      console.log('Error configuring meditation audio:', error);
+    }
+  };
+
+  // Function to start meditation audio
+  const startMeditationAudio = async () => {
+    try {
+      console.log('Starting meditation audio...');
+      console.log('Audio player isLoaded:', meditationPlayer.isLoaded);
+      
+      meditationPlayer.seekTo(0);
+      meditationPlayer.play();
+      console.log('Meditation audio started successfully');
+    } catch (error) {
+      console.log('Error starting meditation audio:', error);
+      console.log('Error details:', error);
+    }
+  };
+
+  // Function to pause meditation audio
+  const pauseMeditationAudio = () => {
+    try {
+      meditationPlayer.pause();
+      console.log('Meditation audio paused');
+    } catch (error) {
+      console.log('Error pausing meditation audio:', error);
+    }
+  };
+
+  // Function to resume meditation audio
+  const resumeMeditationAudio = () => {
+    try {
+      meditationPlayer.play();
+      console.log('Meditation audio resumed');
+    } catch (error) {
+      console.log('Error resuming meditation audio:', error);
+    }
+  };
+
+  // Function to stop meditation audio
+  const stopMeditationAudio = () => {
+    try {
+      meditationPlayer.pause();
+      meditationPlayer.seekTo(0);
+    } catch (error) {
+      console.log('Error stopping meditation audio:', error);
     }
   };
 
@@ -460,21 +523,39 @@ export default function OnboardingScreen() {
       // Activate keep awake to prevent screen from sleeping during meditation
       activateKeepAwakeAsync();
 
-      // Start timer after 2 seconds
-      const startTimeout = setTimeout(() => {
-        setIsTimerRunning(true);
-      }, 500);
+      // Load meditation audio from API and start timer
+      let startTimeoutId: NodeJS.Timeout | null = null;
+      
+      const loadAudio = async () => {
+        await loadMeditationAudio();
+        
+        startMeditationAudio();
+
+        // Start timer after audio is loaded
+        startTimeoutId = setTimeout(() => {
+          setIsTimerRunning(true);
+          // Start meditation audio when timer starts
+        }, 2000);
+      };
+      
+      loadAudio();
 
       return () => {
-        clearTimeout(startTimeout);
+        if (startTimeoutId) {
+          clearTimeout(startTimeoutId);
+        }
         setIsTimerRunning(false);
         setTimerEnded(false);
+        // Stop meditation audio when leaving case 16
+        stopMeditationAudio();
         // Deactivate keep awake when leaving case 16
         deactivateKeepAwake();
       };
     } else {
       // Ensure keep awake is deactivated when not in case 16
       deactivateKeepAwake();
+      // Stop meditation audio when not in case 16
+      stopMeditationAudio();
     }
   }, [currentStep]);
 
@@ -495,6 +576,9 @@ export default function OnboardingScreen() {
       // Timer just ended
       setIsTimerRunning(false);
       setTimerEnded(true);
+
+      // Stop meditation audio when timer ends
+      stopMeditationAudio();
 
       // Deactivate keep awake when meditation timer ends
       deactivateKeepAwake();
@@ -1143,6 +1227,8 @@ export default function OnboardingScreen() {
           if (!timerEnded && isTimerRunning) {
             setIsTimerRunning(false);
             setShowPauseOverlay(true);
+            // Pause meditation audio when showing pause overlay
+            pauseMeditationAudio();
             Animated.timing(pauseOverlayAnim, {
               toValue: 1,
               duration: 300,
@@ -1159,6 +1245,8 @@ export default function OnboardingScreen() {
           }).start(() => {
             setShowPauseOverlay(false);
             setIsTimerRunning(true);
+            // Resume meditation audio when continuing timer
+            resumeMeditationAudio();
           });
         };
 
@@ -1216,11 +1304,15 @@ close your eyes...`}
                           }).start(() => {
                             setShowPauseOverlay(false);
                             setIsTimerRunning(true);
+                            // Resume meditation audio when continuing
+                            resumeMeditationAudio();
                           });
                         }
                       },
                       {
                         text: 'End early', style: 'destructive', onPress: () => {
+                          // Stop meditation audio when ending early
+                          stopMeditationAudio();
                           Animated.timing(pauseOverlayAnim, {
                             toValue: 0,
                             duration: 300,

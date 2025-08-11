@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.9.6",
+    "version": "0.9.7",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -48,6 +48,13 @@
       ],
       [
         "expo-apple-authentication"
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#ffffff"
+        }
       ],
       "expo-audio",
       "expo-localization"

@@ -136,7 +136,12 @@ export function useNotificationPermissions(): UseNotificationPermissionsReturn {
       
       if (status === 'granted') {
         // Get and save push token when permissions are granted
-        await savePushTokenToFirestore();
+        const tokenSaved = await savePushTokenToFirestore();
+        if (!tokenSaved) {
+          // If token saving failed, we should not report success
+          console.error('Push notifications permissions granted but token could not be saved');
+          return false;
+        }
       }
       
       return status === 'granted';

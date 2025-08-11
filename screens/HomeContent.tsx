@@ -43,6 +43,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 
 type DrawerNavigation = DrawerNavigationProp<any>;
@@ -333,6 +334,23 @@ export default function HomeContent() {
       fetchLatestEntry();
     }
   }, [fetchLatestEntry, isFirebaseReady]);
+
+  // Keep screen awake while recording
+  useEffect(() => {
+    if (isRecording) {
+      activateKeepAwakeAsync()
+        .catch(error => console.error('❌ Failed to activate keep awake:', error));
+    } else {
+      deactivateKeepAwake();
+    }
+  }, [isRecording]);
+
+  // Cleanup keep awake on component unmount
+  useEffect(() => {
+    return () => {
+      deactivateKeepAwake();
+    };
+  }, []);
 
   // Get save status text
   const getSaveStatusText = () => {

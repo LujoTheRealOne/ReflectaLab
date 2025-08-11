@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -534,6 +535,23 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       }
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
+
+  // Keep screen awake while recording
+  useEffect(() => {
+    if (isRecording) {
+      activateKeepAwakeAsync()
+        .catch(error => console.error('❌ Failed to activate keep awake:', error));
+    } else {
+      deactivateKeepAwake();
+    }
+  }, [isRecording]);
+
+  // Cleanup keep awake on component unmount
+  useEffect(() => {
+    return () => {
+      deactivateKeepAwake();
+    };
+  }, []);
 
 
 

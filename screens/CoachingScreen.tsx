@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -316,6 +317,23 @@ export default function CoachingScreen() {
       }
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);
+
+  // Keep screen awake while recording
+  useEffect(() => {
+    if (isRecording) {
+      activateKeepAwakeAsync()
+        .catch(error => console.error('❌ Failed to activate keep awake:', error));
+    } else {
+      deactivateKeepAwake();
+    }
+  }, [isRecording]);
+
+  // Cleanup keep awake on component unmount
+  useEffect(() => {
+    return () => {
+      deactivateKeepAwake();
+    };
+  }, []);
 
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;

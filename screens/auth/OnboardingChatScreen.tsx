@@ -16,6 +16,7 @@ import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -252,6 +253,73 @@ export default function OnboardingChatScreen() {
     return { components, rawData: finishContent };
   };
 
+  // Function to render a coaching card based on type and props
+  const renderCoachingCard = (type: string, props: Record<string, string>, index: number) => {
+    const baseProps = {
+      key: `coaching-card-${type}-${index}`,
+      editable: false, // Cards in messages should not be editable
+    };
+
+    switch (type) {
+      case 'meditation':
+        return (
+          <MeditationCard
+            {...baseProps}
+            title={props.title || 'Guided Meditation'}
+            duration={parseInt(props.duration || '300')}
+            description={props.description}
+            type={(props.type as 'breathing' | 'mindfulness' | 'body-scan') || 'breathing'}
+          />
+        );
+      case 'focus':
+        // Handle both expected format (focus/context) and AI output format (headline/explanation)
+        const focusText = props.focus || props.headline || 'Main focus not specified';
+        const contextText = props.context || props.explanation;
+        
+        return (
+          <FocusCard
+            {...baseProps}
+            focus={focusText}
+            context={contextText}
+          />
+        );
+      case 'blockers':
+        const blockers = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <BlockersCard
+            {...baseProps}
+            blockers={blockers}
+            title={props.title}
+          />
+        );
+      case 'actions':
+        const actions = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <ActionPlanCard
+            {...baseProps}
+            actions={actions}
+            title={props.title}
+          />
+        );
+      case 'checkin':
+        // Check-in cards are handled by the scheduling popup system
+        return null;
+      default:
+        return (
+          <View key={`unknown-card-${index}`} style={{
+            padding: 16, 
+            backgroundColor: colorScheme === 'dark' ? '#374151' : '#F3F4F6', 
+            borderRadius: 8, 
+            marginVertical: 8
+          }}>
+            <Text style={{ color: colorScheme === 'dark' ? '#9CA3AF' : '#6B7280', fontSize: 14 }}>
+              Unknown component: {type}
+            </Text>
+          </View>
+        );
+    }
+  };
+
   // Function to call coaching chat API for coaching blocks
   const callCoachingInteractionAPI = async (entryContent: string) => {
     try {
@@ -396,7 +464,7 @@ export default function OnboardingChatScreen() {
       setTimeout(() => {
         const initialMessage: CoachingMessage = {
           id: '1',
-          content: `Good afternoon, ${name}.\n
+          content: `Hey, ${name}.\n
 Once you're ready, I'd love to hear: If you had to name what's most alive in you right now—what would it be?\n
 Maybe it's a tension you're holding, a quiet longing, or something you don't quite have words for yet. Whatever shows up—start there.`,
           role: 'assistant',
@@ -902,8 +970,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
-                <View
-                >
+                <View>
                   <Text
                     style={[
                       styles.messageText,
@@ -914,6 +981,19 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   >
                     {getDisplayContent(message.content)}
                   </Text>
+
+                  {/* Render coaching cards for AI messages */}
+                  {message.role === 'assistant' && (() => {
+                    const coachingCards = parseCoachingCards(message.content);
+                    if (coachingCards.length > 0) {
+                      return (
+                        <View style={{ marginTop: 8, marginBottom: 16 }}>
+                          {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index))}
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
                 </View>
 
                                 {/* AI Chat Popup */}
@@ -955,42 +1035,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   </View>
                 )}
 
-                {/* Completion Popup - appears on final message when progress reaches 100% */}
-                {message.role === 'assistant' && showCompletionForMessage === message.id && (
-                  <View style={[
-                    styles.aiPopup,
-                    {
-                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
-                    }
-                  ]}>
-                    <View style={styles.aiPopupContent}>
-                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
-                        You've invested in yourself.
-                      </Text>
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
-                        Now let's see what is reflecting.
-                      </Text>
-                      
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
-                        {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
-                      </Text>
-
-                      <View style={styles.aiPopupButtons}>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={handleCompletionAction}
-                          style={{ flex: 1 }}
-                        >
-                          View Compass Results
-                        </Button>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                                {/* Scheduling Popup - appears when checkin cards are detected */}
+                {/* Scheduling Popup - appears when checkin cards are detected */}
                 {message.role === 'assistant' && showSchedulingForMessage === message.id && (() => {
                   const coachingCards = parseCoachingCards(message.content);
                   const checkinCard = coachingCards.find(card => card.type === 'checkin');
@@ -1090,6 +1135,41 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                     </View>
                   );
                 })()}
+
+                {/* Completion Popup - appears on final message when progress reaches 100% */}
+                {message.role === 'assistant' && showCompletionForMessage === message.id && (
+                  <View style={[
+                    styles.aiPopup,
+                    {
+                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+                    }
+                  ]}>
+                    <View style={styles.aiPopupContent}>
+                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
+                        You've invested in yourself.
+                      </Text>
+                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
+                        Now let's see what is reflecting.
+                      </Text>
+                      
+                      <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
+                        {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
+                      </Text>
+
+                      <View style={styles.aiPopupButtons}>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onPress={handleCompletionAction}
+                          style={{ flex: 1 }}
+                        >
+                          View Compass Results
+                        </Button>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
             ))}
             {isLoading && (

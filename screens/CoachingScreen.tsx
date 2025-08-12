@@ -12,6 +12,7 @@ import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -188,17 +189,119 @@ export default function CoachingScreen() {
     return { components, rawData: finishContent };
   };
 
-  // Function to clean message content by removing finish tokens and structured data
-  const getDisplayContent = (content: string) => {
-    const finishStartIndex = content.indexOf('[finish-start]');
+  // Function to parse coaching cards from any content
+  const parseCoachingCards = (content: string) => {
+    // Parse component markers like [focus:focus="...",context="..."]
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    const components: Array<{ type: string; props: Record<string, string> }> = [];
     
-    // If no finish tokens, return original content
-    if (finishStartIndex === -1) {
-      return content;
+    let match;
+    while ((match = componentRegex.exec(content)) !== null) {
+      const componentType = match[1];
+      const propsString = match[2];
+      
+      // Parse props from key="value" format
+      const props: Record<string, string> = {};
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+      
+      while ((propMatch = propRegex.exec(propsString)) !== null) {
+        const [, key, value] = propMatch;
+        props[key] = value;
+      }
+      
+      components.push({ type: componentType, props });
     }
     
-    // Return only the content before the finish tokens
-    return content.slice(0, finishStartIndex).trim();
+    return components;
+  };
+
+  // Function to render a coaching card based on type and props
+  const renderCoachingCard = (type: string, props: Record<string, string>, index: number) => {
+    const baseProps = {
+      key: `coaching-card-${type}-${index}`,
+      editable: false, // Cards in messages should not be editable
+    };
+
+    switch (type) {
+      case 'meditation':
+        return (
+          <MeditationCard
+            {...baseProps}
+            title={props.title || 'Guided Meditation'}
+            duration={parseInt(props.duration || '300')}
+            description={props.description}
+            type={(props.type as 'breathing' | 'mindfulness' | 'body-scan') || 'breathing'}
+          />
+        );
+      case 'focus':
+        // Handle both expected format (focus/context) and AI output format (headline/explanation)
+        const focusText = props.focus || props.headline || 'Main focus not specified';
+        const contextText = props.context || props.explanation;
+        
+        return (
+          <FocusCard
+            {...baseProps}
+            focus={focusText}
+            context={contextText}
+          />
+        );
+      case 'blockers':
+        const blockers = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <BlockersCard
+            {...baseProps}
+            blockers={blockers}
+            title={props.title}
+          />
+        );
+      case 'actions':
+        const actions = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <ActionPlanCard
+            {...baseProps}
+            actions={actions}
+            title={props.title}
+          />
+        );
+      case 'checkin':
+        // Check-in cards are handled by the scheduling popup system
+        return null;
+      default:
+        return (
+          <View key={`unknown-card-${index}`} style={{
+            padding: 16, 
+            backgroundColor: colorScheme === 'dark' ? '#374151' : '#F3F4F6', 
+            borderRadius: 8, 
+            marginVertical: 8
+          }}>
+            <Text style={{ color: colorScheme === 'dark' ? '#9CA3AF' : '#6B7280', fontSize: 14 }}>
+              Unknown component: {type}
+            </Text>
+          </View>
+        );
+    }
+  };
+
+  // Function to clean message content by removing finish tokens and coaching cards
+  const getDisplayContent = (content: string) => {
+    let cleanContent = content;
+    
+    // Remove finish tokens and everything after them
+    const finishStartIndex = cleanContent.indexOf('[finish-start]');
+    if (finishStartIndex !== -1) {
+      cleanContent = cleanContent.slice(0, finishStartIndex).trim();
+    }
+    
+    // Remove coaching card syntax like [checkin:...], [focus:...], etc.
+    const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
+    cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
+    
+    // Clean up extra whitespace/newlines that might be left
+    cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple newlines with double newlines
+    cleanContent = cleanContent.trim();
+    
+    return cleanContent;
   };
 
   // Use the audio transcription hook
@@ -493,6 +596,19 @@ export default function CoachingScreen() {
                    >
                      {getDisplayContent(message.content)}
                    </Text>
+
+                   {/* Render coaching cards for AI messages */}
+                   {message.role === 'assistant' && (() => {
+                     const coachingCards = parseCoachingCards(message.content);
+                     if (coachingCards.length > 0) {
+                       return (
+                         <View style={{ marginTop: 8, marginBottom: 16 }}>
+                           {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index))}
+                         </View>
+                       );
+                     }
+                     return null;
+                   })()}
                  </View>
 
                  {/* Completion Popup - appears on final message when progress reaches 100% */}

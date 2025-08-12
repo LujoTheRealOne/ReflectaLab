@@ -287,9 +287,17 @@ export default function CoachingScreen() {
   const getDisplayContent = (content: string) => {
     let cleanContent = content;
     
-    // Remove finish tokens and everything after them
+    // Remove content between finish tokens, but preserve content after [finish-end]
     const finishStartIndex = cleanContent.indexOf('[finish-start]');
-    if (finishStartIndex !== -1) {
+    const finishEndIndex = cleanContent.indexOf('[finish-end]');
+    
+    if (finishStartIndex !== -1 && finishEndIndex !== -1) {
+      // Keep content before [finish-start] and after [finish-end]
+      const beforeFinish = cleanContent.slice(0, finishStartIndex).trim();
+      const afterFinish = cleanContent.slice(finishEndIndex + '[finish-end]'.length).trim();
+      cleanContent = beforeFinish + (afterFinish ? '\n\n' + afterFinish : '');
+    } else if (finishStartIndex !== -1) {
+      // If only [finish-start] is found, remove everything after it
       cleanContent = cleanContent.slice(0, finishStartIndex).trim();
     }
     

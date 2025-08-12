@@ -17,6 +17,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where
 } from 'firebase/firestore';
@@ -263,7 +264,8 @@ export default function HomeContent() {
           content_length: content.length,
         });
       } else {
-        // Create new entry in database
+        // Create new entry in database using the pre-generated ID
+        const entryId = latestEntry?.id || Crypto.randomUUID();
         const newEntry = {
           uid: firebaseUser.uid,
           content,
@@ -271,16 +273,17 @@ export default function HomeContent() {
           lastUpdated: serverTimestamp()
         };
 
-        const docRef = await addDoc(collection(db, 'journal_entries'), newEntry);
+        const docRef = doc(db, 'journal_entries', entryId);
+        await setDoc(docRef, newEntry);
 
         // Track journal entry creation
         trackEntryCreated({
-          entry_id: docRef.id,
+          entry_id: entryId,
         });
 
-        // Update local state with new entry info from database
+        // Update local state with new entry info from database (keep the same ID)
         setLatestEntry({
-          id: docRef.id,
+          id: entryId,
           uid: firebaseUser.uid,
           content,
           timestamp: new Date(),

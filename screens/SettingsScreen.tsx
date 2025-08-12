@@ -42,7 +42,7 @@ export default function SettingsScreen() {
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
-  const [dailyCuesEnabled, setDailyCuesEnabled] = useState(true);
+  const [coachingMessages, setCoachingMessages] = useState(true);
   const [userInfo, setUserInfo] = useState<{
     name?: string;
     email?: string;
@@ -74,6 +74,25 @@ export default function SettingsScreen() {
     }
   }, [firebaseUser]);
 
+  // Load coaching messages preference from Firestore
+  const loadCoachingMessagesPreference = useCallback(async () => {
+    if (!firebaseUser?.uid) return;
+
+    try {
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const enabled = userData?.coachingConfig?.enableCoachingMessages ?? true;
+        setCoachingMessages(enabled);
+        console.log('🤖 Loaded coaching messages preference:', enabled);
+      }
+    } catch (error) {
+      console.error('Error loading coaching messages preference:', error);
+    }
+  }, [firebaseUser]);
+
   // Save push notification preference to Firestore
   const savePushNotificationPreference = useCallback(async (enabled: boolean) => {
     if (!firebaseUser?.uid) return;
@@ -91,11 +110,29 @@ export default function SettingsScreen() {
     }
   }, [firebaseUser]);
 
+  // Save coaching messages preference to Firestore
+  const saveCoachingMessagesPreference = useCallback(async (enabled: boolean) => {
+    if (!firebaseUser?.uid) return;
+
+    try {
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      await updateDoc(userDocRef, {
+        'coachingConfig.enableCoachingMessages': enabled,
+        updatedAt: new Date()
+      });
+      console.log('🤖 Saved coaching messages preference:', enabled);
+    } catch (error) {
+      console.error('Error saving coaching messages preference:', error);
+      throw error;
+    }
+  }, [firebaseUser]);
+
   // Load preference on component mount
   useEffect(() => {
     loadPushNotificationPreference();
+    loadCoachingMessagesPreference();
     checkPermissions();
-  }, [loadPushNotificationPreference, checkPermissions]);
+  }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
 
   // Handle push notification toggle
   const handlePushNotificationToggle = useCallback(async (newValue: boolean) => {
@@ -143,6 +180,31 @@ export default function SettingsScreen() {
       setIsLoading(false);
     }
   }, [isLoading, pushNotificationsEnabled, requestPermissions, savePushNotificationPreference]);
+
+  // Handle coaching messages toggle
+  const handleCoachingMessagesToggle = useCallback(async (newValue: boolean) => {
+    if (isLoading) return;
+
+    // Optimistic update - toggle immediately for better UX
+    const previousValue = coachingMessages;
+    setCoachingMessages(newValue);
+    setIsLoading(true);
+
+    try {
+      await saveCoachingMessagesPreference(newValue);
+    } catch (error) {
+      console.error('Error toggling coaching messages:', error);
+      // Revert to previous state on error
+      setCoachingMessages(previousValue);
+      Alert.alert(
+        'Error',
+        'Failed to update coaching messages setting. Please try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, coachingMessages, saveCoachingMessagesPreference]);
 
   const handleBack = () => {
     navigation.goBack();
@@ -405,34 +467,35 @@ export default function SettingsScreen() {
         {/* Push Notifications for AI */}
         <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
-            <Text style={[styles.settingTitle, { color: colors.text }]}>AI Coach</Text>
+            <Text style={[styles.settingTitle, { color: colors.text }]}>AI Coaching Config</Text>
           </View>
-          <View style={styles.settingRow}>
+          {/* <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Entry Cues</Text>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Entry Coach</Text>
               <Text style={[styles.settingDescription, { color: '#999' }]}>
-                While typing your entry, receive AI-generated cues to help you reflect on your thoughts and feelings
+                While typing your entry, receive AI-generated responses to help you reflect on your thoughts and feelings.
               </Text>
             </View>
             <Switch
-              value={dailyCuesEnabled}
+              value={}
               onValueChange={() => { }}
               trackColor={{ false: '#E5E5E7', true: colors.tint }}
               thumbColor={colors.background}
             />
-          </View>
+          </View> */}
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Receive Daily Cues</Text>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Receive Coaching Messages</Text>
               <Text style={[styles.settingDescription, { color: '#999' }]}>
-                Receive periodic, AI-generated reflective cues from Sage based on your journal entries.
+                Receive periodic, reflective messages from the AI Coach based on your coaching sessions.
               </Text>
             </View>
             <Switch
-              value={dailyCuesEnabled}
-              onValueChange={() => { }}
+              value={coachingMessages}
+              onValueChange={handleCoachingMessagesToggle}
               trackColor={{ false: '#E5E5E7', true: colors.tint }}
               thumbColor={colors.background}
+              disabled={isLoading}
             />
           </View>
         </View>
@@ -588,7 +651,7 @@ const styles = StyleSheet.create({
   },
   settingRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
   },

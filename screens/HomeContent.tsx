@@ -23,6 +23,7 @@ import {
 import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
+import CoachingSessionCard from '@/components/CoachingSessionCard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SafeAreaView,
@@ -56,6 +57,20 @@ interface JournalEntry {
   content?: string;
   timestamp: any; // Firestore timestamp
   uid: string;
+  linkedCoachingSessionId?: string; // id of the coaching session that this entry is linked to
+}
+
+interface CoachingSession {
+  id: string;
+  sessionType: 'default-session' | 'initial-life-deep-dive';
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: Date;
+  }>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export default function HomeContent() {
@@ -81,6 +96,10 @@ export default function HomeContent() {
   const [originalContent, setOriginalContent] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // Coaching session state
+  const [coachingSessionData, setCoachingSessionData] = useState<CoachingSession | null>(null);
+  const [loadingCoachingSession, setLoadingCoachingSession] = useState(false);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
@@ -352,6 +371,75 @@ export default function HomeContent() {
     };
   }, []);
 
+  // Fetch coaching session data - stable callback like web app
+  const fetchCoachingSession = useCallback(async (sessionId: string) => {
+    if (!sessionId) return;
+
+    setLoadingCoachingSession(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('No auth token');
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/sessions?sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn('Coaching session not found:', sessionId);
+          setCoachingSessionData(null);
+          return;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.success && result.session) {
+        setCoachingSessionData({
+          ...result.session,
+          createdAt: new Date(result.session.createdAt),
+          updatedAt: new Date(result.session.updatedAt),
+          messages: result.session.messages.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }))
+        });
+      } else {
+        setCoachingSessionData(null);
+      }
+    } catch (error) {
+      console.error('Error fetching coaching session:', error);
+      setCoachingSessionData(null);
+    } finally {
+      setLoadingCoachingSession(false);
+    }
+  }, []); // Empty dependency array like web app
+
+  // Handle opening coaching session
+  const handleOpenCoachingSession = useCallback(() => {
+    if (coachingSessionData?.id) {
+      navigation.navigate('Coaching', {
+        sessionId: coachingSessionData.id,
+        sessionType: coachingSessionData.sessionType
+      } as any);
+    }
+  }, [navigation, coachingSessionData]);
+
+  // Check for linked coaching session when current entry changes - exactly like web app
+  useEffect(() => {
+    const linkedSessionId = latestEntry?.linkedCoachingSessionId;
+
+    // Handle coaching session linking
+    if (linkedSessionId && linkedSessionId !== coachingSessionData?.id) {
+      // Only fetch if we don't already have this session data
+      fetchCoachingSession(linkedSessionId);
+    } else if (!linkedSessionId) {
+      setCoachingSessionData(null);
+    }
+  }, [latestEntry?.linkedCoachingSessionId, fetchCoachingSession, coachingSessionData?.id]);
+
   // Get save status text
   const getSaveStatusText = () => {
     // Show "Creating new entry" when we have a new entry with no content
@@ -510,12 +598,23 @@ export default function HomeContent() {
                   </Text>
                 </View>
 
+                {/* Coaching Session Card - Show when current entry has linked session */}
+                {(coachingSessionData || loadingCoachingSession) && (
+                  <CoachingSessionCard
+                    title={coachingSessionData?.sessionType === 'initial-life-deep-dive' ? 'Life Deep Dive Session' : 'Goal breakout session'}
+                    messageCount={coachingSessionData?.messages?.length || 0}
+                    sessionType={coachingSessionData?.sessionType === 'initial-life-deep-dive' ? 'Initial Life Deep Dive' : 'Coach chat'}
+                    onOpenConversation={handleOpenCoachingSession}
+                    loading={loadingCoachingSession}
+                  />
+                )}
+
                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: 80 }}>
-                  <Editor 
-                    content={entry} 
-                    onUpdate={handleContentChange} 
-                    isLoaded={setEditorLoaded} 
+                  <Editor
+                    content={entry}
+                    onUpdate={handleContentChange}
+                    isLoaded={setEditorLoaded}
                     getAuthToken={getToken}
                     apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
                   />

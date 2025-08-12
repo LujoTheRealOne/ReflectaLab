@@ -2,7 +2,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { ArrowLeft, Mic, X, Check, ArrowUp } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
@@ -116,13 +116,19 @@ const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, co
 
 export default function CoachingScreen() {
   const navigation = useNavigation<CoachingScreenNavigationProp>();
+  const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
 
-  // Session ID state - will be generated when first message is sent
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  // Get route parameters for existing session
+  const routeSessionId = (route.params as any)?.sessionId;
+  const routeSessionType = (route.params as any)?.sessionType;
+
+  // Session ID state - will be generated when first message is sent or loaded from route
+  const [sessionId, setSessionId] = useState<string | null>(routeSessionId || null);
+  const [loadingExistingSession, setLoadingExistingSession] = useState(!!routeSessionId);
   
   // Generate unique session ID using proper UUID
   const generateSessionId = (): string => {
@@ -342,9 +348,60 @@ export default function CoachingScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
-  // Initialize chat with first message when component mounts
+  // Guard against duplicate loads for the same session
+  const loadedSessionIdRef = useRef<string | null>(null);
+
+  // Initialize chat - either load existing session or create new one
   useEffect(() => {
-    if (messages.length === 0) {
+    // Load existing session via route param
+    if (routeSessionId && firebaseUser) {
+      // Prevent duplicate fetches for the same session
+      if (loadedSessionIdRef.current === routeSessionId) return;
+      loadedSessionIdRef.current = routeSessionId;
+
+      setLoadingExistingSession(true);
+      (async () => {
+        try {
+          const token = await getToken();
+          if (!token) throw new Error('No auth token');
+
+          const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/sessions?sessionId=${encodeURIComponent(routeSessionId)}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              console.warn('Coaching session not found:', routeSessionId);
+              return;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const result = await response.json();
+          if (result.success && result.session) {
+            const sessionMessages: CoachingMessage[] = result.session.messages.map((msg: any) => ({
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: new Date(msg.timestamp)
+            }));
+
+            setMessages(sessionMessages);
+            console.log(`✅ Loaded existing session: ${routeSessionId} with ${sessionMessages.length} messages`);
+          }
+        } catch (error) {
+          console.error('Error loading coaching session:', error);
+        } finally {
+          setLoadingExistingSession(false);
+        }
+      })();
+      return;
+    }
+
+    // Create new session with initial message if no route session and no messages yet
+    if (!routeSessionId && messages.length === 0) {
       setTimeout(() => {
         const initialMessage: CoachingMessage = {
           id: '1',
@@ -355,7 +412,7 @@ export default function CoachingScreen() {
         setMessages([initialMessage]);
       }, 1000);
     }
-  }, [user?.firstName, messages.length, setMessages]);
+  }, [routeSessionId, firebaseUser, messages.length, setMessages, user?.firstName, getToken]);
 
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottomRef = useRef(false);
@@ -463,9 +520,9 @@ export default function CoachingScreen() {
     // Trigger scroll after sending message
     scrollToBottomRef.current = true;
 
-    // Send message using the AI coaching hook with session ID and default session type
+    // Send message using the AI coaching hook with session ID and session type from route or default
     await sendMessage(messageContent, currentSessionId, {
-      sessionType: 'default-session'
+      sessionType: routeSessionType || 'default-session'
     });
   };
 
@@ -585,6 +642,20 @@ export default function CoachingScreen() {
             keyboardDismissMode="interactive"
             scrollEventThrottle={16}
           >
+            {/* Loading existing session */}
+            {loadingExistingSession && (
+              <View style={[styles.messageContainer, styles.aiMessageContainer]}>
+                <View style={styles.typingIndicator}>
+                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
+                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
+                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
+                </View>
+                <Text style={[styles.messageText, { color: `${colors.text}60`, marginLeft: 8 }]}>
+                  Loading session...
+                </Text>
+              </View>
+            )}
+
             {messages.map((message) => (
               <View
                 key={message.id}

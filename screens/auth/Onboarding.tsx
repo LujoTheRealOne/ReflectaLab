@@ -4,7 +4,7 @@ import { Platform, StyleSheet, Text, TextInput, View, useColorScheme, Keyboard, 
 import { Image } from 'expo-image';
 import Slider from '@react-native-community/slider';
 import Svg, { Path, Rect, Circle, Defs, Pattern } from 'react-native-svg';
-import { PanGestureHandler, State as GestureState } from 'react-native-gesture-handler';
+import { PanGestureHandler, State as GestureState, type PanGestureHandlerGestureEvent, type HandlerStateChangeEvent, type PanGestureHandlerEventPayload } from 'react-native-gesture-handler';
 import { BlurView } from 'expo-blur';
 
 import { Button } from '@/components/ui/Button';
@@ -175,7 +175,7 @@ export default function OnboardingScreen() {
     </Svg>
   );
 
-  // Circular Time Display Component (display only) - Crosswalk style
+  // Interactive Circular Time Display Component - Crosswalk style
   const CircularTimeDisplay = () => {
     const sliderSize = 320; // Slightly larger
     const centerX = sliderSize / 2;
@@ -184,6 +184,75 @@ export default function OnboardingScreen() {
     const segmentWidth = 18; // Width of each crosswalk stripe - thicker
     const segmentHeight = 36; // Height of each crosswalk stripe - longer
     const totalSegments = 25; // One for each minute
+
+    // Compute knob position based on current timeDuration
+    const getKnobPosition = () => {
+      const index = Math.max(0, Math.min(totalSegments - 1, timeDuration - 1));
+      const angleDeg = (index / totalSegments) * 360 - 90; // start from top
+      const angleRad = (angleDeg * Math.PI) / 180;
+      const knobX = centerX + radius * Math.cos(angleRad);
+      const knobY = centerY + radius * Math.sin(angleRad);
+      return { x: knobX, y: knobY };
+    };
+
+    // Calculate angle from touch position
+    const calculateAngleFromTouch = (touchX: number, touchY: number): number => {
+      const deltaX = touchX - centerX;
+      const deltaY = touchY - centerY;
+      let angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+      
+      // Convert to 0-360 range starting from top (-90 degrees)
+      angle = (angle + 90 + 360) % 360;
+      
+      return angle;
+    };
+
+    // Calculate time duration from angle
+    const calculateTimeFromAngle = (angle: number): number => {
+      // Convert angle to segment index (0-24)
+      const segmentIndex = Math.round((angle / 360) * totalSegments);
+      // Ensure it's within bounds (1-25 minutes)
+      const minutes = Math.max(1, Math.min(25, segmentIndex + 1));
+      return minutes;
+    };
+
+    // Handle pan gesture - continuously map touch to minutes
+    const handlePanGesture = (event: PanGestureHandlerGestureEvent | HandlerStateChangeEvent<PanGestureHandlerEventPayload>): void => {
+      const { x, y, locationX, locationY } = event.nativeEvent;
+      const touchX = typeof x === 'number' ? x : locationX;
+      const touchY = typeof y === 'number' ? y : locationY;
+
+      if (typeof touchX !== 'number' || typeof touchY !== 'number') {
+        return;
+      }
+
+      const angle = calculateAngleFromTouch(touchX, touchY);
+      const newTimeDuration = calculateTimeFromAngle(angle);
+      
+      if (newTimeDuration !== timeDuration) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setTimeDuration(newTimeDuration);
+      }
+    };
+
+    // Called for every pan frame
+    const onGestureEvent = (event: PanGestureHandlerGestureEvent): void => {
+      handlePanGesture(event);
+    };
+
+    // Set interaction flag and also update immediately when gesture begins/ends
+    const onHandlerStateChange = (event: HandlerStateChangeEvent<PanGestureHandlerEventPayload>): void => {
+      if (event.nativeEvent.state === GestureState.BEGAN) {
+        setHasInteractedWithTimeSlider(true);
+        handlePanGesture(event);
+      }
+      if (event.nativeEvent.state === GestureState.ACTIVE) {
+        handlePanGesture(event);
+      }
+      if (event.nativeEvent.state === GestureState.END) {
+        handlePanGesture(event);
+      }
+    };
 
     // Generate crosswalk-style segments
     const generateSegments = () => {
@@ -219,6 +288,22 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.circularDisplayContainer}>
         <View style={styles.displayWrapper}>
+          {/* Full-area pan handler: press-hold anywhere on the ring and drag */}
+          <PanGestureHandler
+            onGestureEvent={onGestureEvent}
+            onHandlerStateChange={onHandlerStateChange}
+            minDist={0}
+          >
+            <Animated.View
+              style={{
+                position: 'absolute',
+                width: sliderSize,
+                height: sliderSize,
+                zIndex: 1,
+              }}
+            />
+          </PanGestureHandler>
+
           <Svg width={sliderSize} height={sliderSize}>
             {/* Crosswalk-style segments */}
             {generateSegments()}
@@ -1104,25 +1189,10 @@ export default function OnboardingScreen() {
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', alignSelf: 'stretch' }}>
               <CircularTimeDisplay />
             </View>
-            <View style={styles.sliderContainer}>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={1}
-                step={1 / 24} // Create 25 discrete steps (0, 1/24, 2/24, ..., 24/24)
-                value={(timeDuration - 1) / 24} // Convert minutes to 0-1 range
-                onValueChange={(value) => {
-                  const minutes = Math.round(value * 24) + 1; // Convert 0-1 to 1-25 minutes
-                  if (minutes !== timeDuration) {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setTimeDuration(minutes);
-                  }
-                }}
-                onSlidingStart={() => setHasInteractedWithTimeSlider(true)}
-                minimumTrackTintColor={accentColors.orange}
-                maximumTrackTintColor="#E5E5E7"
-                thumbTintColor="white"
-              />
+            <View style={{ height: 40, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={[styles.mainText, { color: `${colors.text}60`, fontSize: 16, textAlign: 'center' }]}>
+                Tap around the circle to adjust time
+              </Text>
             </View>
           </>
         );

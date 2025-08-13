@@ -663,7 +663,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
   const handleRecordingCancel = () => {
     cancelRecording();
-    setChatInput('');
   };
 
   const handleRecordingConfirm = () => {

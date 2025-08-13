@@ -73,14 +73,14 @@ const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, 
         return (
           <View 
             key={index}
-            style={[
-              styles.audioLevelDot, 
-              { 
-                backgroundColor: isActive
-                  ? (colorScheme === 'dark' ? '#666666' : '#333333')
-                  : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
-              }
-            ]}
+                          style={[
+                styles.audioLevelDot, 
+                { 
+                  backgroundColor: isActive
+                    ? (colorScheme === 'dark' ? '#888888' : '#111111')
+                    : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
+                }
+              ]}
           />
         );
       })}
@@ -532,7 +532,6 @@ export default function CoachingScreen() {
 
   const handleRecordingCancel = () => {
     cancelRecording();
-    setChatInput('');
   };
 
   const handleRecordingConfirm = () => {
@@ -757,13 +756,12 @@ export default function CoachingScreen() {
               <View style={[styles.chatInput, styles.transcribingInputContainer]}>
                 <SpinningAnimation colorScheme={colorScheme} />
               </View>
-            ) : (
+            ) : !isRecording ? (
               <TextInput
                 ref={textInputRef}
                 style={[
                   styles.chatInput,
-                  { color: colors.text },
-                  isRecording && { flex: 0, width: '100%', textAlign: 'left' }
+                  { color: colors.text }
                 ]}
                 value={chatInput}
                 onChangeText={setChatInput}
@@ -776,9 +774,8 @@ export default function CoachingScreen() {
                 returnKeyType='default'
                 onSubmitEditing={handleSendMessage}
                 cursorColor={colors.tint}
-                editable={!isRecording}
               />
-            )}
+            ) : null}
 
             {/* Recording state */}
             {isRecording && !isTranscribing && (

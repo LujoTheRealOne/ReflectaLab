@@ -910,17 +910,17 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
     
     try {
+      // Complete onboarding first
       console.log('🚀 Starting onboarding completion...');
       const result = await completeOnboarding();
       console.log('✅ Onboarding completion finished successfully', result);
-
-      // After marking onboarding complete, forcefully go to the main app route at the root navigator
-      // This avoids relying solely on state propagation timing
-      // @ts-ignore - allow parent navigator access
-      navigation.getParent()?.reset({
-        index: 0,
-        routes: [{ name: 'App' as never }],
-      });
+      
+      if (result?.needsOnboarding === false) {
+        console.log('🎯 Onboarding completed successfully - navigation should update automatically');
+      } else {
+        console.warn('⚠️ Onboarding may not have completed properly', result);
+      }
+      
     } catch (error) {
       console.error('❌ Error completing onboarding:', error);
     }

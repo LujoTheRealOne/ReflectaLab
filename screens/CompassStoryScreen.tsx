@@ -359,7 +359,7 @@ export default function CompassStoryScreen() {
 
   // Auto-advance story
   useEffect(() => {
-    if (isPaused) return;
+    if (isPaused || showSourcesModal) return;
 
     progressAnim.setValue(0);
     
@@ -380,7 +380,7 @@ export default function CompassStoryScreen() {
         animationRef.current.stop();
       }
     };
-  }, [currentStory, isPaused]);
+  }, [currentStory, isPaused, showSourcesModal]);
 
   const nextStory = () => {
     if (currentStory < TOTAL_STORIES - 1) {

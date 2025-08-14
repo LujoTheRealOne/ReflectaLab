@@ -14,7 +14,27 @@ const Stack = createNativeStackNavigator();
 
 export default function Navigation() {
   const colorScheme = useColorScheme();
-  const { isSignedIn, needsOnboarding } = useAuth();
+  const { isSignedIn, needsOnboarding, isFirebaseReady, userAccount } = useAuth();
+
+  // Wait for auth to be ready before determining the route
+  // For signed in users, wait for user account to be loaded to determine onboarding state
+  const isAuthReady = isFirebaseReady && (!isSignedIn || userAccount !== null);
+  
+  if (!isAuthReady) {
+    // Return loading view or null while waiting
+    return (
+      <View style={{
+        flex: 1,
+        backgroundColor: colorScheme === 'dark' ? Colors.dark.background : Colors.light.background
+      }} />
+    );
+  }
+
+  const initialRouteName = !isSignedIn
+    ? 'Auth'
+    : (isSignedIn && needsOnboarding)
+    ? 'Onboarding'
+    : 'App';
 
   return (
     <View style={{
@@ -22,18 +42,17 @@ export default function Navigation() {
       backgroundColor: colorScheme === 'dark' ? Colors.dark.background : Colors.light.background
     }}>
       <NavigationContainer
+        key={`nav-${isSignedIn ? 'signed-in' : 'signed-out'}`}
         theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}
       >
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {isSignedIn ? (
-            needsOnboarding ? (
-              <Stack.Screen name="Onboarding" component={AuthNavigator} initialParams={{ screen: 'Onboarding' }} />
-            ) : (
-              <Stack.Screen name="App" component={AppNavigator} />
-            )
-          ) : (
-            <Stack.Screen name="Auth" component={AuthNavigator} />
-          )}
+        <Stack.Navigator
+          key={`${isSignedIn ? 'in' : 'out'}:${needsOnboarding ? 'needs' : 'done'}`}
+          screenOptions={{ headerShown: false }}
+          initialRouteName={initialRouteName}
+        >
+          <Stack.Screen name="Auth" component={AuthNavigator} />
+          <Stack.Screen name="Onboarding" component={AuthNavigator} initialParams={{ screen: 'Onboarding' }} />
+          <Stack.Screen name="App" component={AppNavigator} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>

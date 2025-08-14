@@ -20,7 +20,7 @@ export function useAuth() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(true); // Default to true for safety
   const { trackSignUp, trackSignIn, trackSignOut } = useAnalytics();
 
   // Listen to Firebase auth state changes
@@ -28,6 +28,12 @@ export function useAuth() {
     const unsubscribe = onFirebaseAuthStateChanged((user) => {
       setFirebaseUser(user);
       setIsFirebaseReady(true);
+      
+      // Reset auth-dependent state when user signs out
+      if (!user) {
+        setUserAccount(null);
+        setNeedsOnboarding(false);
+      }
     });
 
     return unsubscribe;

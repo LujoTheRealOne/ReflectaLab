@@ -39,25 +39,33 @@ export type AuthStackParamList = {
 const Stack = createStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
-  const { shouldShowGetStarted } = useAuth();
+  const { shouldShowGetStarted, needsOnboarding, isSignedIn } = useAuth();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
+  // If user is signed in and needs onboarding, start with onboarding
+  const initialRouteName = isSignedIn && needsOnboarding 
+    ? 'Onboarding' 
+    : shouldShowGetStarted 
+    ? 'GetStarted' 
+    : 'Login';
+
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {shouldShowGetStarted ? (
-        <Stack.Screen
-          name="GetStarted"
-          component={GetStartedScreen}
-          options={{ title: 'Get Started' }}
-        />
-      ) : (
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ title: 'Login' }}
-        />
-      )}
+    <Stack.Navigator 
+      key={`auth-${isSignedIn ? 'in' : 'out'}-${needsOnboarding ? 'needs' : 'done'}`}
+      screenOptions={{ headerShown: false }}
+      initialRouteName={initialRouteName}
+    >
+      <Stack.Screen
+        name="GetStarted"
+        component={GetStartedScreen}
+        options={{ title: 'Get Started' }}
+      />
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
+        options={{ title: 'Login' }}
+      />
       <Stack.Screen
         name="Onboarding"
         component={OnboardingScreen}

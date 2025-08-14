@@ -164,6 +164,7 @@ export default function OnboardingChatScreen() {
   const [confirmedSchedulingForMessage, setConfirmedSchedulingForMessage] = useState<string | null>(null);
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
 
   // Use the audio transcription hook with expo-av
   const {
@@ -858,19 +859,22 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
     
     try {
-      // Complete onboarding first
+      setIsCompletingOnboarding(true);
       console.log('🚀 Starting onboarding completion...');
       const result = await completeOnboarding();
       console.log('✅ Onboarding completion finished successfully', result);
-      
-      if (result?.needsOnboarding === false) {
-        console.log('🎯 Onboarding completed successfully - navigation should update automatically');
-      } else {
-        console.warn('⚠️ Onboarding may not have completed properly', result);
-      }
-      
+
+      // After marking onboarding complete, forcefully go to the main app route at the root navigator
+      // This avoids relying solely on state propagation timing
+      // @ts-ignore - allow parent navigator access
+      navigation.getParent()?.reset({
+        index: 0,
+        routes: [{ name: 'App' as never }],
+      });
     } catch (error) {
       console.error('❌ Error completing onboarding:', error);
+    } finally {
+      setIsCompletingOnboarding(false);
     }
   };
 
@@ -1138,8 +1142,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               size="default"
               onPress={handleEnterApp}
               style={styles.enterAppButton}
+              disabled={isCompletingOnboarding}
+              isLoading={isCompletingOnboarding}
             >
-              Enter App
+              {isCompletingOnboarding ? 'Starting your journey...' : 'Enter App'}
             </Button>
           </View>
         )}

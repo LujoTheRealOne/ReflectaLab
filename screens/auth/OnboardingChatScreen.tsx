@@ -203,10 +203,21 @@ export default function OnboardingChatScreen() {
 
   // Function to parse coaching cards from any content
   const parseCoachingCards = (content: string) => {
-    // Parse component markers like [checkin:frequency="once a day",what="morning routine progress",notes="..."]
-    const componentRegex = /\[(\w+):([^\]]+)\]/g;
     const components: Array<{ type: string; props: Record<string, string> }> = [];
     
+    // First check for simple card format without parameters (e.g., [checkin])
+    const simpleComponentRegex = /\[(\w+)\]/g;
+    let simpleMatch;
+    while ((simpleMatch = simpleComponentRegex.exec(content)) !== null) {
+      const componentType = simpleMatch[1];
+      
+      // Add empty props for simple cards
+      const props: Record<string, string> = {};
+      components.push({ type: componentType, props });
+    }
+    
+    // Also parse component markers with parameters like [checkin:frequency="once a day",what="morning routine progress",notes="..."]
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
     let match;
     while ((match = componentRegex.exec(content)) !== null) {
       const componentType = match[1];
@@ -222,7 +233,13 @@ export default function OnboardingChatScreen() {
         props[key] = value;
       }
       
-      components.push({ type: componentType, props });
+      // Replace simple version if we have a parameterized version
+      const existingIndex = components.findIndex(comp => comp.type === componentType);
+      if (existingIndex !== -1) {
+        components[existingIndex] = { type: componentType, props };
+      } else {
+        components.push({ type: componentType, props });
+      }
     }
     
     return components;

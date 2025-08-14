@@ -2,6 +2,8 @@ import Editor from '@/components/TipTap';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { getCoachingMessage } from '@/lib/firestore';
+import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -25,6 +27,7 @@ import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } fr
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import CoachingSessionCard from '@/components/CoachingSessionCard';
+import CoachingMessageCard from '@/components/CoachingMessageCard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SafeAreaView,
@@ -59,6 +62,7 @@ interface JournalEntry {
   timestamp: any; // Firestore timestamp
   uid: string;
   linkedCoachingSessionId?: string; // id of the coaching session that this entry is linked to
+  linkedCoachingMessageId?: string; // id of the coaching message that this entry is linked to
 }
 
 interface CoachingSession {
@@ -101,6 +105,10 @@ export default function HomeContent() {
   // Coaching session state
   const [coachingSessionData, setCoachingSessionData] = useState<CoachingSession | null>(null);
   const [loadingCoachingSession, setLoadingCoachingSession] = useState(false);
+  
+  // Coaching message state
+  const [coachingMessageData, setCoachingMessageData] = useState<BackendCoachingMessage | null>(null);
+  const [loadingCoachingMessage, setLoadingCoachingMessage] = useState(false);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
@@ -418,7 +426,29 @@ export default function HomeContent() {
     } finally {
       setLoadingCoachingSession(false);
     }
-  }, []); // Empty dependency array like web app
+  }, [getToken]); // Empty dependency array like web app
+
+  // Fetch coaching message data - similar to web app
+  const fetchCoachingMessage = useCallback(async (messageId: string) => {
+    if (!messageId) return;
+
+    setLoadingCoachingMessage(true);
+    try {
+      // Use local firestore function
+      const coachingMessage = await getCoachingMessage(messageId);
+      if (coachingMessage) {
+        setCoachingMessageData(coachingMessage);
+      } else {
+        console.warn('Coaching message not found:', messageId);
+        setCoachingMessageData(null);
+      }
+    } catch (error) {
+      console.error('Error fetching coaching message:', error);
+      setCoachingMessageData(null);
+    } finally {
+      setLoadingCoachingMessage(false);
+    }
+  }, []);
 
   // Handle opening coaching session
   const handleOpenCoachingSession = useCallback(() => {
@@ -430,9 +460,10 @@ export default function HomeContent() {
     }
   }, [navigation, coachingSessionData]);
 
-  // Check for linked coaching session when current entry changes - exactly like web app
+  // Check for linked coaching content when current entry changes - exactly like web app
   useEffect(() => {
     const linkedSessionId = latestEntry?.linkedCoachingSessionId;
+    const linkedMessageId = latestEntry?.linkedCoachingMessageId;
 
     // Handle coaching session linking
     if (linkedSessionId && linkedSessionId !== coachingSessionData?.id) {
@@ -441,7 +472,15 @@ export default function HomeContent() {
     } else if (!linkedSessionId) {
       setCoachingSessionData(null);
     }
-  }, [latestEntry?.linkedCoachingSessionId, fetchCoachingSession, coachingSessionData?.id]);
+    
+    // Handle coaching message linking
+    if (linkedMessageId && linkedMessageId !== coachingMessageData?.id) {
+      // Only fetch if we don't already have this message data
+      fetchCoachingMessage(linkedMessageId);
+    } else if (!linkedMessageId) {
+      setCoachingMessageData(null);
+    }
+  }, [latestEntry?.linkedCoachingSessionId, latestEntry?.linkedCoachingMessageId, fetchCoachingSession, fetchCoachingMessage, coachingSessionData?.id, coachingMessageData?.id]);
 
   // Get save status text
   const getSaveStatusText = () => {
@@ -609,6 +648,16 @@ export default function HomeContent() {
                     sessionType={coachingSessionData?.sessionType === 'initial-life-deep-dive' ? 'Initial Life Deep Dive' : 'Coach chat'}
                     onOpenConversation={handleOpenCoachingSession}
                     loading={loadingCoachingSession}
+                  />
+                )}
+                
+                {/* Coaching Message Card - Show when current entry has linked coaching message */}
+                {(coachingMessageData || loadingCoachingMessage) && (
+                  <CoachingMessageCard
+                    pushText={coachingMessageData?.pushNotificationText}
+                    fullMessage={coachingMessageData?.messageContent}
+                    messageType={coachingMessageData?.messageType}
+                    loading={loadingCoachingMessage}
                   />
                 )}
 

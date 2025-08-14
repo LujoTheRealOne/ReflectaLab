@@ -5,6 +5,7 @@ export interface JournalEntry {
   timestamp: Date;
   lastUpdated: Date;
   title?: string;
+  linkedCoachingMessageId?: string; // id of the coaching message that this entry is linked to
 }
 
 export interface UserAccount {

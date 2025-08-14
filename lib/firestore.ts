@@ -18,6 +18,7 @@ import {
 import { db } from './firebase';
 import { UserAccount, MorningGuidance } from '@/types/journal';
 import { userInsight } from '@/types/insights';
+import { BackendCoachingMessage } from '@/types/coachingMessage';
 
 // Firestore user account interface
 export interface FirestoreUserAccount {
@@ -431,5 +432,47 @@ export class FirestoreService {
       console.error('Error setting up insights subscription:', error);
       return () => {}; // Return empty unsubscribe function
     }
+  }
+}
+
+/**
+ * Get a coaching message by ID
+ */
+export async function getCoachingMessage(messageId: string): Promise<BackendCoachingMessage | null> {
+  try {
+    const messageRef = doc(db, 'coachingMessages', messageId);
+    const messageSnap = await getDoc(messageRef);
+    
+    if (!messageSnap.exists()) {
+      return null;
+    }
+    
+    const data = messageSnap.data();
+    
+    // Convert the Firestore document to BackendCoachingMessage type
+    const coachingMessage: BackendCoachingMessage = {
+      id: messageSnap.id,
+      uid: data.uid || '',
+      createdAt: data.createdAt || 0,
+      updatedAt: data.updatedAt || 0,
+      messageContent: data.messageContent || '',
+      messageType: data.messageType || '',
+      pushNotificationText: data.pushNotificationText || '',
+      effectivenessRating: data.effectivenessRating || 0,
+      recommendedAction: data.recommendedAction || 'SEND_MESSAGE',
+      wasSent: data.wasSent || false,
+      journalEntryId: data.journalEntryId,
+      contextUsed: data.contextUsed || '',
+      generationAttempt: data.generationAttempt || 1,
+      failureReason: data.failureReason,
+      userTimezone: data.userTimezone || '',
+      userTimePreference: data.userTimePreference || 'morning',
+      scheduledFor: data.scheduledFor
+    };
+    
+    return coachingMessage;
+  } catch (error) {
+    console.error('Error fetching coaching message:', error);
+    return null;
   }
 } 

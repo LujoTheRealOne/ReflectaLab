@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { usePostHog } from 'posthog-react-native';
 import { useUser } from '@clerk/clerk-expo';
 
@@ -7,13 +7,15 @@ export function useAnalytics() {
   const { user } = useUser();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Identify user if authenticated
-  if (user && posthog) {
-    posthog.identify(user.id, {
-      email: user.emailAddresses[0]?.emailAddress,
-      name: user.fullName,
-    });
-  }
+  // Identify user if authenticated - only when user or posthog changes
+  useEffect(() => {
+    if (user && posthog) {
+      posthog.identify(user.id, {
+        email: user.emailAddresses[0]?.emailAddress,
+        name: user.fullName,
+      });
+    }
+  }, [user, posthog]);
 
   // Core Authentication Events
   const trackSignUp = useCallback((properties?: {

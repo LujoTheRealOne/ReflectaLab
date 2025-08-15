@@ -1,4 +1,4 @@
-import RichTextEditor, { RichTextEditorHandle } from '@/components/RichTextEditor';
+import NativeRichTextEditor, { NativeRichTextEditorHandle } from '@/components/native/NativeRichTextEditor';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -72,8 +72,8 @@ export default function HomeContent() {
   const fallbackTime = today.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   const [entry, setEntry] = useState('');
-  const [editorLoaded, setEditorLoaded] = useState(false);
-  const editorRef = useRef<RichTextEditorHandle | null>(null);
+  const editorRef = useRef<NativeRichTextEditorHandle | null>(null);
+  const currentContentRef = useRef<string>('');
   const [hasTriggeredHaptic, setHasTriggeredHaptic] = useState(false);
   const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
   const [isLoadingEntry, setIsLoadingEntry] = useState(true);
@@ -99,11 +99,10 @@ export default function HomeContent() {
     cancelRecording,
   } = useAudioTranscriptionAv({
     onTranscriptionComplete: async (transcription) => {
-      // Append transcription to the editor content using the editor ref
       try {
-        const currentContent = (await editorRef.current?.getHtml()) || '';
+        const currentContent = currentContentRef.current || '';
         const newContent = currentContent ? `${currentContent} ${transcription}` : transcription;
-        editorRef.current?.setHtml(newContent);
+        editorRef.current?.setText(newContent);
         setHasTypedContent(true);
         handleContentChange(newContent);
       } catch (e) {
@@ -148,6 +147,7 @@ export default function HomeContent() {
       setLatestEntry(selectedEntry);
       setEntry(selectedEntry.content || '');
       setOriginalContent(selectedEntry.content || '');
+      currentContentRef.current = selectedEntry.content || '';
       lastSavedContentRef.current = selectedEntry.content || '';
       setSaveStatus('saved');
       setIsNewEntry(false);
@@ -207,6 +207,7 @@ export default function HomeContent() {
         setLatestEntry(latestEntryData);
         setEntry(latestEntryData.content || '');
         setOriginalContent(latestEntryData.content || '');
+        currentContentRef.current = latestEntryData.content || '';
         lastSavedContentRef.current = latestEntryData.content || '';
         setSaveStatus('saved');
         setIsNewEntry(false);
@@ -215,6 +216,7 @@ export default function HomeContent() {
         setLatestEntry(null);
         setEntry('');
         setOriginalContent('');
+        currentContentRef.current = '';
         lastSavedContentRef.current = '';
         setSaveStatus('saved');
         setIsNewEntry(false);
@@ -225,6 +227,7 @@ export default function HomeContent() {
         setLatestEntry(null);
       setEntry('');
       setOriginalContent('');
+      currentContentRef.current = '';
       lastSavedContentRef.current = '';
       setSaveStatus('saved');
       setIsNewEntry(false);
@@ -314,6 +317,7 @@ export default function HomeContent() {
 
     // Set status to unsaved immediately
     setSaveStatus('unsaved');
+    currentContentRef.current = newContent;
 
     // Set new timeout for auto-save (backoff on very large documents)
     const baseDelay = 2500;
@@ -359,6 +363,12 @@ export default function HomeContent() {
       fetchLatestEntry();
     }
   }, [fetchLatestEntry, isFirebaseReady]);
+
+  // Sync editor content when a new entry loads (via contentKey/originalContent)
+  useEffect(() => {
+    editorRef.current?.setText(originalContent || '');
+    currentContentRef.current = originalContent || '';
+  }, [contentKey, originalContent]);
 
   // Get save status text
   const getSaveStatusText = () => {
@@ -519,16 +529,12 @@ export default function HomeContent() {
                 </View>
 
                 {/* Thoughts Section */}
-                <View style={{ flex: 1, marginBottom: 80 }}>
-                  <RichTextEditor
+                <View style={{ flex: 1 }}>
+                  <NativeRichTextEditor
                     ref={editorRef}
-                    // Keep initialHTML stable; rely on onHTMLChange for updates to avoid re-initialization
-                    initialHTML={originalContent}
-                    contentKey={contentKey}
-                    onHTMLChange={handleContentChange}
-                    onLoaded={setEditorLoaded}
-                    onFocus={() => setIsKeyboardVisible(true)}
-                    onBlur={() => setIsKeyboardVisible(false)}
+                    onChange={(e: any) => handleContentChange(e.nativeEvent.text)}
+                    additionalBottomInset={isKeyboardVisible ? Math.max(useSafeAreaInsets().bottom, 10) + 48 : Math.max(useSafeAreaInsets().bottom, 10) + 50}
+                    style={{ flex: 1 }}
                   />
                 </View>
               </View>
@@ -546,18 +552,18 @@ export default function HomeContent() {
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={Platform.OS === 'ios' ? -20 : 0}
-              style={styles.keyboardAvoidingContainer}
+              style={[styles.keyboardAvoidingContainer, { bottom: 0 }]}
             >
               <View style={[{
                 flexDirection: 'row',
                 justifyContent: isKeyboardVisible ? 'space-between' : 'center',
                 alignItems: 'center',
                 paddingHorizontal: 20,
-                paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
+                paddingBottom: Math.max(useSafeAreaInsets().bottom, 10),
                 backgroundColor: colors.background
               }, isKeyboardVisible && {
                 backgroundColor: colors.background,
-                paddingTop: 15,
+                paddingTop: 8,
                 boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
                 borderTopLeftRadius: 18,
                 borderTopRightRadius: 18,
@@ -760,7 +766,6 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingContainer: {
     position: 'absolute',
-    bottom: 10,
     left: 0,
     right: 0,
     backgroundColor: 'transparent',

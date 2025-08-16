@@ -22,7 +22,7 @@ import {
   where
 } from 'firebase/firestore';
 import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
-import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
+import { useAudioTranscriptionHybrid } from '@/hooks/useAudioTranscriptionNew';
 import { Button } from '@/components/ui/Button';
 import CoachingSessionCard from '@/components/CoachingSessionCard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -114,8 +114,8 @@ export default function HomeContent() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscriptionAv({
-    onTranscriptionComplete: (transcription) => {
+  } = useAudioTranscriptionHybrid({
+    onTranscriptionComplete: (transcription: string) => {
       // Insert transcription at current cursor position in the editor
       // For now, we'll append it to the existing content
       const currentContent = entry;
@@ -123,7 +123,7 @@ export default function HomeContent() {
       setEntry(newContent);
       handleContentChange(newContent);
     },
-    onTranscriptionError: (error) => {
+    onTranscriptionError: (error: string) => {
       console.error('Transcription error:', error);
     },
   });

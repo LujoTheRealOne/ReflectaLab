@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
-import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
+import { useAudioTranscriptionHybrid } from '@/hooks/useAudioTranscriptionNew';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -166,7 +166,7 @@ export default function OnboardingChatScreen() {
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
 
-  // Use the audio transcription hook with expo-av
+  // Use the audio transcription hook with expo-audio
   const {
     isRecording,
     isTranscribing,
@@ -175,8 +175,8 @@ export default function OnboardingChatScreen() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscriptionAv({
-    onTranscriptionComplete: (transcription) => {
+  } = useAudioTranscriptionHybrid({
+    onTranscriptionComplete: (transcription: string) => {
       // Append transcription to existing text or set it as new text
       const existingText = chatInput.trim();
       const newText = existingText 
@@ -188,7 +188,7 @@ export default function OnboardingChatScreen() {
         textInputRef.current?.focus();
       }, 100);
     },
-    onTranscriptionError: (error) => {
+    onTranscriptionError: (error: string) => {
       console.error('Transcription error:', error);
     },
   });

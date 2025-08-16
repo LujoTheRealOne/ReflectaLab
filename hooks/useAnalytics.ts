@@ -91,7 +91,7 @@ export function useAnalytics() {
   const trackEntryCreated = useCallback((properties?: {
     entry_id?: string;
   }) => {
-    posthog?.capture('journal_entry_created', {
+    posthog?.capture('entry_created', {
       timestamp: new Date().toISOString(),
       ...(properties?.entry_id && { entry_id: properties.entry_id }),
     });
@@ -108,7 +108,7 @@ export function useAnalytics() {
     }
 
     debounceRef.current = setTimeout(() => {
-      posthog?.capture('journal_entry_updated', {
+      posthog?.capture('entry_updated', {
         timestamp: new Date().toISOString(),
         ...(properties?.entry_id && { entry_id: properties.entry_id }),
         content_length: properties?.content_length || 0,
@@ -122,7 +122,7 @@ export function useAnalytics() {
     content_length?: number;
     entry_age_days?: number;
   }) => {
-    posthog?.capture('journal_entry_deleted', {
+    posthog?.capture('entry_deleted', {
       timestamp: new Date().toISOString(),
       ...(properties?.entry_id && { entry_id: properties.entry_id }),
       content_length: properties?.content_length || 0,
@@ -179,7 +179,7 @@ export function useAnalytics() {
     trackEntryUpdated,
     trackEntryDeleted,
 
-    // Additional Features
+    // Coaching (aligned with web)
     trackCoachingCompletion,
     trackAlignmentSet,
   };

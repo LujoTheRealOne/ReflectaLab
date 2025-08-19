@@ -55,6 +55,120 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
   );
 };
 
+// Animated typing indicator component
+const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const dot1Animation = useRef(new Animated.Value(0)).current;
+  const dot2Animation = useRef(new Animated.Value(0)).current;
+  const dot3Animation = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    // Create individual animations for each dot
+    const animation1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot1Animation, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot1Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot2Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 200,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot2Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation3 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot3Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 400,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot3Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    animation1.start();
+    animation2.start();
+    animation3.start();
+
+    return () => {
+      animation1.stop();
+      animation2.stop();
+      animation3.stop();
+    };
+  }, [dot1Animation, dot2Animation, dot3Animation]);
+
+  const dot1Opacity = dot1Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot2Opacity = dot2Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot3Opacity = dot3Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  return (
+    <View style={styles.typingIndicator}>
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot1Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot2Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot3Opacity
+          }
+        ]} 
+      />
+    </View>
+  );
+};
+
 // Audio level indicator component
 const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
   const totalDots = 6;
@@ -549,11 +663,7 @@ export default function CoachingScreen() {
             {/* Loading existing session */}
             {loadingExistingSession && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                <View style={styles.typingIndicator}>
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                </View>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
                 <Text style={[styles.messageText, { color: `${colors.text}60`, marginLeft: 8 }]}>
                   Loading session...
                 </Text>
@@ -619,11 +729,7 @@ export default function CoachingScreen() {
              ))}
             {isLoading && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                  <View style={styles.typingIndicator}>
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  </View>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
               </View>
             )}
           </ScrollView>
@@ -814,13 +920,14 @@ const styles = StyleSheet.create({
   typingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
   typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   chatInputContainer: {
     paddingHorizontal: 0,

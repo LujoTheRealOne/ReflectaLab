@@ -13,6 +13,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscriptionHybrid } from '@/hooks/useAudioTranscriptionNew';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
+import { Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -235,6 +238,7 @@ export default function CoachingScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
+  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
   // Get route parameters for existing session
   const routeSessionId = (route.params as any)?.sessionId;
@@ -568,6 +572,11 @@ export default function CoachingScreen() {
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
     },
+    isPro,
+    onProRequired: async () => {
+      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      console.log('🎤 Voice transcription Pro check:', unlocked ? 'unlocked' : 'cancelled');
+    },
   });
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -575,6 +584,43 @@ export default function CoachingScreen() {
 
   // Guard against duplicate loads for the same session
   const loadedSessionIdRef = useRef<string | null>(null);
+  const paywallShownRef = useRef<boolean>(false);
+  const accessCheckedRef = useRef<boolean>(false);
+  
+  // Gate access: ALL coaching requires Pro. Run once per focus, after RevenueCat initialized.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const check = async () => {
+        if (accessCheckedRef.current) return;
+        if (!initialized) return; // wait for RC init
+        accessCheckedRef.current = true;
+        // Prevent multiple paywall presentations
+        if (paywallShownRef.current) {
+          return;
+        }
+        
+        // console.log('🔒 Coaching access check:', { isPro, routeSessionId });
+        if (!isPro) {
+          // console.log('🚫 Not Pro, showing paywall');
+          paywallShownRef.current = true;
+          const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+          if (!unlocked && !cancelled) {
+            // console.log('🔙 Paywall cancelled, going back');
+            navigation.goBack();
+          } else if (unlocked) {
+            // console.log('✅ Pro unlocked via paywall');
+            // Reset flag so future navigation works
+            paywallShownRef.current = false;
+          }
+        } else {
+          // console.log('✅ Pro user, allowing access');
+        }
+      };
+      check();
+      return () => { cancelled = true; accessCheckedRef.current = false; };
+    }, [initialized, isPro, presentPaywallIfNeeded, currentOffering, navigation])
+  );
 
   // Initialize chat - either load existing session or create new one
   useEffect(() => {

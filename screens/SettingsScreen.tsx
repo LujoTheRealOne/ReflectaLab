@@ -25,12 +25,14 @@ import * as WebBrowser from 'expo-web-browser';
 import { ChevronDown, ChevronLeft, ExternalLink, FileText, Info, LogOut } from 'lucide-react-native';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user, signOut, firebaseUser } = useAuth();
+  const { isPro, currentOffering, presentPaywallIfNeeded, refresh, restorePurchases, offeringsError } = useRevenueCat(firebaseUser?.uid);
   const { insights, loading: insightsLoading, hasInsights } = useInsights();
   const {
     requestPermissions,
@@ -376,6 +378,55 @@ export default function SettingsScreen() {
           >
             Manage Account
           </Button>
+        </View>
+
+        {/* Subscription / Pro Section */}
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Subscription</Text>
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}
+        >
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Reflecta Pro</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>Unlock AI Coaching with Pro.</Text>
+              <Text style={[styles.settingDescription, { color: colors.text, marginTop: 4 }]}>
+                Status: <Text style={{ fontWeight: '600', color: isPro ? colors.tint : '#999' }}>{isPro ? 'Pro (active)' : 'Free'}</Text>
+              </Text>
+              {offeringsError && (
+                <Text style={[styles.settingDescription, { color: '#CC5500', marginTop: 6 }]}>Store products not available yet. Try again later or use a Sandbox/TestFlight build.</Text>
+              )}
+            </View>
+            <Button
+              variant={isPro ? 'outline' : 'primary'}
+              size="sm"
+              style={{ paddingHorizontal: 20 }}
+              onPress={async () => {
+                if (isPro) {
+                  await refresh();
+                  Alert.alert('Active', 'Your Pro subscription is active.');
+                  return;
+                }
+                await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+              }}
+            >
+              {isPro ? 'Manage' : 'Go Pro'}
+            </Button>
+          </View>
+          <View style={[styles.settingRow, { marginTop: 6 }] }>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Restore Purchases</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>If you've purchased Pro on another device, restore here.</Text>
+            </View>
+            <Button
+              variant="outline"
+              size="sm"
+              onPress={async () => {
+                const ok = await restorePurchases();
+                Alert.alert(ok ? 'Restored' : 'Not Found', ok ? 'Purchases restored.' : 'No purchases found to restore.');
+              }}
+            >
+              Restore
+            </Button>
+          </View>
         </View>
 
         {/* Notifications Section */}

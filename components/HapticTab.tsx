@@ -1,18 +1,31 @@
-import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import * as Haptics from 'expo-haptics';
+import React from 'react';
 
-export function HapticTab(props: BottomTabBarButtonProps) {
+type HapticTabProps = React.ComponentProps<typeof PlatformPressable>;
+
+export function HapticTab(props: HapticTabProps) {
+  const { onPress, onPressIn, ...rest } = props;
+  
+  const handlePress = (event: any) => {
+    if (process.env.EXPO_OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onPress?.(event);
+  };
+  
+  const handlePressIn = (event: any) => {
+    if (process.env.EXPO_OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onPressIn?.(event);
+  };
+  
   return (
     <PlatformPressable
-      {...props}
-      onPressIn={(ev) => {
-        if (process.env.EXPO_OS === 'ios') {
-          // Add a soft haptic feedback when pressing down on the tabs.
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-        props.onPressIn?.(ev);
-      }}
+      {...rest}
+      onPress={handlePress}
+      onPressIn={handlePressIn}
     />
   );
 }

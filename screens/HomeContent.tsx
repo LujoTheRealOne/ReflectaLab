@@ -22,6 +22,7 @@ import {
   where
 } from 'firebase/firestore';
 import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useAudioTranscriptionHybrid } from '@/hooks/useAudioTranscriptionNew';
 import { Button } from '@/components/ui/Button';
 import CoachingSessionCard from '@/components/CoachingSessionCard';
@@ -80,6 +81,7 @@ export default function HomeContent() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, isFirebaseReady, getToken } = useAuth();
+  const { isPro, presentPaywallIfNeeded, currentOffering } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated } = useAnalytics();
 
@@ -125,6 +127,11 @@ export default function HomeContent() {
     },
     onTranscriptionError: (error: string) => {
       console.error('Transcription error:', error);
+    },
+    isPro,
+    onProRequired: async () => {
+      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      console.log('🎤 Journal voice transcription Pro check:', unlocked ? 'unlocked' : 'cancelled');
     },
   });
 
@@ -761,8 +768,15 @@ export default function HomeContent() {
                     size="sm"
                     iconOnly={<MessageCircle size={20} color={colors.background} />}
                     style={{ width: 70, height: 40 }}
-                    onPress={() => {
-                      navigation.navigate('Coaching' as never);
+                    onPress={async () => {
+                      if (isPro) {
+                        navigation.navigate('Coaching' as never);
+                        return;
+                      }
+                      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+                      if (unlocked) {
+                        navigation.navigate('Coaching' as never);
+                      }
                     }}
                   >
                   </Button>

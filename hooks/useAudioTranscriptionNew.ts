@@ -11,10 +11,12 @@ import * as FileSystem from 'expo-file-system';
 interface UseAudioTranscriptionHybridOptions {
   onTranscriptionComplete?: (text: string) => void;
   onTranscriptionError?: (error: string) => void;
+  isPro?: boolean;
+  onProRequired?: () => void;
 }
 
 export const useAudioTranscriptionHybrid = (options: UseAudioTranscriptionHybridOptions = {}) => {
-  const { onTranscriptionComplete, onTranscriptionError } = options;
+  const { onTranscriptionComplete, onTranscriptionError, isPro = true, onProRequired } = options;
   
   // expo-audio for both recording and metering
   const audioRecorder = useAudioRecorder({
@@ -140,6 +142,13 @@ export const useAudioTranscriptionHybrid = (options: UseAudioTranscriptionHybrid
 
   // Start recording function
   const startRecording = async () => {
+    // Check Pro status before starting recording
+    if (!isPro) {
+      console.log('🎤 Voice transcription requires Pro subscription');
+      onProRequired?.();
+      return;
+    }
+    
     // Immediately show recording state for instant UI feedback
     setIsRecording(true);
     setRecordingStartTime(new Date());
@@ -187,6 +196,14 @@ export const useAudioTranscriptionHybrid = (options: UseAudioTranscriptionHybrid
   // Stop recording and transcribe
   const stopRecordingAndTranscribe = async () => {
     if (!recorderState.isRecording || !isRecording) return;
+    
+    // Double-check Pro status before transcription
+    if (!isPro) {
+      console.log('🎤 Voice transcription requires Pro subscription');
+      onProRequired?.();
+      await cancelRecording();
+      return;
+    }
     
     // Immediately show transcribing state and reset recording state
     setIsRecording(false);

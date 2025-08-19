@@ -59,6 +59,9 @@ export function useAuth() {
     const initializeUserDocument = async () => {
       if (!firebaseUser?.uid) return;
 
+      // Add a small delay to ensure Firebase connection is stable
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       try {
         // Ensure user document exists in Firestore
         const account = await FirestoreService.getUserAccount(firebaseUser.uid);
@@ -70,6 +73,7 @@ export function useAuth() {
       } catch (error) {
         console.error('Failed to initialize user document:', error);
         // Don't throw error here as this is not critical for basic functionality
+        // The Firebase connection check will handle retries automatically
       }
     };
 

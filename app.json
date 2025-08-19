@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.10.1",
+    "version": "0.10.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,9 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "Allow Reflecta to access your microphone for voice-to-text transcription."
+        "NSMicrophoneUsageDescription": "Allow Reflecta to access your microphone for voice-to-text transcription.",
+        "NSUserTrackingUsageDescription": "We use this identifier to deliver personalized content and offers.",
+        "RCAppUserDefaultsSuiteName": "so.acta.reflecta"
       },
       "appleTeamId": "H396GGF5D9"
     },

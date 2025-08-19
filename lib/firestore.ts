@@ -144,11 +144,84 @@ export class FirestoreService {
   private static USERS_COLLECTION_NAME = 'users';
   private static INSIGHTS_COLLECTION_NAME = 'userInsights';
   
+  // Firebase connection state management
+  private static isConnectionReady = false;
+  private static pendingOperations: Array<() => Promise<any>> = [];
+  private static connectionCheckPromise: Promise<boolean> | null = null;
+  
+  // Check if Firebase is connected and ready
+  private static async ensureFirebaseConnection(): Promise<boolean> {
+    if (this.isConnectionReady) return true;
+    
+    // If already checking connection, return existing promise
+    if (this.connectionCheckPromise) {
+      return this.connectionCheckPromise;
+    }
+    
+    this.connectionCheckPromise = new Promise(async (resolve) => {
+      try {
+        // Simple connection test - try to read a small doc
+        const testDoc = doc(db, 'connection-test', 'ping');
+        await getDoc(testDoc);
+        this.isConnectionReady = true;
+        console.log('🔥 Firebase connection verified');
+        resolve(true);
+      } catch (error: any) {
+        console.warn('🔥 Firebase connection test failed:', error?.message);
+        // Wait a bit and retry once
+        setTimeout(async () => {
+          try {
+            const testDoc = doc(db, 'connection-test', 'ping');
+            await getDoc(testDoc);
+            this.isConnectionReady = true;
+            console.log('🔥 Firebase connection verified on retry');
+            resolve(true);
+          } catch (retryError) {
+            console.warn('🔥 Firebase connection retry failed, continuing anyway');
+            this.isConnectionReady = true; // Assume connection for now
+            resolve(true);
+          }
+        }, 1000);
+      } finally {
+        this.connectionCheckPromise = null;
+      }
+    });
+    
+    return this.connectionCheckPromise;
+  }
+  
+  // Wrapper for Firebase operations with connection check and retry
+  private static async withConnectionCheck<T>(operation: () => Promise<T>, retries = 2): Promise<T> {
+    await this.ensureFirebaseConnection();
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        const isOfflineError = error?.message?.includes('client is offline') || 
+                               error?.message?.includes('Failed to get document');
+        
+        if (isOfflineError && attempt < retries) {
+          console.warn(`🔥 Firebase offline error (attempt ${attempt + 1}/${retries + 1}), retrying...`);
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          continue;
+        }
+        
+        // If it's the final attempt or not an offline error, throw
+        throw error;
+      }
+    }
+    
+    throw new Error('Max retries exceeded');
+  }
+  
   // Get or create user account
   static async getUserAccount(userId: string): Promise<UserAccount> {
-    try {
-      const docRef = doc(db, this.USERS_COLLECTION_NAME, userId);
-      const docSnap = await getDoc(docRef);
+    return this.withConnectionCheck(async () => {
+      try {
+        const docRef = doc(db, this.USERS_COLLECTION_NAME, userId);
+        const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
         const userData = docSnap.data();
@@ -328,14 +401,16 @@ export class FirestoreService {
         errorMessage: error instanceof Error ? error.message : String(error),
         fullError: error
       });
-      throw new Error('Failed to get user account from Firestore');
-    }
+        throw new Error('Failed to get user account from Firestore');
+      }
+    });
   }
   
   // Update user account
   static async updateUserAccount(userId: string, updates: Partial<UserAccount>): Promise<void> {
-    try {
-      const docRef = doc(db, this.USERS_COLLECTION_NAME, userId);
+    return this.withConnectionCheck(async () => {
+      try {
+        const docRef = doc(db, this.USERS_COLLECTION_NAME, userId);
       const firestoreData = convertToFirestoreUserData({
         uid: userId,
         ...updates,
@@ -345,9 +420,10 @@ export class FirestoreService {
       await updateDoc(docRef, firestoreData);
       console.log('✅ Updated user document for:', userId);
     } catch (error) {
-      console.error('🚨 [ERROR] Error updating user account:', error);
-      throw new Error('Failed to update user account in Firestore');
-    }
+        console.error('🚨 [ERROR] Error updating user account:', error);
+        throw new Error('Failed to update user account in Firestore');
+      }
+    });
   }
 
   // User Insights Methods
@@ -356,8 +432,9 @@ export class FirestoreService {
    * Get user insights from userInsights collection
    */
   static async getUserInsights(userId: string): Promise<userInsight | null> {
-    try {
-      const q = query(
+    return this.withConnectionCheck(async () => {
+      try {
+        const q = query(
         collection(db, this.INSIGHTS_COLLECTION_NAME),
         where('userId', '==', userId),
         orderBy('updatedAt', 'desc'),
@@ -382,9 +459,10 @@ export class FirestoreService {
         updatedAt: data.updatedAt
       };
     } catch (error) {
-      console.error('Error fetching user insights:', error);
-      throw new Error('Failed to fetch insights from Firestore');
-    }
+        console.error('Error fetching user insights:', error);
+        throw new Error('Failed to fetch insights from Firestore');
+      }
+    });
   }
 
   /**

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --dev-client",
     "dev": "expo start --dev-client",
     "emulators": "cd reflecta-lab && firebase emulators:start --only auth,firestore,storage,ui",
     "dev:with-emulators": "concurrently \"npm run emulators\" \"npm run dev\"",
@@ -25,7 +25,7 @@
     "@tiptap/extension-placeholder": "^3.0.0",
     "@tiptap/extension-typography": "^3.0.7",
     "@tiptap/react": "^3.0.0",
-    "@tiptap/starter-kit": "^2.25.0",
+    "@tiptap/starter-kit": "^3.2.0",
     "expo": ">=53.0.0-0 <54.0.0",
     "expo-apple-authentication": "~7.2.4",
     "expo-application": "~6.1.5",
@@ -39,6 +39,7 @@
     "expo-file-system": "^18.1.11",
     "expo-haptics": "~14.1.4",
     "expo-image": "~2.4.0",
+    "expo-keep-awake": "~14.1.4",
     "expo-localization": "~16.1.6",
     "expo-notifications": "~0.31.4",
     "expo-secure-store": "^14.2.3",
@@ -57,13 +58,14 @@
     "react-native-gesture-handler": "~2.24.0",
     "react-native-markdown-display": "^7.0.2",
     "react-native-progress": "^5.0.1",
+    "react-native-purchases": "^8.6.0",
+    "react-native-purchases-ui": "^8.6.0",
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-svg": "15.11.2",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "13.13.5",
-    "expo-keep-awake": "~14.1.4"
+    "react-native-webview": "13.13.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

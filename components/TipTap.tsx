@@ -30,6 +30,8 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const [entryId, setEntryId] = useState<string>('');
   const [isGeneratingCoaching, setIsGeneratingCoaching] = useState(false);
   
+  
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -374,7 +376,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   // Update editor content when content prop changes
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content, { emitUpdate: false });
     }
   }, [editor, content]);
 
@@ -418,20 +420,24 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const editorStyles = {
     flex: 1,
     height: '100%',
+    width: '100%',
+    maxWidth: '100%',
     border: 'none',
     outline: 'none',
     background: 'transparent',
     overflow: 'auto',
+    overflowX: 'hidden' as const,
+    boxSizing: 'border-box' as const,
   };
 
   return (
     <>
-      <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column' }} ref={editorRef}>
+      <div style={{ flex: 1, height: '100%', width: '100%', maxWidth: '100%', display: 'flex', flexDirection: 'column', overflowX: 'hidden' }} ref={editorRef}>
         <style dangerouslySetInnerHTML={{ __html: styles }} />
         <EditorContent editor={editor} style={editorStyles} />
         <div
           onClick={handleEditorClick}
-          style={{ flex: 1, width: '100%', minHeight: '100px' }}
+          style={{ flex: 1, width: '100%', maxWidth: '100%', minHeight: '100px', overflowX: 'hidden' }}
         />
       </div>
 

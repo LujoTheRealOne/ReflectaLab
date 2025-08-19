@@ -7,7 +7,7 @@ import {
   useColorScheme,
   ActivityIndicator,
 } from 'react-native';
-import { ExternalLink, MessageCircle } from 'lucide-react-native';
+import { ExternalLink, MessageCircle, MessagesSquare } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import { Button } from './ui/Button';
 
@@ -32,24 +32,17 @@ export default function CoachingSessionCard({
   return (
     <View style={[styles.container, { 
       backgroundColor: colors.background,
-      borderColor: `${colors.tint}20`,
+      borderColor: `${colors.tint}15`,
       shadowColor: colors.text,
     }]}>
       <View style={styles.content}>
-        <View style={styles.leftSection}>
-          {/* Chat bubble icon */}
-          <View style={[styles.iconContainer, { 
-            backgroundColor: `${colors.tint}15`,
-          }]}>
+        <View style={styles.textContent}>
+          <View style={styles.titleRow}>
             {loading ? (
-              <ActivityIndicator size="small" color={colors.tint} />
+              <ActivityIndicator size="small" color={colors.tint} style={styles.titleIcon} />
             ) : (
-              <MessageCircle size={20} color={colors.tint} />
+              <MessagesSquare size={20} color={colors.tint} style={styles.titleIcon} />
             )}
-          </View>
-          
-          {/* Content */}
-          <View style={styles.textContent}>
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
               {loading ? (
                 <View style={[styles.skeleton, styles.titleSkeleton, { 
@@ -59,28 +52,30 @@ export default function CoachingSessionCard({
                 title
               )}
             </Text>
-            <Text style={[styles.subtitle, { color: `${colors.text}60` }]} numberOfLines={1}>
-              {loading ? (
-                <View style={[styles.skeleton, styles.subtitleSkeleton, { 
-                  backgroundColor: `${colors.text}15` 
-                }]} />
-              ) : (
-                `${sessionType} • ${messageCount} messages`
-              )}
-            </Text>
           </View>
+          <Text style={[styles.subtitle, { color: `${colors.text}60` }]} numberOfLines={1}>
+            {loading ? (
+              <View style={[styles.skeleton, styles.subtitleSkeleton, { 
+                backgroundColor: `${colors.text}15` 
+              }]} />
+            ) : (
+              `${sessionType} • ${messageCount} messages`
+            )}
+          </Text>
         </View>
         
-        {/* Button */}
         <Button
           variant="secondary"
           style={[styles.button, { 
             backgroundColor: `${colors.text}08`,
           }]}
+          size="sm"
           onPress={onOpenConversation}
           disabled={loading}
         >
-          <ExternalLink size={20} color={colors.text} />
+          <Text style={[styles.buttonText, { color: colors.text }]}>
+            Open Conversation
+          </Text>
         </Button>
       </View>
     </View>
@@ -93,54 +88,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 12,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
   },
   content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  leftSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
-  },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    flexDirection: 'column',
   },
   textContent: {
-    flex: 1,
+    gap: 4,
+    marginBottom: 12,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  titleIcon: {
+    marginRight: 8,
   },
   title: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 2,
+    flex: 1,
   },
   subtitle: {
     fontSize: 14,
     fontWeight: '400',
+    marginLeft: 4,
   },
   button: {
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 12,
-    minWidth: 40,
+    width: '100%',
+    borderWidth: 0,
+    paddingVertical: 10
   },
   buttonText: {
     fontSize: 14,
     fontWeight: '500',
+    opacity: 0.7,
   },
   skeleton: {
     borderRadius: 4,

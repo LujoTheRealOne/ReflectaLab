@@ -415,6 +415,12 @@ export default function OnboardingChatScreen() {
 
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
+  
+  // Scroll position tracking to prevent auto-scroll during manual scrolling
+  const isUserScrolling = useRef(false);
+  const isNearBottom = useRef(true);
+  const lastScrollY = useRef(0);
+  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize chat with first message when component mounts
   useEffect(() => {
@@ -433,16 +439,45 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [name, messages.length, setMessages]);
 
-  // Controlled scrolling - only when explicitly needed
+  // Handle scroll events to track user scroll state
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const scrollY = contentOffset.y;
+    const threshold = 50; // pixels from bottom to consider "near bottom"
+    
+    // Check if user is near the bottom
+    isNearBottom.current = layoutMeasurement.height + scrollY >= contentSize.height - threshold;
+    
+    // Detect if user is actively scrolling
+    if (Math.abs(scrollY - lastScrollY.current) > 1) {
+      isUserScrolling.current = true;
+      
+      // Clear any existing timeout and set a new one
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
+      
+      // Stop considering user as scrolling after 500ms of no scroll
+      scrollTimeout.current = setTimeout(() => {
+        isUserScrolling.current = false;
+      }, 500);
+    }
+    
+    lastScrollY.current = scrollY;
+  };
+
+  // Controlled scrolling - only when explicitly needed or user is at bottom
   const scrollToBottomRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   
   useEffect(() => {
-    // Only scroll if we explicitly requested it OR if new AI message arrives
+    // Only scroll if we explicitly requested it OR if new AI message arrives and user is near bottom
     const shouldScroll = scrollToBottomRef.current || 
       (messages.length > previousMessageCountRef.current && 
        messages.length > 0 && 
-       messages[messages.length - 1]?.role === 'assistant');
+       messages[messages.length - 1]?.role === 'assistant' &&
+       isNearBottom.current &&
+       !isUserScrolling.current);
     
     if (shouldScroll && scrollViewRef.current) {
       setTimeout(() => {
@@ -454,18 +489,65 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     previousMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-  // Auto-scroll during streaming when AI message content updates
+  // Auto-scroll during streaming ONLY if user is not actively scrolling and is near bottom
   useEffect(() => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
-      // If last message is from assistant and we're not loading (streaming in progress)
-      if (lastMessage?.role === 'assistant' && !isLoading && scrollViewRef.current) {
+      
+      // Check if any popup is currently visible
+      const hasVisiblePopup = showPopupForMessage || showSchedulingForMessage || 
+                             confirmedSchedulingForMessage || showCompletionForMessage;
+      
+      // Only auto-scroll during streaming if:
+      // 1. Last message is from assistant
+      // 2. We're not in loading state (streaming in progress)
+      // 3. User is not actively scrolling
+      // 4. User is near the bottom of the chat OR there's a visible popup
+      const shouldAutoScroll = lastMessage?.role === 'assistant' && 
+                              !isLoading && 
+                              !isUserScrolling.current && 
+                              (isNearBottom.current || hasVisiblePopup);
+      
+      if (shouldAutoScroll && scrollViewRef.current) {
         setTimeout(() => {
           scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100); // Shorter delay for streaming updates
+        }, 100);
       }
     }
-  }, [messages, isLoading]); // Trigger on messages array changes (content updates)
+  }, [messages, isLoading, showPopupForMessage, showSchedulingForMessage, confirmedSchedulingForMessage, showCompletionForMessage]); // Trigger on messages array changes and popup visibility
+
+  // Auto-scroll when popups appear to ensure they're visible
+  useEffect(() => {
+    if (showPopupForMessage && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 300); // Delay to ensure popup is rendered
+    }
+  }, [showPopupForMessage]);
+
+  useEffect(() => {
+    if (showSchedulingForMessage && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 300); // Delay to ensure popup is rendered
+    }
+  }, [showSchedulingForMessage]);
+
+  useEffect(() => {
+    if (confirmedSchedulingForMessage && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 300); // Delay to ensure popup is rendered
+    }
+  }, [confirmedSchedulingForMessage]);
+
+  useEffect(() => {
+    if (showCompletionForMessage && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 300); // Delay to ensure popup is rendered
+    }
+  }, [showCompletionForMessage]);
 
 
 
@@ -572,10 +654,13 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [isRecording]);
 
-  // Cleanup keep awake on component unmount
+  // Cleanup keep awake and scroll timeout on component unmount
   useEffect(() => {
     return () => {
       deactivateKeepAwake();
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
     };
   }, []);
 
@@ -921,6 +1006,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             scrollEventThrottle={16}
+            onScroll={handleScroll}
           >
             {messages.map((message) => (
               <View
@@ -1133,24 +1219,25 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           </ScrollView>
         </View>
 
-        {/* Input or Enter App Button - based on progress */}
-        {progress === 100 && (
-          /* Enter App Button when progress is complete */
-          <View style={[styles.enterAppContainer, { paddingBottom: 15 }]}>
-            <Button
-              variant="primary"
-              size="default"
-              onPress={handleEnterApp}
-              style={styles.enterAppButton}
-              disabled={isCompletingOnboarding}
-              isLoading={isCompletingOnboarding}
-            >
-              {isCompletingOnboarding ? 'Starting your journey...' : 'Enter App'}
-            </Button>
-          </View>
-        )}
+        {/* Bottom section with Enter App button and input */}
+        <View style={styles.bottomSection}>
+          {/* Enter App Button when progress is complete - appears above input */}
+          {progress === 100 && (
+            <View style={styles.enterAppContainer}>
+              <Button
+                variant="primary"
+                size="default"
+                onPress={handleEnterApp}
+                style={styles.enterAppButton}
+                disabled={isCompletingOnboarding}
+                isLoading={isCompletingOnboarding}
+              >
+                {isCompletingOnboarding ? 'Starting your journey...' : 'Enter App'}
+              </Button>
+            </View>
+          )}
 
-          /* Input - extends to screen bottom */
+          {/* Input - always visible */}
           <View style={styles.chatInputContainer}>
             <View style={[
               styles.chatInputWrapper,
@@ -1277,6 +1364,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               )}
             </View>
           </View>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -1533,9 +1621,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  bottomSection: {
+    backgroundColor: 'transparent',
+  },
   enterAppContainer: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
     backgroundColor: 'transparent',
   },
   enterAppButton: {

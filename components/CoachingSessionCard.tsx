@@ -84,7 +84,7 @@ export default function CoachingSessionCard({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     padding: 16,
     marginBottom: 12,
@@ -106,13 +106,12 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     flex: 1,
   },
   subtitle: {
     fontSize: 14,
     fontWeight: '400',
-    marginLeft: 4,
   },
   button: {
     width: '100%',
@@ -122,7 +121,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 14,
     fontWeight: '500',
-    opacity: 0.7,
+    opacity: 0.8,
   },
   skeleton: {
     borderRadius: 4,

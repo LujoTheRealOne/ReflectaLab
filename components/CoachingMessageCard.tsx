@@ -95,8 +95,9 @@ export default function CoachingMessageCard({
   return (
     <TouchableOpacity
       onPress={toggleExpanded}
-      activeOpacity={0.8}
+      activeOpacity={0.95}
       disabled={loading}
+      style={styles.touchableContainer}
     >
       <Animated.View style={[
         styles.container,
@@ -113,7 +114,7 @@ export default function CoachingMessageCard({
           <View style={[
             styles.iconContainer,
             {
-              backgroundColor: `${colors.tint}22`,
+              backgroundColor: `${colors.tint}11`,
             }
           ]}>
             {loading ? (
@@ -122,7 +123,7 @@ export default function CoachingMessageCard({
               </View>
             ) : (
               <MessageCircle 
-                size={16} 
+                size={18} 
                 color={colors.tint} 
               />
             )}
@@ -140,7 +141,7 @@ export default function CoachingMessageCard({
                 styles.title,
                 { color: colors.tint }
               ]}>
-                💭 {formatMessageType(messageType)}
+                {formatMessageType(messageType)}
               </Text>
             )}
           </View>
@@ -150,10 +151,7 @@ export default function CoachingMessageCard({
         {!loading && (
           <View
             style={[
-              styles.expandButton,
-              {
-                backgroundColor: `${colors.tint}11`,
-              }
+              styles.expandButton
             ]}
           >
             <Animated.View
@@ -166,7 +164,7 @@ export default function CoachingMessageCard({
                 }],
               }}
             >
-              <ChevronDown size={16} color={colors.tint} />
+              <ChevronDown size={20} color={colors.tint} />
             </Animated.View>
           </View>
         )}
@@ -187,12 +185,22 @@ export default function CoachingMessageCard({
             ]} />
           </View>
         ) : (
-          <Text style={[
-            styles.pushText,
-            { color: colors.tint }
-          ]}>
-            {pushText}
-          </Text>
+          <>
+            <Text style={[
+              styles.pushText,
+              { color: colors.tint }
+            ]}>
+              {pushText}
+            </Text>
+            {!expanded && (
+              <Text style={[
+                styles.expandHint,
+                { color: colors.tint }
+              ]}>
+                Tap to read more
+              </Text>
+            )}
+          </>
         )}
       </View>
 
@@ -218,7 +226,8 @@ export default function CoachingMessageCard({
                 outputRange: [0, 12],
               }),
               overflow: 'hidden',
-              borderTopColor: `${colors.tint}22`,
+              borderTopColor: `${colors.tint}33`,
+              backgroundColor: `${colors.tint}03`,
             }
           ]}
         >
@@ -242,6 +251,9 @@ export default function CoachingMessageCard({
 }
 
 const styles = StyleSheet.create({
+  touchableContainer: {
+    borderRadius: 16,
+  },
   container: {
     borderRadius: 16,
     borderWidth: 1,
@@ -268,8 +280,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconContainer: {
-    width: 32,
-    height: 32,
+    padding: 8,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
@@ -310,6 +321,13 @@ const styles = StyleSheet.create({
   pushText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  expandHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    opacity: 0.5,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   loadingLine: {
     height: 16,

@@ -45,7 +45,7 @@ export default function OnboardingScreen() {
   const [hasInteractedWithStressSlider, setHasInteractedWithStressSlider] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isNameInputFocused, setIsNameInputFocused] = useState(false);
-  const [coachingStylePosition, setCoachingStylePosition] = useState({ x: 0, y: 0 });
+  const [coachingStylePosition, setCoachingStylePosition] = useState({ x: 5.5, y: 5.5 });
   const [hasInteractedWithCoachingStyle, setHasInteractedWithCoachingStyle] = useState(false);
   const [timeDuration, setTimeDuration] = useState(10); // Default to 10 minutes
   const [hasInteractedWithTimeSlider, setHasInteractedWithTimeSlider] = useState(false);
@@ -248,8 +248,9 @@ export default function OnboardingScreen() {
 
     // Initialize position from existing state when component mounts
     useEffect(() => {
-      const initialX = coachingStylePosition.x * maxX;
-      const initialY = -coachingStylePosition.y * maxY; // Invert Y back
+      // Convert from 1-10 scale back to -1 to 1 scale, then multiply by maxX/maxY
+      const initialX = ((coachingStylePosition.x - 1) / 9 * 2 - 1) * maxX;
+      const initialY = -(((coachingStylePosition.y - 1) / 9 * 2 - 1) * maxY); // Invert Y back
 
       currentPosition.current = { x: initialX, y: initialY };
       animatedPosition.setValue({ x: initialX, y: initialY });
@@ -274,11 +275,11 @@ export default function OnboardingScreen() {
         // Update current position
         currentPosition.current = { x: newX, y: newY };
 
-        // Update state with rounded values (2 decimal places)
+        // Update state with rounded values - scale from 1 to 10
         setCoachingStylePosition({
-          x: Math.round((newX / maxX) * 100) / 100,
-          y: Math.round((-newY / maxY) * 100) / 100
-        }); // Invert Y for UI coordinates
+          x: Math.round(((newX / maxX + 1) / 2 * 9 + 1) * 10) / 10,
+          y: Math.round(((-newY / maxY + 1) / 2 * 9 + 1) * 10) / 10
+        }); // Invert Y for UI coordinates and scale to 1-10
 
         // Set final absolute position
         animatedPosition.setValue({ x: newX, y: newY });
@@ -629,8 +630,8 @@ export default function OnboardingScreen() {
                 stressInLife: stressLevel,
               },
               coachingConfig: {
-                challengeDegree: coachingStylePosition.x < 0.3 ? 'gentle' : coachingStylePosition.x < 0.6 ? 'moderate' : coachingStylePosition.x < 0.8 ? 'challenging' : 'intense',
-                harshToneDegree: coachingStylePosition.y > 0.8 ? 'supportive' : coachingStylePosition.y > 0.6 ? 'direct' : coachingStylePosition.y > 0.3 ? 'firm' : 'harsh',
+                challengeDegree: coachingStylePosition.x < 3.7 ? 'gentle' : coachingStylePosition.x < 6.4 ? 'moderate' : coachingStylePosition.x < 8.2 ? 'challenging' : 'intense',
+                harshToneDegree: coachingStylePosition.y > 8.2 ? 'supportive' : coachingStylePosition.y > 6.4 ? 'direct' : coachingStylePosition.y > 3.7 ? 'firm' : 'harsh',
                 coachingMessageFrequency: 'daily',
                 enableCoachingMessages: true,
                 lastCoachingMessageSentAt: 0,

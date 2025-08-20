@@ -8,6 +8,8 @@ export interface CoachingMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  isError?: boolean;
+  originalUserMessage?: string;
 }
 
 interface UseAICoachingReturn {
@@ -16,6 +18,7 @@ interface UseAICoachingReturn {
   error: string | null;
   progress: number; // 0-100
   sendMessage: (content: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => Promise<void>;
+  resendMessage: (messageId: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => Promise<void>;
   clearMessages: () => void;
   setMessages: (messages: CoachingMessage[]) => void;
 }
@@ -266,7 +269,9 @@ export function useAICoaching(): UseAICoachingReturn {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
         content: `Sorry, I encountered an error: ${errorMessage}.\nPlease try again.`,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isError: true,
+        originalUserMessage: content.trim()
       };
 
       setMessages(prev => [...prev, errorChatMessage]);
@@ -275,6 +280,21 @@ export function useAICoaching(): UseAICoachingReturn {
       abortControllerRef.current = null;
     }
   }, [messages, getToken, progress]);
+
+  const resendMessage = useCallback(async (messageId: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => {
+    // Find the error message to resend
+    const errorMessage = messages.find(msg => msg.id === messageId && msg.isError);
+    if (!errorMessage || !errorMessage.originalUserMessage) {
+      console.error('Error message not found or missing original content');
+      return;
+    }
+
+    // Remove the error message from the chat
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+
+    // Resend the original user message
+    await sendMessage(errorMessage.originalUserMessage, sessionId, options);
+  }, [messages, sendMessage]);
 
   const clearMessages = useCallback(() => {
     // Track coaching completion
@@ -306,6 +326,7 @@ export function useAICoaching(): UseAICoachingReturn {
     error,
     progress,
     sendMessage,
+    resendMessage,
     clearMessages,
     setMessages: setMessagesCallback
   };

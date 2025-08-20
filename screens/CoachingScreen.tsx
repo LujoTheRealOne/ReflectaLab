@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { ArrowLeft, Mic, X, Check, ArrowUp } from 'lucide-react-native';
+import { ArrowLeft, Mic, X, Check, ArrowUp, RotateCcw } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -135,7 +135,7 @@ export default function CoachingScreen() {
   };
 
   // Use the AI coaching hook
-  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
+  const { messages, isLoading, sendMessage, resendMessage, setMessages, progress } = useAICoaching();
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
@@ -492,6 +492,24 @@ export default function CoachingScreen() {
     });
   };
 
+  const handleResendMessage = async (messageId: string) => {
+    // Generate session ID if not already set
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      currentSessionId = generateSessionId();
+      setSessionId(currentSessionId);
+      console.log(`🆔 Generated new session ID for resend: ${currentSessionId}`);
+    }
+
+    // Trigger scroll after resending message
+    scrollToBottomRef.current = true;
+
+    // Resend message using the AI coaching hook
+    await resendMessage(messageId, currentSessionId, {
+      sessionType: routeSessionType || 'default-session'
+    });
+  };
+
   const handleMicrophonePress = () => {
     startRecording();
   };
@@ -641,6 +659,26 @@ export default function CoachingScreen() {
                    >
                      {getDisplayContent(message.content)}
                    </Text>
+                   
+                   {/* Resend button for error messages */}
+                   {message.role === 'assistant' && message.isError && (
+                     <TouchableOpacity
+                       style={[styles.resendButton, { 
+                         backgroundColor: colorScheme === 'dark' ? '#444444' : '#F5F5F5',
+                         borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5'
+                       }]}
+                       onPress={() => handleResendMessage(message.id)}
+                       disabled={isLoading}
+                     >
+                       <RotateCcw size={14} color={colors.text} />
+                       <Text style={[styles.resendButtonText, { 
+                         color: colors.text,
+                         opacity: isLoading ? 0.5 : 1 
+                       }]}>
+                         Resend
+                       </Text>
+                     </TouchableOpacity>
+                   )}
                  </View>
 
                  {/* Completion Popup - appears on final message when progress reaches 100% */}
@@ -1047,5 +1085,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingVertical: 8,
+  },
+  resendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  resendButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 }); 

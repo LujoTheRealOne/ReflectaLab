@@ -10,7 +10,7 @@ import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
-import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
+import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
@@ -556,26 +556,19 @@ export default function CoachingScreen() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscriptionAv({
+  } = useAudioTranscription({
     onTranscriptionComplete: (transcription) => {
-      // Append transcription to existing text or set it as new text
       const existingText = chatInput.trim();
       const newText = existingText 
         ? `${existingText} ${transcription}` 
         : transcription;
       setChatInput(newText);
-      // Focus the text input after transcription is complete
       setTimeout(() => {
         textInputRef.current?.focus();
       }, 100);
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
-    },
-    isPro,
-    onProRequired: async () => {
-      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-      console.log('🎤 Voice transcription Pro check:', unlocked ? 'unlocked' : 'cancelled');
     },
   });
 
@@ -892,15 +885,42 @@ export default function CoachingScreen() {
   };
 
   const handleMicrophonePress = () => {
+    // Start recording without losing keyboard focus
+    const wasInputFocused = isChatInputFocused;
     startRecording();
+    
+    // Keep input focused if it was focused before
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const handleRecordingCancel = () => {
+    // Remember if input was focused before recording started
+    const wasInputFocused = isChatInputFocused;
     cancelRecording();
+    
+    // Restore focus after canceling recording
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const handleRecordingConfirm = () => {
+    // Remember if input was focused before recording started
+    const wasInputFocused = isChatInputFocused;
     stopRecordingAndTranscribe();
+    
+    // Restore focus after recording ends
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 200);
+    }
   };
 
   const handleScrollToBottom = () => {

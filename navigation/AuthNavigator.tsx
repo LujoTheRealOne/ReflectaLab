@@ -5,6 +5,7 @@ import { Colors } from '@/constants/Colors';
 
 // Import screens
 import { useAuth } from '@/hooks/useAuth';
+import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import GetStartedScreen from '@/screens/auth/GetStartedScreen';
 import LoginScreen from '@/screens/auth/LoginScreen';
 import OnboardingScreen from '@/screens/auth/Onboarding';
@@ -15,7 +16,7 @@ import CompassStoryScreen from '@/screens/CompassStoryScreen';
 export type AuthStackParamList = {
   Login: undefined;
   GetStarted: undefined;
-  Onboarding: undefined;
+  Onboarding: { startStep?: number } | undefined;
   OnboardingChat: {
     name: string;
     selectedRoles: string[];
@@ -40,15 +41,38 @@ const Stack = createStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
   const { shouldShowGetStarted, needsOnboarding, isSignedIn } = useAuth();
+  const { shouldResumeOnboarding, canNavigateToChat, progress } = useOnboardingProgress();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  // If user is signed in and needs onboarding, start with onboarding
-  const initialRouteName = isSignedIn && needsOnboarding 
-    ? 'Onboarding' 
-    : shouldShowGetStarted 
-    ? 'GetStarted' 
-    : 'Login';
+  // Determine initial route based on auth state and onboarding progress
+  const getInitialRouteName = () => {
+    if (!isSignedIn) {
+      return shouldShowGetStarted ? 'GetStarted' : 'Login';
+    }
+    
+    if (needsOnboarding) {
+      // If user has completed all onboarding steps and can navigate to chat
+      if (shouldResumeOnboarding() && canNavigateToChat() && progress) {
+        return 'OnboardingChat';
+      }
+      // Always start with Onboarding screen - it will resume from saved step
+      return 'Onboarding';
+    }
+    
+    return 'Login'; // Fallback
+  };
+
+  const initialRouteName = getInitialRouteName();
+  
+  console.log('📱 AuthNavigator debug:', {
+    isSignedIn,
+    needsOnboarding,
+    shouldResumeOnboarding: shouldResumeOnboarding(),
+    canNavigateToChat: canNavigateToChat(),
+    progressCurrentStep: progress?.currentStep,
+    initialRouteName
+  });
 
   return (
     <Stack.Navigator 
@@ -69,11 +93,23 @@ export default function AuthNavigator() {
       <Stack.Screen
         name="Onboarding"
         component={OnboardingScreen}
+        initialParams={progress?.currentStep ? { startStep: progress.currentStep } : undefined}
         options={{ title: 'Onboarding', gestureEnabled: false }}
       />
       <Stack.Screen
         name="OnboardingChat"
         component={OnboardingChatScreen}
+        initialParams={
+          shouldResumeOnboarding() && progress ? {
+            name: progress.name,
+            selectedRoles: progress.selectedRoles,
+            selectedSelfReflection: progress.selectedSelfReflection,
+            clarityLevel: progress.clarityLevel,
+            stressLevel: progress.stressLevel,
+            coachingStylePosition: progress.coachingStylePosition,
+            timeDuration: progress.timeDuration,
+          } : undefined
+        }
         options={{ 
           title: 'Chat', 
           gestureEnabled: false,

@@ -183,7 +183,8 @@ export default function CompassStoryScreen() {
         
         // Allow onboarding completion without subscription check
         if (fromOnboarding) {
-          console.log('✅ Allowing compass access for onboarding completion');
+          console.log('✅ Allowing compass access for onboarding completion - no premium required');
+          console.log('🎯 Route params:', { fromOnboarding, fromCoaching, sessionId });
           return;
         }
         

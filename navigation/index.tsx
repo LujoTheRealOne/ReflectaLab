@@ -30,11 +30,7 @@ export default function Navigation() {
     );
   }
 
-  const initialRouteName = !isSignedIn
-    ? 'Auth'
-    : (isSignedIn && needsOnboarding)
-    ? 'Onboarding'
-    : 'App';
+  const initialRouteName = (!isSignedIn || needsOnboarding) ? 'Auth' : 'App';
 
   return (
     <View style={{
@@ -51,7 +47,6 @@ export default function Navigation() {
           initialRouteName={initialRouteName}
         >
           <Stack.Screen name="Auth" component={AuthNavigator} />
-          <Stack.Screen name="Onboarding" component={AuthNavigator} initialParams={{ screen: 'Onboarding' }} />
           <Stack.Screen name="App" component={AppNavigator} />
         </Stack.Navigator>
       </NavigationContainer>

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { Mic, X, Check, ArrowUp } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
-import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
+import { useAudioTranscription } from '@/hooks/useAudioTranscription';
+import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -66,9 +67,7 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
 const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
   const totalDots = 6;
   
-  // Calculate which dots should be filled based on audio level
   const isDotActive = (index: number) => {
-    // Each dot represents a segment of the audio level range (0-1)
     const threshold = (index + 1) / totalDots;
     return audioLevel >= threshold;
   };
@@ -85,13 +84,127 @@ const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, 
               styles.audioLevelDot, 
               { 
                 backgroundColor: isActive
-                  ? (colorScheme === 'dark' ? '#666666' : '#333333')
+                  ? (colorScheme === 'dark' ? '#888888' : '#111111')
                   : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
               }
             ]}
           />
         );
       })}
+    </View>
+  );
+};
+
+// Animated typing indicator component
+const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const dot1Animation = useRef(new Animated.Value(0)).current;
+  const dot2Animation = useRef(new Animated.Value(0)).current;
+  const dot3Animation = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    // Create individual animations for each dot
+    const animation1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot1Animation, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot1Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot2Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 200,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot2Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation3 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot3Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 400,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot3Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    animation1.start();
+    animation2.start();
+    animation3.start();
+
+    return () => {
+      animation1.stop();
+      animation2.stop();
+      animation3.stop();
+    };
+  }, [dot1Animation, dot2Animation, dot3Animation]);
+
+  const dot1Opacity = dot1Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot2Opacity = dot2Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot3Opacity = dot3Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  return (
+    <View style={styles.typingIndicator}>
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot1Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot2Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot3Opacity
+          }
+        ]} 
+      />
     </View>
   );
 };
@@ -146,6 +259,24 @@ export default function OnboardingChatScreen() {
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding, firebaseUser, getToken } = useAuth();
+  const { clearProgress, saveProgress } = useOnboardingProgress();
+
+  // Save progress as step 17 (OnboardingChat) when entering this screen
+  useEffect(() => {
+    saveProgress({
+      currentStep: 17, // Special step for OnboardingChat
+      name,
+      selectedRoles,
+      selectedSelfReflection,
+      clarityLevel,
+      stressLevel,
+      hasInteractedWithClaritySlider: true,
+      hasInteractedWithStressSlider: true,
+      coachingStylePosition,
+      hasInteractedWithCoachingStyle: true,
+      timeDuration,
+    }).catch(error => console.error('Failed to save OnboardingChat progress:', error));
+  }, []); // Only run once when component mounts
 
   // Session ID state - will be generated when first message is sent
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -166,7 +297,7 @@ export default function OnboardingChatScreen() {
   const [sessionStartTime] = useState(new Date());
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
 
-  // Use the audio transcription hook with expo-av
+  // Use the audio transcription hook
   const {
     isRecording,
     isTranscribing,
@@ -175,15 +306,13 @@ export default function OnboardingChatScreen() {
     startRecording,
     stopRecordingAndTranscribe,
     cancelRecording,
-  } = useAudioTranscriptionAv({
+  } = useAudioTranscription({
     onTranscriptionComplete: (transcription) => {
-      // Append transcription to existing text or set it as new text
       const existingText = chatInput.trim();
       const newText = existingText 
         ? `${existingText} ${transcription}` 
         : transcription;
       setChatInput(newText);
-      // Focus the text input after transcription is complete
       setTimeout(() => {
         textInputRef.current?.focus();
       }, 100);
@@ -415,12 +544,203 @@ export default function OnboardingChatScreen() {
 
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
+
+  //POWERFUL MESSAGE POSITIONING SYSTEM
+
+  // 1. Define constant values
+  const HEADER_HEIGHT = 120;
+  const INPUT_HEIGHT = 160;
+  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header
+
+  // Dynamic content height calculation
+  const dynamicContentHeight = useMemo(() => {
+    let totalHeight = 12; // paddingTop
+    
+    messages.forEach((message, index) => {
+      const contentLength = message.content.length;
+      const lines = Math.max(1, Math.ceil(contentLength / 40));
+      let messageHeight = lines * 22 + 32;
+      
+      if (message.role === 'assistant') {
+        const isLastMessage = index === messages.length - 1;
+        const isCurrentlyStreaming = isLastMessage && isLoading;
+        
+        if (isCurrentlyStreaming) {
+          messageHeight += 200;
+        } else {
+          messageHeight += 80;
+        }
+      }
+      
+      totalHeight += messageHeight + 16;
+    });
+    
+    // Add loading indicator height
+    if (isLoading) {
+      totalHeight += 60;
+    }
+    
+    return totalHeight;
+  }, [messages, isLoading]);
+
+  // 2. Simplify dynamicBottomPadding - only two states:
+  const dynamicBottomPadding = useMemo(() => {
+    const screenHeight = 700; 
+    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
+    
+    // If user sent a message and waiting for AI response -> Positioning padding
+    const lastMessage = messages[messages.length - 1];
+    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
+    
+    if (isUserWaitingForAI) {
+      return availableHeight + 100; // Sufficient space for precise positioning
+    } else {
+      return 50; // Minimal padding - just bottom space
+    }
+  }, [messages, isLoading]);
+
+  // New state for content height tracking
+  const [contentHeight, setContentHeight] = useState(0);
+  const [scrollViewHeight, setScrollViewHeight] = useState(0);
+
+  // Scroll limits calculation - simplified
+  const scrollLimits = useMemo(() => {
+    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
+    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
+    
+    return {
+      minContentHeight,
+      maxScrollDistance
+    };
+  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
+
+  // Enhanced scroll position tracking for scroll-to-bottom button
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   
-  // Scroll position tracking to prevent auto-scroll during manual scrolling
-  const isUserScrolling = useRef(false);
-  const isNearBottom = useRef(true);
-  const lastScrollY = useRef(0);
-  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
+  // Store refs for each message to measure their positions
+  const messageRefs = useRef<{ [key: string]: View | null }>({});
+  
+  // Store the target scroll position after user message positioning
+  const targetScrollPosition = useRef<number | null>(null);
+  
+  // Track if user has manually scrolled
+  const hasUserScrolled = useRef<boolean>(false);
+
+  // 3. Completely rewrite scrollToShowLastMessage:
+  const scrollToShowLastMessage = useCallback(() => {
+    if (!scrollViewRef.current || messages.length === 0) return;
+    
+    const lastMessage = messages[messages.length - 1];
+    
+    // Only position user messages
+    if (lastMessage.role !== 'user') return;
+    
+    console.log('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
+    
+    // Target position: MESSAGE_TARGET_OFFSET pixels below header
+    const targetFromTop = MESSAGE_TARGET_OFFSET;
+    
+    // Get user message ref
+    const lastMessageRef = messageRefs.current[lastMessage.id];
+    
+    if (lastMessageRef) {
+      // Measure current position of the message
+      setTimeout(() => {
+        lastMessageRef.measureLayout(
+          scrollViewRef.current as any,
+          (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
+            // Target scroll position = message Y position - target position
+            const targetScrollY = Math.max(0, msgY - targetFromTop);
+            
+            console.log('📐 Measurement:', {
+              messageY: msgY,
+              targetFromTop,
+              targetScrollY
+            });
+            
+            // Perform scroll
+            scrollViewRef.current?.scrollTo({
+              y: targetScrollY,
+              animated: true
+            });
+            
+            // Save position
+            targetScrollPosition.current = targetScrollY;
+            hasUserScrolled.current = false;
+            
+            console.log('✅ User message positioned at scroll:', targetScrollY);
+          },
+          () => {
+            console.log('❌ Measurement failed, using estimation');
+            
+            // Fallback: estimate message position
+            let estimatedY = 12; // paddingTop
+            
+            // Sum up height of all previous messages
+            for (let i = 0; i < messages.length - 1; i++) {
+              const msg = messages[i];
+              const lines = Math.max(1, Math.ceil(msg.content.length / 40));
+              const msgHeight = lines * 22 + 48; // text + padding
+              estimatedY += msgHeight + 16; // marginBottom
+            }
+            
+            // Last message Y position
+            const targetScrollY = Math.max(0, estimatedY - targetFromTop);
+            
+            scrollViewRef.current?.scrollTo({
+              y: targetScrollY,
+              animated: true
+            });
+            
+            targetScrollPosition.current = targetScrollY;
+            hasUserScrolled.current = false;
+          }
+        );
+      }, 150); // Wait for layout to stabilize
+    }
+  }, [messages]);
+
+  // Auto-scroll to position new messages below header
+  const scrollToNewMessageRef = useRef(false);
+
+  // 4. Simplify useEffect:
+  useEffect(() => {
+    // Only scroll when user sends a message
+    if (scrollToNewMessageRef.current && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollToShowLastMessage();
+        scrollToNewMessageRef.current = false;
+      }, 100);
+    }
+  }, [messages.length, scrollToShowLastMessage]);
+
+  // 5. Adjust position once when AI response starts:
+  useEffect(() => {
+    if (isLoading && targetScrollPosition.current !== null) {
+      // Adjust position once when AI response starts
+      const maintainedPosition = targetScrollPosition.current;
+      
+      setTimeout(() => {
+        if (scrollViewRef.current && !hasUserScrolled.current) {
+          scrollViewRef.current.scrollTo({
+            y: maintainedPosition,
+            animated: false
+          });
+        }
+      }, 100);
+    }
+  }, [isLoading]);
+
+  // 6. Clear when progress reaches 100%:
+  useEffect(() => {
+    if (progress === 100) {
+      setTimeout(() => {
+        targetScrollPosition.current = null;
+        hasUserScrolled.current = false;
+        console.log('🧹 Positioning cleared after AI response');
+      }, 1000);
+    }
+  }, [progress]);
 
   // Initialize chat with first message when component mounts
   useEffect(() => {
@@ -439,115 +759,87 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [name, messages.length, setMessages]);
 
-  // Handle scroll events to track user scroll state
+  // 7. Simplify handleScroll:
   const handleScroll = (event: any) => {
-    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const scrollY = contentOffset.y;
-    const threshold = 50; // pixels from bottom to consider "near bottom"
     
-    // Check if user is near the bottom
-    isNearBottom.current = layoutMeasurement.height + scrollY >= contentSize.height - threshold;
-    
-    // Detect if user is actively scrolling
-    if (Math.abs(scrollY - lastScrollY.current) > 1) {
-      isUserScrolling.current = true;
+    // User scroll detection
+    if (targetScrollPosition.current !== null) {
+      const savedPosition = targetScrollPosition.current;
+      const scrollDifference = Math.abs(scrollY - savedPosition);
       
-      // Clear any existing timeout and set a new one
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
+      if (scrollDifference > 50) { // Larger threshold
+        console.log('👆 User scrolled manually, clearing positioning');
+        hasUserScrolled.current = true;
+        targetScrollPosition.current = null;
       }
-      
-      // Stop considering user as scrolling after 500ms of no scroll
-      scrollTimeout.current = setTimeout(() => {
-        isUserScrolling.current = false;
-      }, 500);
     }
     
-    lastScrollY.current = scrollY;
+    // Scroll to bottom button - only when AI response is complete
+    const hasMessages = messages.length > 0;
+    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
+    const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
+    
+    if (isAIResponseComplete && targetScrollPosition.current === null) {
+      const contentHeight = contentSize.height;
+      const screenHeight = layoutMeasurement.height;
+      const distanceFromBottom = contentHeight - screenHeight - scrollY;
+      setShowScrollToBottom(distanceFromBottom > 200);
+    } else {
+      setShowScrollToBottom(false);
+    }
   };
 
-  // Controlled scrolling - only when explicitly needed or user is at bottom
-  const scrollToBottomRef = useRef(false);
-  const previousMessageCountRef = useRef(0);
-  
-  useEffect(() => {
-    // Only scroll if we explicitly requested it OR if new AI message arrives and user is near bottom
-    const shouldScroll = scrollToBottomRef.current || 
-      (messages.length > previousMessageCountRef.current && 
-       messages.length > 0 && 
-       messages[messages.length - 1]?.role === 'assistant' &&
-       isNearBottom.current &&
-       !isUserScrolling.current);
-    
-    if (shouldScroll && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-        scrollToBottomRef.current = false;
-      }, 200);
-    }
-    
-    previousMessageCountRef.current = messages.length;
-  }, [messages.length]);
-
-  // Auto-scroll during streaming ONLY if user is not actively scrolling and is near bottom
-  useEffect(() => {
+  const handleScrollToBottom = () => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
+      const lastMessageRef = messageRefs.current[lastMessage.id];
       
-      // Check if any popup is currently visible
-      const hasVisiblePopup = showPopupForMessage || showSchedulingForMessage || 
-                             confirmedSchedulingForMessage || showCompletionForMessage;
-      
-      // Only auto-scroll during streaming if:
-      // 1. Last message is from assistant
-      // 2. We're not in loading state (streaming in progress)
-      // 3. User is not actively scrolling
-      // 4. User is near the bottom of the chat OR there's a visible popup
-      const shouldAutoScroll = lastMessage?.role === 'assistant' && 
-                              !isLoading && 
-                              !isUserScrolling.current && 
-                              (isNearBottom.current || hasVisiblePopup);
-      
-      if (shouldAutoScroll && scrollViewRef.current) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+      if (lastMessageRef) {
+        lastMessageRef.measureLayout(
+          scrollViewRef.current as any,
+          (x, y, width, height) => {
+            // Check if it's a long AI response
+            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
+            
+            if (isLongResponse) {
+              // For long responses: scroll to the very end of the message
+              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            } else {
+              // For short responses: scroll to show the message with minimal space below
+              const targetY = Math.max(0, y - 20); // Small offset
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            }
+          },
+          () => {
+            // Fallback: scroll to a position that shows the last message
+            const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
+            scrollViewRef.current?.scrollTo({
+              y: estimatedPosition,
+              animated: true
+            });
+          }
+        );
+      } else {
+        // Fallback: scroll to a position that shows the last message
+        const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
+        scrollViewRef.current?.scrollTo({
+          y: estimatedPosition,
+          animated: true
+        });
       }
+    } else {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
     }
-  }, [messages, isLoading, showPopupForMessage, showSchedulingForMessage, confirmedSchedulingForMessage, showCompletionForMessage]); // Trigger on messages array changes and popup visibility
-
-  // Auto-scroll when popups appear to ensure they're visible
-  useEffect(() => {
-    if (showPopupForMessage && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 300); // Delay to ensure popup is rendered
-    }
-  }, [showPopupForMessage]);
-
-  useEffect(() => {
-    if (showSchedulingForMessage && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 300); // Delay to ensure popup is rendered
-    }
-  }, [showSchedulingForMessage]);
-
-  useEffect(() => {
-    if (confirmedSchedulingForMessage && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 300); // Delay to ensure popup is rendered
-    }
-  }, [confirmedSchedulingForMessage]);
-
-  useEffect(() => {
-    if (showCompletionForMessage && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 300); // Delay to ensure popup is rendered
-    }
-  }, [showCompletionForMessage]);
+  };
 
 
 
@@ -602,9 +894,20 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [messages, showSchedulingForMessage, showPopupForMessage, showCompletionForMessage, confirmedSchedulingMessages]);
 
+  // Track when progress reaches 100% to keep Enter App button visible
+  const [hasReached100, setHasReached100] = useState(false);
+  
+  useEffect(() => {
+    console.log('🎯 OnboardingChat Progress Update:', progress);
+    if (progress >= 100) {
+      setHasReached100(true);
+      console.log('✅ Progress reached 100%, Enter App button will stay visible');
+    }
+  }, [progress]);
+
   // Check for completion when progress reaches 100%
   useEffect(() => {
-    if (progress === 100 && !showCompletionForMessage) {
+    if (progress >= 100 && !showCompletionForMessage) {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
       // Find the final AI message that contains finish tokens
@@ -654,13 +957,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [isRecording]);
 
-  // Cleanup keep awake and scroll timeout on component unmount
+  // Cleanup keep awake on component unmount
   useEffect(() => {
     return () => {
       deactivateKeepAwake();
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
     };
   }, []);
 
@@ -668,6 +968,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
 
 
+  // 8. Set flag correctly in handleSendMessage:
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
@@ -682,8 +983,11 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     const messageContent = chatInput.trim();
     setChatInput('');
     
-    // Trigger scroll after sending message
-    scrollToBottomRef.current = true;
+    // Set positioning flag
+    hasUserScrolled.current = false;
+    scrollToNewMessageRef.current = true; // This flag will trigger positioning
+
+    console.log('📤 Sending message, positioning will be triggered');
 
     // Send message using the AI coaching hook with session ID, type, and duration
     await sendMessage(messageContent, currentSessionId, {
@@ -693,15 +997,42 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleMicrophonePress = () => {
+    // Start recording without losing keyboard focus
+    const wasInputFocused = isChatInputFocused;
     startRecording();
+    
+    // Keep input focused if it was focused before
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const handleRecordingCancel = () => {
+    // Remember if input was focused before recording started
+    const wasInputFocused = isChatInputFocused;
     cancelRecording();
+    
+    // Restore focus after canceling recording
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const handleRecordingConfirm = () => {
+    // Remember if input was focused before recording started
+    const wasInputFocused = isChatInputFocused;
     stopRecordingAndTranscribe();
+    
+    // Restore focus after recording ends
+    if (wasInputFocused && textInputRef.current) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 200);
+    }
   };
 
   const handlePopupAction = async (action: string, messageId: string) => {
@@ -913,7 +1244,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleCompletionAction = async () => {
-    console.log('User clicked End this session');
+    console.log('User clicked View Compass Results');
     console.log('📊 Session Stats:', completionStats);
     console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
     
@@ -923,18 +1254,43 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       });
     }
     
-    // Navigate to compass story instead of completing onboarding directly - immediate navigation
-    navigation.navigate('CompassStory', { 
-      fromOnboarding: true,
-      sessionId: sessionId || undefined, // Pass sessionId for insight tracking
-      parsedCoachingData: parsedCoachingData || undefined
-    });
-    setShowCompletionForMessage(null);
+    try {
+      setIsCompletingOnboarding(true);
+      console.log('🚀 Starting onboarding completion from deep dive...');
+      
+      // Complete onboarding first
+      const result = await completeOnboarding();
+      console.log('✅ Onboarding completion finished successfully', result);
+      
+      // Clear onboarding progress from AsyncStorage
+      await clearProgress();
 
-    // Trigger insight extraction in background if we have a session ID
-    if (sessionId) {
-      console.log('🧠 Starting insight extraction for onboarding session:', sessionId);
-      triggerInsightExtraction(sessionId); // Don't await - run in background
+      // Navigate to compass story with onboarding completed
+      navigation.navigate('CompassStory', { 
+        fromOnboarding: true,
+        sessionId: sessionId || undefined, // Pass sessionId for insight tracking
+        parsedCoachingData: parsedCoachingData || undefined
+      });
+      setShowCompletionForMessage(null);
+
+      // Trigger insight extraction in background if we have a session ID
+      if (sessionId) {
+        console.log('🧠 Starting insight extraction for onboarding session:', sessionId);
+        triggerInsightExtraction(sessionId); // Don't await - run in background
+      }
+
+      // After compass story, navigate to main app
+      setTimeout(() => {
+        // @ts-ignore - allow parent navigator access
+        navigation.getParent()?.reset({
+          index: 0,
+          routes: [{ name: 'App' as never }],
+        });
+      }, 2000); // Give time for compass story to show
+
+    } catch (error) {
+      console.error('❌ Error completing onboarding from deep dive:', error);
+      setIsCompletingOnboarding(false);
     }
   };
 
@@ -948,6 +1304,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       console.log('🚀 Starting onboarding completion...');
       const result = await completeOnboarding();
       console.log('✅ Onboarding completion finished successfully', result);
+      
+      // Clear onboarding progress from AsyncStorage
+      await clearProgress();
 
       // After marking onboarding complete, forcefully go to the main app route at the root navigator
       // This avoids relying solely on state propagation timing
@@ -985,7 +1344,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             <Progress.Circle
               size={20}
               animated={true}
-              progress={progress / 100}
+              progress={Math.min(progress / 100, 1)} // Ensure it doesn't exceed 1
               color={colors.tint}
               unfilledColor={`${colors.text}20`}
               borderWidth={0}
@@ -1001,16 +1360,62 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           <ScrollView
             ref={scrollViewRef}
             style={styles.messagesList}
-            contentContainerStyle={styles.messagesContent}
+            contentContainerStyle={[
+              styles.messagesContent, 
+              { 
+                minHeight: scrollLimits.minContentHeight,
+                paddingBottom: dynamicBottomPadding
+              }
+            ]}
+            scrollEventThrottle={16}
+            onScroll={(event) => {
+              // Call existing handleScroll function
+              handleScroll(event);
+              
+              // Update content height
+              const { contentSize } = event.nativeEvent;
+              setContentHeight(contentSize.height);
+            }}
+            onLayout={(event) => {
+              // ScrollView height'ını kaydet
+              const { height } = event.nativeEvent.layout;
+              setScrollViewHeight(height);
+            }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            scrollEventThrottle={16}
-            onScroll={handleScroll}
+            bounces={false}
+            overScrollMode="never"
+            // Scroll limiti ekle
+            onScrollEndDrag={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              // Eğer maksimum scroll limitini aşmışsa, geri getir
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
+            // Momentum scroll sonrası da kontrol et
+            onMomentumScrollEnd={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
           >
             {messages.map((message) => (
               <View
                 key={message.id}
+                ref={(ref) => {
+                  messageRefs.current[message.id] = ref;
+                }}
                 style={[
                   styles.messageContainer,
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
@@ -1196,8 +1601,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                           size="sm"
                           onPress={handleCompletionAction}
                           style={{ flex: 1 }}
+                          disabled={isCompletingOnboarding}
+                          isLoading={isCompletingOnboarding}
                         >
-                          View Compass Results
+                          {isCompletingOnboarding ? 'Completing...' : 'View Compass Results'}
                         </Button>
                       </View>
                     </View>
@@ -1206,23 +1613,37 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               </View>
             ))}
             {isLoading && (
-              <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                <View style={styles.messageBubble}>
-                  <View style={styles.typingIndicator}>
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  </View>
-                </View>
+              <View style={[
+                styles.messageContainer, 
+                styles.aiMessageContainer,
+                styles.loadingMessageContainer
+              ]}>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
               </View>
             )}
           </ScrollView>
+          
+          {/* Scroll to bottom button */}
+          {showScrollToBottom && (
+            <TouchableOpacity
+              style={[
+                styles.scrollToBottomButton,
+                {
+                  backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
+                  borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5',
+                }
+              ]}
+              onPress={handleScrollToBottom}
+            >
+              <ArrowDown size={20} color={colors.text} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Bottom section with Enter App button and input */}
         <View style={styles.bottomSection}>
           {/* Enter App Button when progress is complete - appears above input */}
-          {progress === 100 && (
+          {hasReached100 && (
             <View style={styles.enterAppContainer}>
               <Button
                 variant="primary"
@@ -1256,13 +1677,12 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 <View style={[styles.chatInput, styles.transcribingInputContainer]}>
                   <SpinningAnimation colorScheme={colorScheme} />
                 </View>
-              ) : (
+              ) : !isRecording ? (
                 <TextInput
                   ref={textInputRef}
                   style={[
                     styles.chatInput,
-                    { color: colors.text },
-                    isRecording && { flex: 0, width: '100%', textAlign: 'left' }
+                    { color: colors.text }
                   ]}
                   value={chatInput}
                   onChangeText={setChatInput}
@@ -1275,14 +1695,12 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   returnKeyType='default'
                   onSubmitEditing={handleSendMessage}
                   cursorColor={colors.tint}
-                  editable={!isRecording}
                 />
-              )}
+              ) : null}
 
               {/* Recording state */}
               {isRecording && !isTranscribing && (
                 <View style={styles.recordingContainer}>
-                  {/* Left side - Cancel button */}
                   <TouchableOpacity
                     style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                     onPress={handleRecordingCancel}
@@ -1293,12 +1711,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                     />
                   </TouchableOpacity>
                   
-                  {/* Left-center - Audio level visualization */}
                   <View style={styles.recordingCenterSection}>
                     <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
                   </View>
                   
-                  {/* Right side - Timer and confirm button */}
                   <View style={styles.recordingRightSection}>
                     <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
                     <TouchableOpacity
@@ -1409,10 +1825,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 12,
     zIndex: 0,
-    overflow: 'visible'
+    overflow: 'visible',
+    backgroundColor: 'transparent'
   },
   messagesContent: {
-    paddingBottom: 10,
     flexGrow: 1,
   },
   messageContainer: {
@@ -1439,19 +1855,27 @@ const styles = StyleSheet.create({
   typingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minHeight: 32, // Sabit minimum height
+  },
+  
+  // Loading state'te message container için
+  loadingMessageContainer: {
+    minHeight: 60, // Loading indicator için sabit alan
+    justifyContent: 'center',
   },
   typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   chatInputContainer: {
     paddingHorizontal: 0,
     paddingBottom: 0,
     paddingTop: 0,
-    maxHeight: 180, // Prevent input from taking too much space
+    maxHeight: 180,
   },
   chatInputWrapper: {
     position: 'relative',
@@ -1478,7 +1902,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
-    maxHeight: 100, // Reduced to leave room for padding
+    maxHeight: 100,
     paddingVertical: 8,
     paddingHorizontal: 0,
     paddingRight: 90, // Space for buttons to prevent text overlap
@@ -1634,5 +2058,25 @@ const styles = StyleSheet.create({
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-  }
+  },
+  scrollToBottomButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1000,
+  },
 }); 

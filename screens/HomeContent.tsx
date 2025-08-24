@@ -24,7 +24,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2, Plus } from 'lucide-react-native';
+import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2, Plus, Loader2, FileText } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import CoachingSessionCard from '@/components/CoachingSessionCard';
@@ -50,6 +50,7 @@ import Animated, {
   runOnJS,
   withTiming,
   interpolate,
+  withRepeat,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -396,6 +397,19 @@ export default function HomeContent() {
     micButtonTranslateY.value = -80;
   }, []);
 
+  // Spinner animation for save status
+  useEffect(() => {
+    if (saveStatus === 'saving' || saveStatus === 'unsaved') {
+      spinnerRotation.value = withRepeat(
+        withTiming(360, { duration: 1000 }),
+        -1,
+        false
+      );
+    } else {
+      spinnerRotation.value = 0;
+    }
+  }, [saveStatus]);
+
   // Keep screen awake while recording
   useEffect(() => {
     if (isRecording) {
@@ -521,21 +535,32 @@ export default function HomeContent() {
     }
   }, [latestEntry?.linkedCoachingSessionId, latestEntry?.linkedCoachingMessageId, fetchCoachingSession, fetchCoachingMessage, coachingSessionData?.id, coachingMessageData?.id]);
 
-  // Get save status text
-  const getSaveStatusText = () => {
-    // Show "Creating new entry" when we have a new entry with no content
+  // Get save status icon
+  const getSaveStatusIcon = () => {
+    const iconColor = colorScheme === 'dark' ? '#ffffff' : '#000000';
+    const iconOpacity = colorScheme === 'dark' ? 0.8 : 0.4;
+    
+    // Show draft icon when we have a new entry with no content
     if (isNewEntry && (!entry || entry.trim() === '' || entry === '<p></p>')) {
-      return 'Creating new entry';
+      return <FileText size={18} color={iconColor} style={{ opacity: iconOpacity }} />;
     }
 
     switch (saveStatus) {
       case 'saving':
-        return 'Saving...';
+        return (
+          <Animated.View style={spinnerAnimatedStyle}>
+            <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
+          </Animated.View>
+        );
       case 'unsaved':
-        return 'Unsaved';
+        return (
+          <Animated.View style={spinnerAnimatedStyle}>
+            <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
+          </Animated.View>
+        );
       case 'saved':
       default:
-        return 'Saved';
+        return <Check size={18} color={iconColor} style={{ opacity: iconOpacity }} />;
     }
   };
 
@@ -547,6 +572,9 @@ export default function HomeContent() {
   const micButtonOpacity = useSharedValue(1);
   const micButtonTranslateX = useSharedValue(0);
   const micButtonTranslateY = useSharedValue(0);
+  
+  // Spinner animation for save status
+  const spinnerRotation = useSharedValue(0);
 
   // Gesture handler functions
   const triggerHapticFeedback = () => {
@@ -644,6 +672,12 @@ export default function HomeContent() {
     };
   });
 
+  const spinnerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ rotate: `${spinnerRotation.value}deg` }],
+    };
+  });
+
   return (
     <View style={[styles.container, { backgroundColor: 'black' }]}>
 
@@ -704,9 +738,9 @@ export default function HomeContent() {
                         <Plus size={20} color={colors.text} style={{ opacity: 0.6 }} />
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
-                      {getSaveStatusText()}
-                    </Text>
+                    <View style={{ marginTop: 10, marginRight: 5, alignItems: 'flex-end' }}>
+                      {getSaveStatusIcon()}
+                    </View>
                   </View>
                 </View>
 
@@ -819,7 +853,7 @@ export default function HomeContent() {
                         color={`${colors.tint}99`}
                       />
                     }
-                    style={{ width: 70, height: 40 }}
+                    style={{ width: 45, height: 40 }}
                     onPress={() => {
                       navigation.navigate('Settings' as never);
                     }}
@@ -829,7 +863,7 @@ export default function HomeContent() {
                     variant="primary"
                     size="sm"
                     iconOnly={<MessageCircle size={20} color={colors.background} />}
-                    style={{ width: 70, height: 40 }}
+                    style={{ width: 45, height: 40 }}
                     onPress={async () => {
                       if (!initialized) return; // Wait for RevenueCat init
                       

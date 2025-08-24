@@ -59,6 +59,16 @@ This file records all important changes and implementations made by the LLM assi
   * Added plus button next to date text for creating new journal entries
   * Plus button triggers createNewEntry() function with haptic feedback
   * Styled as minimal icon without background or border
+  * Reduced navigation button widths from 70px to 45px for Settings and Chat buttons to match drawer button size
+  * Improved visual consistency across bottom navigation elements
+  * Replaced text-based save status indicators with icons:
+    - "Saved" → Check icon (✓)
+    - "Saving/Unsaved" → Animated spinning Loader2 icon
+    - "Creating new entry" → FileText/Draft icon  
+  * Added smooth rotation animation for loading states using React Native Reanimated
+  * Enhanced save status icons for better visibility: increased size from 16px to 18px
+  * Implemented dark mode compatibility with appropriate colors and opacity
+  * All status icons use consistent colors: white in dark mode, black in light mode
 
 - Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
 

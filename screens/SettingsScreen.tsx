@@ -334,10 +334,10 @@ export default function SettingsScreen() {
   };
 
   const handleViewInsights = async () => {
-    if (!initialized) return; // Wait for RevenueCat init
+    if (!rcInitialized) return; // Wait for RevenueCat init
     
     if (!isPro) {
-      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      const unlocked = await presentPaywall();
       console.log('🧭 Compass insights access Pro check:', unlocked ? 'unlocked' : 'cancelled');
       if (!unlocked) return; // Don't navigate if paywall was cancelled
     }
@@ -472,14 +472,38 @@ export default function SettingsScreen() {
           {rcInitialized && (
             <View style={styles.subscriptionActions}>
               {isPro ? (
-                <Button
-                  variant="outline"
-                  style={styles.standardButton}
-                  onPress={handleManageSubscription}
-                  disabled={isLoading}
-                >
-                  Manage Subscription
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    style={styles.standardButton}
+                    onPress={handleManageSubscription}
+                    disabled={isLoading}
+                  >
+                    Manage Subscription
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    style={[styles.standardButton, { marginTop: 10 }]}
+                    onPress={async () => {
+                      try {
+                        setIsLoading(true);
+                        const success = await restorePurchases();
+                        if (success) {
+                          Alert.alert('Success', 'Your purchases have been restored.');
+                        } else {
+                          Alert.alert('No Purchases Found', 'No previous purchases were found for this account.');
+                        }
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to restore purchases. Please try again.');
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    disabled={isLoading}
+                  >
+                    Restore Purchases
+                  </Button>
+                </>
               ) : (
                 <Button
                   variant="primary"

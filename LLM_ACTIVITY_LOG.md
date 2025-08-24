@@ -126,3 +126,16 @@ This file records all important changes and implementations made by the LLM assi
   * Now only allows chat navigation for step 17 (OnboardingChat) or when `completedAt` timestamp exists
   * Fixed issue where exiting during meditation would redirect to home screen instead of returning to step 15 (meditation preparation)
   * Users now properly resume from meditation preparation screen (step 15) when they exit during meditation, allowing them to restart meditation process
+
+- **Fixed View Insights Button**: Corrected function errors in SettingsScreen.tsx:
+  * Fixed undefined variable `initialized` → `rcInitialized`
+  * Fixed undefined function `presentPaywallIfNeeded` → `presentPaywall`
+  * Removed unused `currentOffering` parameter
+  * Button now properly navigates to CompassStory screen for Pro users
+  * Non-Pro users correctly see paywall before accessing insights
+
+- **Added Restore Subscription for Pro Users**: Enhanced subscription management in SettingsScreen.tsx:
+  * Added small "Restore Purchases" button below "Manage Subscription" for Pro users
+  * Used ghost variant for subtle appearance with 10px top margin
+  * Maintained existing restore functionality with proper error handling
+  * Preserved original layout for Free users

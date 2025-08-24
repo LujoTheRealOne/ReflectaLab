@@ -52,6 +52,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
       attributes: {
         style: `
           width: 100%;
+          max-width: 100%;
           margin: 0 auto;
           padding: 0;
           outline: none;
@@ -62,6 +63,10 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
           font-size: 16px;
           color: ${colorScheme === 'dark' ? '#ffffff' : '#000000'};
           background: transparent;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          white-space: pre-wrap;
+          box-sizing: border-box;
         `
       },
       handleClick: (view, pos, event) => {
@@ -418,20 +423,35 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const editorStyles = {
     flex: 1,
     height: '100%',
+    width: '100%',
+    maxWidth: '100%',
     border: 'none',
     outline: 'none',
     background: 'transparent',
     overflow: 'auto',
+    boxSizing: 'border-box' as 'border-box',
   };
 
   return (
     <>
-      <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column' }} ref={editorRef}>
+      <div 
+        style={{ 
+          flex: 1, 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          width: '100%',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          boxSizing: 'border-box'
+        }} 
+        ref={editorRef}
+      >
         <style dangerouslySetInnerHTML={{ __html: styles }} />
         <EditorContent editor={editor} style={editorStyles} />
         <div
           onClick={handleEditorClick}
-          style={{ flex: 1, width: '100%', minHeight: '100px' }}
+          style={{ flex: 1, width: '100%', maxWidth: '100%', minHeight: '100px' }}
         />
       </div>
 

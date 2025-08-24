@@ -45,6 +45,15 @@ This file records all important changes and implementations made by the LLM assi
   * Fixed microphone button visibility issue when keyboard opens
   * Optimized positioning for better accessibility and visual consistency
 
+- **Fixed Editor Text Wrapping and Layout**: Resolved horizontal overflow issues in TipTap editor:
+  * Added proper word-wrap and overflow-wrap properties to editor styles in TipTap.tsx
+  * Implemented max-width constraints and box-sizing for proper container behavior
+  * Enhanced CSS in tiptap.css with comprehensive text wrapping rules for all content types
+  * Added specific handling for long URLs, code blocks, and links to prevent horizontal scrolling
+  * Updated HomeContent container styles to properly constrain editor width
+  * Fixed TypeScript typing issues with CSS properties
+  * Text now properly wraps within screen boundaries instead of extending horizontally
+
 - Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
 
 - Fixed keyboard behavior in CoachingScreen: When the text input is focused and user starts voice recording, the keyboard now stays open instead of dismissing. Applied to `handleMicrophonePress`, `handleRecordingCancel`, and `handleRecordingConfirm` functions using `isChatInputFocused` state and delayed focus restoration.

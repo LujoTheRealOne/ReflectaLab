@@ -721,7 +721,7 @@ export default function HomeContent() {
                 )}
 
                 {/* Thoughts Section */}
-                <View style={{ flex: 1, marginBottom: 80 }}>
+                <View style={{ flex: 1, marginBottom: 80, width: '100%', overflow: 'hidden' }}>
                   <Editor
                     content={entry}
                     onUpdate={handleContentChange}
@@ -886,6 +886,8 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    width: '100%',
+    maxWidth: '100%',
   },
   yearText: {
     fontSize: 12,

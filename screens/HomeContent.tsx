@@ -38,7 +38,8 @@ import {
   View,
   KeyboardAvoidingView,
   Platform,
-  Keyboard
+  Keyboard,
+  TouchableOpacity
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -47,6 +48,8 @@ import Animated, {
   useSharedValue,
   withSpring,
   runOnJS,
+  withTiming,
+  interpolate,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -349,15 +352,28 @@ export default function HomeContent() {
     };
   }, []);
 
-  // Keyboard visibility listeners
+  // Keyboard visibility listeners with microphone button animation
   useEffect(() => {
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setIsKeyboardVisible(true)
+      (event) => {
+        setIsKeyboardVisible(true);
+        // Animate microphone button to keyboard position
+        micButtonTranslateX.value = withTiming(-2, { duration: 300 });
+        micButtonTranslateY.value = withTiming(
+          -(event?.endCoordinates?.height || 300) + 80, // Klavyeye daha yakın
+          { duration: 300 }
+        );
+      }
     );
     const keyboardWillHideListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setIsKeyboardVisible(false)
+      () => {
+        setIsKeyboardVisible(false);
+        // Animate microphone button back to right side position
+        micButtonTranslateX.value = withTiming(-2, { duration: 300 });
+        micButtonTranslateY.value = withTiming(-100, { duration: 300 });
+      }
     );
 
     return () => {
@@ -372,6 +388,13 @@ export default function HomeContent() {
       fetchLatestEntry();
     }
   }, [fetchLatestEntry, isFirebaseReady]);
+
+  // Initialize microphone button position
+  useEffect(() => {
+    // Set initial position to right side (slightly above navbar)
+    micButtonTranslateX.value = -2;
+    micButtonTranslateY.value = -100;
+  }, []);
 
   // Keep screen awake while recording
   useEffect(() => {
@@ -519,6 +542,11 @@ export default function HomeContent() {
   // Animation values
   const translateY = useSharedValue(0);
   const TRIGGER_THRESHOLD = 200; // Pixels to trigger haptic and console log
+  
+  // Microphone button animation
+  const micButtonOpacity = useSharedValue(1);
+  const micButtonTranslateX = useSharedValue(0);
+  const micButtonTranslateY = useSharedValue(0);
 
   // Gesture handler functions
   const triggerHapticFeedback = () => {
@@ -603,6 +631,16 @@ export default function HomeContent() {
     return {
       borderTopLeftRadius: borderRadius,
       borderTopRightRadius: borderRadius,
+    };
+  });
+
+  const micButtonAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: micButtonOpacity.value,
+      transform: [
+        { translateX: micButtonTranslateX.value },
+        { translateY: micButtonTranslateY.value },
+      ],
     };
   });
 
@@ -703,127 +741,77 @@ export default function HomeContent() {
               </TouchableOpacity> */}
             </SafeAreaView>
 
-            {/* Bottom Buttons - Fixed Position */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? -20 : 0}
-              style={styles.keyboardAvoidingContainer}
+            {/* Floating Microphone Button */}
+            <Animated.View 
+              style={[
+                styles.floatingMicButton, 
+                micButtonAnimatedStyle,
+                { backgroundColor: colors.tint }
+              ]}
             >
-              <View style={[{
-                flexDirection: 'row',
-                justifyContent: isKeyboardVisible ? 'space-between' : 'center',
-                alignItems: 'center',
-                paddingHorizontal: 20,
-                paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
-                backgroundColor: colors.background
-              }, isKeyboardVisible && {
-                backgroundColor: colors.background,
-                paddingTop: 15,
-                boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
-                borderTopLeftRadius: 18,
-                borderTopRightRadius: 18,
-              }]}>
-                {isKeyboardVisible && (
-                  <View style={[styles.buttonGroup, { gap: 8 }]}>
-                    {/* Settings Button */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconOnly={
-                        <AlignLeft
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      }
-                      style={{ width: 40, height: 40 }}
-                      onPress={() => {
-                        navigation.openDrawer();
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconOnly={
-                        <Settings2
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      }
-                      style={{ width: 70, height: 40 }}
-                      onPress={() => {
-                        navigation.navigate('Settings' as never);
-                      }}
-                    />
-                  </View>
+              <TouchableOpacity
+                style={styles.micButtonTouchable}
+                onPress={() => {
+                  if (isRecording) {
+                    stopRecordingAndTranscribe();
+                  } else {
+                    startRecording();
+                  }
+                }}
+                disabled={isTranscribing}
+                activeOpacity={0.8}
+              >
+                {isRecording ? (
+                  <Square
+                    size={24}
+                    color={colors.background}
+                  />
+                ) : (
+                  <Mic
+                    size={24}
+                    color={colors.background}
+                  />
                 )}
+              </TouchableOpacity>
+            </Animated.View>
 
-                <View style={[
-                  styles.buttonGroup,
-                  { gap: 8 },
-                  !isKeyboardVisible && [styles.buttonBackground, {
-                    backgroundColor: colors.background,
-                    borderColor: `${colors.tint}12`
-                  }]
-                ]}>
-                  {!isKeyboardVisible && (
-                    /* Settings Button - shown in center when keyboard is hidden */
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        iconOnly={
-                          <AlignLeft
-                            size={20}
-                            color={`${colors.tint}99`}
-                          />
-                        }
-                        style={{ width: 40, height: 40 }}
-                        onPress={() => {
-                          navigation.openDrawer();
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        iconOnly={
-                          <Settings2
-                            size={20}
-                            color={`${colors.tint}99`}
-                          />
-                        }
-                        style={{ width: 70, height: 40 }}
-                        onPress={() => {
-                          navigation.navigate('Settings' as never);
-                        }}
-                      />
-                    </View>
-                  )}
-                  {/* Microphone Button */}
+            {/* Bottom Buttons - Only show when keyboard is hidden */}
+            {!isKeyboardVisible && (
+              <View style={[
+                styles.bottomButtonsContainer,
+                {
+                  paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
+                }
+              ]}>
+                <View style={[styles.buttonGroup, { gap: 8 }]}>
+                  {/* Settings Button */}
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     iconOnly={
-                      isRecording ? (
-                        <Square
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      ) : (
-                        <Mic
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      )
+                      <AlignLeft
+                        size={20}
+                        color={`${colors.tint}99`}
+                      />
+                    }
+                    style={{ width: 40, height: 40 }}
+                    onPress={() => {
+                      navigation.openDrawer();
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    iconOnly={
+                      <Settings2
+                        size={20}
+                        color={`${colors.tint}99`}
+                      />
                     }
                     style={{ width: 70, height: 40 }}
                     onPress={() => {
-                      if (isRecording) {
-                        stopRecordingAndTranscribe();
-                      } else {
-                        startRecording();
-                      }
+                      navigation.navigate('Settings' as never);
                     }}
-                    disabled={isTranscribing}
                   />
                   {/* Enter Coach Mode Button */}
                   <Button
@@ -846,7 +834,9 @@ export default function HomeContent() {
                   </Button>
                 </View>
               </View>
-            </KeyboardAvoidingView>
+            )}
+
+
           </Animated.View>
         </Animated.View>
       </PanGestureHandler>
@@ -941,10 +931,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   bottomButtonsContainer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingTop: 20,
+    justifyContent: 'center',
     paddingHorizontal: 20,
   },
   buttonGroup: {
@@ -964,5 +957,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.02,
     shadowRadius: 20.9,
     elevation: 2,
+  },
+  floatingMicButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 120,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  micButtonTouchable: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 

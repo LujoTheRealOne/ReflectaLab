@@ -204,6 +204,7 @@ export default function HomeContent() {
   const weekday = displayDate.toLocaleDateString('en-US', { weekday: 'short' });
   const day = displayDate.toLocaleDateString('en-US', { day: 'numeric' });
   const month = displayDate.toLocaleDateString('en-US', { month: 'long' });
+  const year = displayDate.getFullYear();
   const formattedDate = `${weekday}, ${month} ${day}`;
 
   // Fetch the latest journal entry
@@ -643,16 +644,21 @@ export default function HomeContent() {
 
               {/* Content */}
               <View style={styles.content}>
-                {/* Date Input */}
-                <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center', paddingTop: 20, justifyContent: 'space-between' }}>
-                  <Text
-                    style={[styles.dateText, { color: colors.text }]}
-                  >
-                    {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
+                {/* Year and Date */}
+                <View style={{ paddingTop: 20 }}>
+                  <Text style={[styles.yearText, { color: colors.text }]}>
+                    {year}
                   </Text>
-                  <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
-                    {getSaveStatusText()}
-                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text
+                      style={[styles.dateText, { color: colors.text }]}
+                    >
+                      {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
+                    </Text>
+                    <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
+                      {getSaveStatusText()}
+                    </Text>
+                  </View>
                 </View>
 
                 {/* Coaching Session Card - Show when current entry has linked session */}
@@ -890,6 +896,12 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  yearText: {
+    fontSize: 12,
+    fontWeight: '600',
+    opacity: 0.6,
+    marginBottom: -5,
   },
   dateText: {
     fontSize: 28,

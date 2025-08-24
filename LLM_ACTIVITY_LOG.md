@@ -5,7 +5,14 @@ This file records all important changes and implementations made by the LLM assi
 
 *This log file should be updated after every significant LLM implementation.*
 
-## 2025-08-24
+
+
+- **Added Year Display to Home Screen**: Enhanced the date display section in HomeContent.tsx:
+  * Added year display above the existing weekday/month/day display
+  * Extracted year from the same `displayDate` used for other date components
+  * Added `yearText` style with small font (12px), bold weight (600), reduced opacity (0.6), and negative margin for proper spacing
+  * Maintains consistent styling with existing date display design
+  * Works with both current day entries and historical entries
 
 - Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
 
@@ -19,7 +26,6 @@ This file records all important changes and implementations made by the LLM assi
   * Users can now exit the app during onboarding and resume from where they left off
   * Progress includes: currentStep, name, selectedRoles, selectedSelfReflection, clarityLevel, stressLevel, coachingStylePosition, timeDuration, and interaction states
 
-## 2025-01-27
 
 - **Enhanced Message Scrolling System in OnboardingChatScreen**: Copied advanced message positioning and scrolling logic from CoachingScreen to OnboardingChatScreen:
   * Implemented powerful message positioning system with dynamic content height calculation

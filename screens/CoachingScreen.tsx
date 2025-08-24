@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { ArrowLeft, Mic, X, Check, ArrowUp, RotateCcw } from 'lucide-react-native';
+import { ArrowLeft, Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -12,6 +12,10 @@ import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
+import { Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -50,6 +54,120 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
             transform: [{ rotate: spin }]
           }
         ]}
+      />
+    </View>
+  );
+};
+
+// Animated typing indicator component
+const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
+  const dot1Animation = useRef(new Animated.Value(0)).current;
+  const dot2Animation = useRef(new Animated.Value(0)).current;
+  const dot3Animation = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    // Create individual animations for each dot
+    const animation1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot1Animation, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot1Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot2Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 200,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot2Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    const animation3 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot3Animation, {
+          toValue: 1,
+          duration: 600,
+          delay: 400,
+          useNativeDriver: true
+        }),
+        Animated.timing(dot3Animation, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true
+        })
+      ])
+    );
+
+    animation1.start();
+    animation2.start();
+    animation3.start();
+
+    return () => {
+      animation1.stop();
+      animation2.stop();
+      animation3.stop();
+    };
+  }, [dot1Animation, dot2Animation, dot3Animation]);
+
+  const dot1Opacity = dot1Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot2Opacity = dot2Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  const dot3Opacity = dot3Animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1]
+  });
+
+  return (
+    <View style={styles.typingIndicator}>
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot1Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot2Opacity
+          }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.typingDot, 
+          { 
+            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
+            opacity: dot3Opacity
+          }
+        ]} 
       />
     </View>
   );
@@ -120,6 +238,7 @@ export default function CoachingScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
+  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
   // Get route parameters for existing session
   const routeSessionId = (route.params as any)?.sessionId;
@@ -135,7 +254,7 @@ export default function CoachingScreen() {
   };
 
   // Use the AI coaching hook
-  const { messages, isLoading, sendMessage, resendMessage, setMessages, progress } = useAICoaching();
+  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
@@ -150,6 +269,117 @@ export default function CoachingScreen() {
     components: Array<{ type: string; props: Record<string, string> }>;
     rawData: string;
   } | null>(null);
+
+  // Enhanced loading state management
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+
+  // Track AI response state more reliably
+  const [aiResponseStarted, setAiResponseStarted] = useState(false);
+
+  // Track when AI response actually starts
+  useEffect(() => {
+    if (isLoading) {
+      setShowLoadingIndicator(true);
+    } else {
+      // Add a small delay before hiding loading indicator to ensure AI response is visible
+      const timer = setTimeout(() => {
+        setShowLoadingIndicator(false);
+      }, 500); // 500ms delay to ensure AI response is rendered
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
+
+  // Monitor when AI response actually starts
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      const isLastMessageAI = lastMessage?.role === 'assistant';
+      
+      if (isLastMessageAI && isLoading) {
+        // AI response has started
+        setAiResponseStarted(true);
+      } else if (!isLoading && aiResponseStarted) {
+        // AI response has completed
+        setAiResponseStarted(false);
+      }
+    }
+  }, [messages, isLoading, aiResponseStarted]);
+
+  // Enhanced loading indicator logic
+  const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
+
+  //POWERFUL MESSAGE POSITIONING SYSTEM
+
+  // 1. Define constant values
+  const HEADER_HEIGHT = 120;
+  const INPUT_HEIGHT = 160;
+  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header
+
+  // Dynamic content height calculation
+  const dynamicContentHeight = useMemo(() => {
+    let totalHeight = 12; // paddingTop
+    
+    messages.forEach((message, index) => {
+      const contentLength = message.content.length;
+      const lines = Math.max(1, Math.ceil(contentLength / 40));
+      let messageHeight = lines * 22 + 32;
+      
+      if (message.role === 'assistant') {
+        const isLastMessage = index === messages.length - 1;
+        const isCurrentlyStreaming = isLastMessage && isLoading;
+        
+        if (isCurrentlyStreaming) {
+          messageHeight += 200;
+        } else {
+          messageHeight += 80;
+        }
+      }
+      
+      totalHeight += messageHeight + 16;
+    });
+    
+    // Add loading indicator height
+    if (shouldShowLoadingIndicator) {
+      totalHeight += 60;
+    }
+    
+    return totalHeight;
+  }, [messages, isLoading, shouldShowLoadingIndicator]);
+
+  // 2. Simplify dynamicBottomPadding - only two states:
+  const dynamicBottomPadding = useMemo(() => {
+    const screenHeight = 700; 
+    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
+    
+    // If user sent a message and waiting for AI response -> Positioning padding
+    const lastMessage = messages[messages.length - 1];
+    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
+    
+    if (isUserWaitingForAI) {
+      return availableHeight + 100; // Sufficient space for precise positioning
+    } else {
+      return 50; // Minimal padding - just bottom space
+    }
+  }, [messages, isLoading]);
+
+  // New state for content height tracking
+  const [contentHeight, setContentHeight] = useState(0);
+  const [scrollViewHeight, setScrollViewHeight] = useState(0);
+
+  // Scroll limits calculation - simplified
+  const scrollLimits = useMemo(() => {
+    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
+    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
+    
+    return {
+      minContentHeight,
+      maxScrollDistance
+    };
+  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
+
+  // Enhanced scroll position tracking for scroll-to-bottom button
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   // Function to parse coaching completion data between finish tokens
   const parseCoachingCompletion = (content: string) => {
@@ -194,7 +424,101 @@ export default function CoachingScreen() {
     return { components, rawData: finishContent };
   };
 
-  // Function to clean message content by removing finish tokens and structured data
+  // Function to parse coaching cards from any content
+  const parseCoachingCards = (content: string) => {
+    // Parse component markers like [focus:focus="...",context="..."]
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    const components: Array<{ type: string; props: Record<string, string> }> = [];
+    
+    let match;
+    while ((match = componentRegex.exec(content)) !== null) {
+      const componentType = match[1];
+      const propsString = match[2];
+      
+      // Parse props from key="value" format
+      const props: Record<string, string> = {};
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+      
+      while ((propMatch = propRegex.exec(propsString)) !== null) {
+        const [, key, value] = propMatch;
+        props[key] = value;
+      }
+      
+      components.push({ type: componentType, props });
+    }
+    
+    return components;
+  };
+
+  // Function to render a coaching card based on type and props
+  const renderCoachingCard = (type: string, props: Record<string, string>, index: number) => {
+    const baseProps = {
+      key: `coaching-card-${type}-${index}`,
+      editable: false, // Cards in messages should not be editable
+    };
+
+    switch (type) {
+      case 'meditation':
+        return (
+          <MeditationCard
+            {...baseProps}
+            title={props.title || 'Guided Meditation'}
+            duration={parseInt(props.duration || '300')}
+            description={props.description}
+            type={(props.type as 'breathing' | 'mindfulness' | 'body-scan') || 'breathing'}
+          />
+        );
+      case 'focus':
+        // Handle both expected format (focus/context) and AI output format (headline/explanation)
+        const focusText = props.focus || props.headline || 'Main focus not specified';
+        const contextText = props.context || props.explanation;
+        
+        return (
+          <FocusCard
+            {...baseProps}
+            focus={focusText}
+            context={contextText}
+          />
+        );
+      case 'blockers':
+        const blockers = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <BlockersCard
+            {...baseProps}
+            blockers={blockers}
+            title={props.title}
+          />
+        );
+      case 'actions':
+        const actions = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
+        return (
+          <ActionPlanCard
+            {...baseProps}
+            actions={actions}
+            title={props.title}
+          />
+        );
+      case 'checkin':
+        // Check-in cards are handled by the scheduling popup system
+        return null;
+      default:
+        return (
+          <View key={`unknown-card-${index}`} style={{
+            padding: 16, 
+            backgroundColor: colorScheme === 'dark' ? '#374151' : '#F3F4F6', 
+            borderRadius: 8, 
+            marginVertical: 8
+          }}>
+            <Text style={{ color: colorScheme === 'dark' ? '#9CA3AF' : '#6B7280', fontSize: 14 }}>
+              Unknown component: {type}
+            </Text>
+          </View>
+        );
+    }
+  };
+
+  // Function to clean message content by removing finish tokens and coaching cards
   const getDisplayContent = (content: string) => {
     let cleanContent = content;
     
@@ -248,46 +572,55 @@ export default function CoachingScreen() {
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
     },
+    isPro,
+    onProRequired: async () => {
+      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      console.log('🎤 Voice transcription Pro check:', unlocked ? 'unlocked' : 'cancelled');
+    },
   });
 
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
-  // Scroll position tracking to prevent auto-scroll during manual scrolling
-  const isUserScrolling = useRef(false);
-  const isNearBottom = useRef(true);
-  const lastScrollY = useRef(0);
-  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
-
   // Guard against duplicate loads for the same session
   const loadedSessionIdRef = useRef<string | null>(null);
-
-  // Handle scroll events to track user scroll state
-  const handleScroll = (event: any) => {
-    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-    const scrollY = contentOffset.y;
-    const threshold = 50; // pixels from bottom to consider "near bottom"
-    
-    // Check if user is near the bottom
-    isNearBottom.current = layoutMeasurement.height + scrollY >= contentSize.height - threshold;
-    
-    // Detect if user is actively scrolling
-    if (Math.abs(scrollY - lastScrollY.current) > 1) {
-      isUserScrolling.current = true;
-      
-      // Clear any existing timeout and set a new one
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-      
-      // Stop considering user as scrolling after 500ms of no scroll
-      scrollTimeout.current = setTimeout(() => {
-        isUserScrolling.current = false;
-      }, 500);
-    }
-    
-    lastScrollY.current = scrollY;
-  };
+  const paywallShownRef = useRef<boolean>(false);
+  const accessCheckedRef = useRef<boolean>(false);
+  
+  // Gate access: ALL coaching requires Pro. Run once per focus, after RevenueCat initialized.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const check = async () => {
+        if (accessCheckedRef.current) return;
+        if (!initialized) return; // wait for RC init
+        accessCheckedRef.current = true;
+        // Prevent multiple paywall presentations
+        if (paywallShownRef.current) {
+          return;
+        }
+        
+        // console.log('🔒 Coaching access check:', { isPro, routeSessionId });
+        if (!isPro) {
+          // console.log('🚫 Not Pro, showing paywall');
+          paywallShownRef.current = true;
+          const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+          if (!unlocked && !cancelled) {
+            // console.log('🔙 Paywall cancelled, going back');
+            navigation.goBack();
+          } else if (unlocked) {
+            // console.log('✅ Pro unlocked via paywall');
+            // Reset flag so future navigation works
+            paywallShownRef.current = false;
+          }
+        } else {
+          // console.log('✅ Pro user, allowing access');
+        }
+      };
+      check();
+      return () => { cancelled = true; accessCheckedRef.current = false; };
+    }, [initialized, isPro, presentPaywallIfNeeded, currentOffering, navigation])
+  );
 
   // Initialize chat - either load existing session or create new one
   useEffect(() => {
@@ -352,63 +685,131 @@ export default function CoachingScreen() {
     }
   }, [routeSessionId, firebaseUser, messages.length, setMessages, user?.firstName, getToken]);
 
-  // Controlled scrolling - only when explicitly needed or user is at bottom
-  const scrollToBottomRef = useRef(false);
-  const previousMessageCountRef = useRef(0);
+  // Auto-scroll to position new messages below header
+  const scrollToNewMessageRef = useRef(false);
   
-  useEffect(() => {
-    // Only scroll if we explicitly requested it OR if new AI message arrives and user is near bottom
-    const shouldScroll = scrollToBottomRef.current || 
-      (messages.length > previousMessageCountRef.current && 
-       messages.length > 0 && 
-       messages[messages.length - 1]?.role === 'assistant' &&
-       isNearBottom.current &&
-       !isUserScrolling.current);
+  // Store refs for each message to measure their positions
+  const messageRefs = useRef<{ [key: string]: View | null }>({});
+  
+  // Store the target scroll position after user message positioning
+  const targetScrollPosition = useRef<number | null>(null);
+  
+  // Track if user has manually scrolled
+  const hasUserScrolled = useRef<boolean>(false);
+  
+    // 3. Completely rewrite scrollToShowLastMessage:
+  const scrollToShowLastMessage = useCallback(() => {
+    if (!scrollViewRef.current || messages.length === 0) return;
     
-    if (shouldScroll && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-        scrollToBottomRef.current = false;
-      }, 200);
-    }
+    const lastMessage = messages[messages.length - 1];
     
-    previousMessageCountRef.current = messages.length;
-  }, [messages.length]);
-
-  // Auto-scroll during streaming ONLY if user is not actively scrolling and is near bottom
-  useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      
-      // Check if completion popup is currently visible
-      const hasVisiblePopup = showCompletionForMessage;
-      
-      // Only auto-scroll during streaming if:
-      // 1. Last message is from assistant
-      // 2. We're not in loading state (streaming in progress)
-      // 3. User is not actively scrolling
-      // 4. User is near the bottom of the chat OR there's a visible popup
-      const shouldAutoScroll = lastMessage?.role === 'assistant' && 
-                              !isLoading && 
-                              !isUserScrolling.current && 
-                              (isNearBottom.current || hasVisiblePopup);
-      
-      if (shouldAutoScroll && scrollViewRef.current) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    }
-  }, [messages, isLoading, showCompletionForMessage]); // Trigger on messages array changes and popup visibility
-
-  // Auto-scroll when completion popup appears to ensure it's visible
-  useEffect(() => {
-    if (showCompletionForMessage && scrollViewRef.current) {
+    // Only position user messages
+    if (lastMessage.role !== 'user') return;
+    
+    console.log('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
+    
+    // Target position: MESSAGE_TARGET_OFFSET pixels below header
+    const targetFromTop = MESSAGE_TARGET_OFFSET;
+    
+    // Get user message ref
+    const lastMessageRef = messageRefs.current[lastMessage.id];
+    
+    if (lastMessageRef) {
+      // Measure current position of the message
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 300); // Delay to ensure popup is rendered
+        lastMessageRef.measureLayout(
+          scrollViewRef.current as any,
+          (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
+            // Target scroll position = message Y position - target position
+            const targetScrollY = Math.max(0, msgY - targetFromTop);
+            
+            console.log('📐 Measurement:', {
+              messageY: msgY,
+              targetFromTop,
+              targetScrollY
+            });
+            
+            // Perform scroll
+            scrollViewRef.current?.scrollTo({
+              y: targetScrollY,
+              animated: true
+            });
+            
+            // Save position
+            targetScrollPosition.current = targetScrollY;
+            hasUserScrolled.current = false;
+            
+            console.log('✅ User message positioned at scroll:', targetScrollY);
+          },
+          () => {
+            console.log('❌ Measurement failed, using estimation');
+            
+            // Fallback: estimate message position
+            let estimatedY = 12; // paddingTop
+            
+            // Sum up height of all previous messages
+            for (let i = 0; i < messages.length - 1; i++) {
+              const msg = messages[i];
+              const lines = Math.max(1, Math.ceil(msg.content.length / 40));
+              const msgHeight = lines * 22 + 48; // text + padding
+              estimatedY += msgHeight + 16; // marginBottom
+            }
+            
+            // Last message Y position
+            const targetScrollY = Math.max(0, estimatedY - targetFromTop);
+            
+            scrollViewRef.current?.scrollTo({
+              y: targetScrollY,
+              animated: true
+            });
+            
+            targetScrollPosition.current = targetScrollY;
+            hasUserScrolled.current = false;
+          }
+        );
+      }, 150); // Wait for layout to stabilize
     }
-  }, [showCompletionForMessage]);
+  }, [messages]);
+  
+  // 4. Simplify useEffect:
+  useEffect(() => {
+    // Only scroll when user sends a message
+    if (scrollToNewMessageRef.current && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollToShowLastMessage();
+        scrollToNewMessageRef.current = false;
+      }, 100);
+    }
+  }, [messages.length, scrollToShowLastMessage]);
+
+  // 5. Remove position maintenance during AI response - too complex
+  // Instead, adjust position once when AI response starts:
+  useEffect(() => {
+    if (isLoading && targetScrollPosition.current !== null) {
+      // Adjust position once when AI response starts
+      const maintainedPosition = targetScrollPosition.current;
+      
+      setTimeout(() => {
+        if (scrollViewRef.current && !hasUserScrolled.current) {
+          scrollViewRef.current.scrollTo({
+            y: maintainedPosition,
+            animated: false
+          });
+        }
+      }, 100);
+    }
+  }, [isLoading]);
+
+  // 6. Clear when progress reaches 100%:
+  useEffect(() => {
+    if (progress === 100) {
+      setTimeout(() => {
+        targetScrollPosition.current = null;
+        hasUserScrolled.current = false;
+        console.log('🧹 Positioning cleared after AI response');
+      }, 1000);
+    }
+  }, [progress]);
 
   // Check for completion when progress reaches 100%
   useEffect(() => {
@@ -459,53 +860,33 @@ export default function CoachingScreen() {
     }
   }, [isRecording]);
 
-  // Cleanup keep awake and scroll timeout on component unmount
+  // Cleanup keep awake on component unmount
   useEffect(() => {
     return () => {
       deactivateKeepAwake();
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
     };
   }, []);
 
+  // 8. Set flag correctly in handleSendMessage:
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    // Generate session ID for first user message if not already set
     let currentSessionId = sessionId;
     if (!currentSessionId) {
       currentSessionId = generateSessionId();
       setSessionId(currentSessionId);
-      console.log(`🆔 Generated new session ID: ${currentSessionId}`);
     }
 
     const messageContent = chatInput.trim();
     setChatInput('');
     
-    // Trigger scroll after sending message
-    scrollToBottomRef.current = true;
+    // Set positioning flag
+    hasUserScrolled.current = false;
+    scrollToNewMessageRef.current = true; // This flag will trigger positioning
 
-    // Send message using the AI coaching hook with session ID and session type from route or default
+    console.log('📤 Sending message, positioning will be triggered');
+
     await sendMessage(messageContent, currentSessionId, {
-      sessionType: routeSessionType || 'default-session'
-    });
-  };
-
-  const handleResendMessage = async (messageId: string) => {
-    // Generate session ID if not already set
-    let currentSessionId = sessionId;
-    if (!currentSessionId) {
-      currentSessionId = generateSessionId();
-      setSessionId(currentSessionId);
-      console.log(`🆔 Generated new session ID for resend: ${currentSessionId}`);
-    }
-
-    // Trigger scroll after resending message
-    scrollToBottomRef.current = true;
-
-    // Resend message using the AI coaching hook
-    await resendMessage(messageId, currentSessionId, {
       sessionType: routeSessionType || 'default-session'
     });
   };
@@ -520,6 +901,88 @@ export default function CoachingScreen() {
 
   const handleRecordingConfirm = () => {
     stopRecordingAndTranscribe();
+  };
+
+  const handleScrollToBottom = () => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      const lastMessageRef = messageRefs.current[lastMessage.id];
+      
+      if (lastMessageRef) {
+        lastMessageRef.measureLayout(
+          scrollViewRef.current as any,
+          (x, y, width, height) => {
+            // Check if it's a long AI response
+            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
+            
+            if (isLongResponse) {
+              // For long responses: scroll to the very end of the message
+              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            } else {
+              // For short responses: scroll to show the message with minimal space below
+              const targetY = Math.max(0, y - 20); // Small offset
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            }
+          },
+          () => {
+            // Fallback: scroll to a position that shows the last message
+            const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
+            scrollViewRef.current?.scrollTo({
+              y: estimatedPosition,
+              animated: true
+            });
+          }
+        );
+      } else {
+        // Fallback: scroll to a position that shows the last message
+        const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
+        scrollViewRef.current?.scrollTo({
+          y: estimatedPosition,
+          animated: true
+        });
+      }
+    } else {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  };
+
+  // 7. Simplify handleScroll:
+  const handleScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const scrollY = contentOffset.y;
+    
+    // User scroll detection
+    if (targetScrollPosition.current !== null) {
+      const savedPosition = targetScrollPosition.current;
+      const scrollDifference = Math.abs(scrollY - savedPosition);
+      
+      if (scrollDifference > 50) { // Larger threshold
+        console.log('👆 User scrolled manually, clearing positioning');
+        hasUserScrolled.current = true;
+        targetScrollPosition.current = null;
+      }
+    }
+    
+    // Scroll to bottom button - only when AI response is complete
+    const hasMessages = messages.length > 0;
+    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
+    const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
+    
+    if (isAIResponseComplete && targetScrollPosition.current === null) {
+      const contentHeight = contentSize.height;
+      const screenHeight = layoutMeasurement.height;
+      const distanceFromBottom = contentHeight - screenHeight - scrollY;
+      setShowScrollToBottom(distanceFromBottom > 200);
+    } else {
+      setShowScrollToBottom(false);
+    }
   };
 
   const handleCompletionAction = async () => {
@@ -619,21 +1082,60 @@ export default function CoachingScreen() {
           <ScrollView
             ref={scrollViewRef}
             style={styles.messagesList}
-            contentContainerStyle={styles.messagesContent}
+            contentContainerStyle={[
+              styles.messagesContent, 
+              { 
+                minHeight: scrollLimits.minContentHeight,
+                paddingBottom: dynamicBottomPadding
+              }
+            ]}
+            scrollEventThrottle={16}
+            onScroll={(event) => {
+              // Call existing handleScroll function
+              handleScroll(event);
+              
+              // Update content height
+              const { contentSize } = event.nativeEvent;
+              setContentHeight(contentSize.height);
+            }}
+            onLayout={(event) => {
+              // ScrollView height'ını kaydet
+              const { height } = event.nativeEvent.layout;
+              setScrollViewHeight(height);
+            }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            scrollEventThrottle={16}
-            onScroll={handleScroll}
+            bounces={false}
+            overScrollMode="never"
+            // Scroll limiti ekle
+            onScrollEndDrag={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              // Eğer maksimum scroll limitini aşmışsa, geri getir
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
+            // Momentum scroll sonrası da kontrol et
+            onMomentumScrollEnd={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
           >
             {/* Loading existing session */}
             {loadingExistingSession && (
               <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                <View style={styles.typingIndicator}>
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                </View>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
                 <Text style={[styles.messageText, { color: `${colors.text}60`, marginLeft: 8 }]}>
                   Loading session...
                 </Text>
@@ -643,6 +1145,9 @@ export default function CoachingScreen() {
             {messages.map((message) => (
               <View
                 key={message.id}
+                ref={(ref) => {
+                  messageRefs.current[message.id] = ref;
+                }}
                 style={[
                   styles.messageContainer,
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
@@ -659,26 +1164,19 @@ export default function CoachingScreen() {
                    >
                      {getDisplayContent(message.content)}
                    </Text>
-                   
-                   {/* Resend button for error messages */}
-                   {message.role === 'assistant' && message.isError && (
-                     <TouchableOpacity
-                       style={[styles.resendButton, { 
-                         backgroundColor: colorScheme === 'dark' ? '#444444' : '#F5F5F5',
-                         borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5'
-                       }]}
-                       onPress={() => handleResendMessage(message.id)}
-                       disabled={isLoading}
-                     >
-                       <RotateCcw size={14} color={colors.text} />
-                       <Text style={[styles.resendButtonText, { 
-                         color: colors.text,
-                         opacity: isLoading ? 0.5 : 1 
-                       }]}>
-                         Resend
-                       </Text>
-                     </TouchableOpacity>
-                   )}
+
+                   {/* Render coaching cards for AI messages */}
+                   {message.role === 'assistant' && (() => {
+                     const coachingCards = parseCoachingCards(message.content);
+                     if (coachingCards.length > 0) {
+                       return (
+                         <View style={{ marginTop: 8, marginBottom: 16 }}>
+                           {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index))}
+                         </View>
+                       );
+                     }
+                     return null;
+                   })()}
                  </View>
 
                  {/* Completion Popup - appears on final message when progress reaches 100% */}
@@ -717,16 +1215,32 @@ export default function CoachingScreen() {
                  )}
                </View>
              ))}
-            {isLoading && (
-              <View style={[styles.messageContainer, styles.aiMessageContainer]}>
-                  <View style={styles.typingIndicator}>
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                    <View style={[styles.typingDot, { backgroundColor: `${colors.text}40` }]} />
-                  </View>
+            {shouldShowLoadingIndicator && (
+              <View style={[
+                styles.messageContainer, 
+                styles.aiMessageContainer,
+                styles.loadingMessageContainer
+              ]}>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
               </View>
             )}
           </ScrollView>
+          
+          {/* Scroll to bottom button */}
+          {showScrollToBottom && (
+            <TouchableOpacity
+              style={[
+                styles.scrollToBottomButton,
+                {
+                  backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
+                  borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5',
+                }
+              ]}
+              onPress={handleScrollToBottom}
+            >
+              <ArrowDown size={20} color={colors.text} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Input */}
@@ -890,10 +1404,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 12,
     zIndex: 0,
-    overflow: 'visible'
+    overflow: 'visible',
+    backgroundColor: 'transparent'
   },
   messagesContent: {
-    paddingBottom: 10,
     flexGrow: 1,
   },
   messageContainer: {
@@ -914,13 +1428,21 @@ const styles = StyleSheet.create({
   typingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minHeight: 32, // Sabit minimum height
+  },
+  
+  // Loading state'te message container için
+  loadingMessageContainer: {
+    minHeight: 60, // Loading indicator için sabit alan
+    justifyContent: 'center',
   },
   typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   chatInputContainer: {
     paddingHorizontal: 0,
@@ -1086,19 +1608,24 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
   },
-  resendButton: {
-    flexDirection: 'row',
+  scrollToBottomButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 8,
-    borderRadius: 8,
+    justifyContent: 'center',
     borderWidth: 1,
-    alignSelf: 'flex-start',
-  },
-  resendButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1000,
   },
 }); 

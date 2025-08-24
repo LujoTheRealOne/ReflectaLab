@@ -5,10 +5,12 @@ import * as FileSystem from 'expo-file-system';
 interface UseAudioTranscriptionOptions {
   onTranscriptionComplete?: (text: string) => void;
   onTranscriptionError?: (error: string) => void;
+  isPro?: boolean;
+  onProRequired?: () => Promise<void>;
 }
 
 export const useAudioTranscriptionAv = (options: UseAudioTranscriptionOptions = {}) => {
-  const { onTranscriptionComplete, onTranscriptionError } = options;
+  const { onTranscriptionComplete, onTranscriptionError, isPro = true, onProRequired } = options;
   
   // Recording object reference
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -147,6 +149,12 @@ export const useAudioTranscriptionAv = (options: UseAudioTranscriptionOptions = 
 
   // Start recording function
   const startRecording = async () => {
+    // Check Pro access first
+    if (!isPro && onProRequired) {
+      await onProRequired();
+      return;
+    }
+    
     try {
       // Clean up any existing recording
       if (recordingRef.current) {

@@ -57,7 +57,9 @@
         }
       ],
       "expo-audio",
-      "expo-localization"
+      "expo-localization",
+      "expo-secure-store",
+      "expo-router"
     ],
     "owner": "acta",
     "extra": {

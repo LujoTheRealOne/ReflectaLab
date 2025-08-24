@@ -18,11 +18,12 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronDown, ChevronLeft, ExternalLink, FileText, Info, LogOut } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, Star } from 'lucide-react-native';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -39,6 +40,14 @@ export default function SettingsScreen() {
     permissionStatus,
     checkPermissions
   } = useNotificationPermissions();
+  const { 
+    initialized: rcInitialized, 
+    isPro, 
+    customerInfo, 
+    presentPaywall, 
+    restorePurchases,
+    activeEntitlementIds 
+  } = useRevenueCat(firebaseUser?.uid);
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -54,6 +63,55 @@ export default function SettingsScreen() {
   }>({ verified: false });
 
   const [isLoading, setIsLoading] = useState(false);
+
+  // Subscription handlers
+  const handleUpgradeToPro = async () => {
+    try {
+      setIsLoading(true);
+      const success = await presentPaywall();
+      if (success) {
+        Alert.alert('Success', 'Welcome to Reflecta Pro! 🎉');
+      }
+    } catch (error) {
+      console.error('Error upgrading to Pro:', error);
+      Alert.alert('Error', 'Failed to process upgrade. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleManageSubscription = () => {
+    Alert.alert(
+      'Manage Subscription',
+      'To manage your subscription, you can use the App Store or restore purchases.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'App Store', 
+          onPress: () => Linking.openURL('https://apps.apple.com/account/subscriptions') 
+        },
+        { 
+          text: 'Restore Purchases', 
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              const success = await restorePurchases();
+              Alert.alert(
+                success ? 'Success' : 'No Purchases Found',
+                success 
+                  ? 'Your purchases have been restored.' 
+                  : 'No previous purchases were found for this account.'
+              );
+            } catch (error) {
+              Alert.alert('Error', 'Failed to restore purchases. Please try again.');
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   // Load push notification preference from Firestore
   const loadPushNotificationPreference = useCallback(async () => {
@@ -275,7 +333,15 @@ export default function SettingsScreen() {
     );
   };
 
-  const handleViewInsights = () => {
+  const handleViewInsights = async () => {
+    if (!initialized) return; // Wait for RevenueCat init
+    
+    if (!isPro) {
+      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      console.log('🧭 Compass insights access Pro check:', unlocked ? 'unlocked' : 'cancelled');
+      if (!unlocked) return; // Don't navigate if paywall was cancelled
+    }
+    
     navigation.navigate('CompassStory' as never);
   };
 
@@ -376,6 +442,90 @@ export default function SettingsScreen() {
           >
             Manage Account
           </Button>
+        </View>
+
+        {/* Subscription Section */}
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Subscription</Text>
+
+        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
+          <View style={styles.subscriptionHeader}>
+            <View style={styles.subscriptionTitleRow}>
+              <Crown size={24} color={isPro ? '#FFD700' : colors.icon} />
+              <Text style={[styles.settingTitle, { color: colors.text }]}>
+                {isPro ? 'Reflecta Pro' : 'Reflecta Free'}
+              </Text>
+              {isPro && (
+                <View style={[styles.proBadge, { backgroundColor: colorScheme === 'dark' ? '#FFD700' : '#FFD700' }]}>
+                  <Star size={12} color="#000" fill="#000" />
+                  <Text style={[styles.proBadgeText, { color: '#000' }]}>PRO</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.subscriptionDescription, { color: '#999' }]}>
+              {isPro 
+                ? 'You have access to all premium features including unlimited AI coaching, voice transcription, and advanced insights.'
+                : 'Upgrade to Pro to unlock unlimited AI coaching, voice transcription, advanced insights and more.'
+              }
+            </Text>
+          </View>
+
+          {rcInitialized && (
+            <View style={styles.subscriptionActions}>
+              {isPro ? (
+                <Button
+                  variant="outline"
+                  style={styles.standardButton}
+                  onPress={handleManageSubscription}
+                  disabled={isLoading}
+                >
+                  Manage Subscription
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  style={[styles.standardButton, { backgroundColor: '#FFD700', borderColor: '#FFD700' }]}
+                  onPress={handleUpgradeToPro}
+                  disabled={isLoading}
+                  iconLeft={<Crown size={18} color="#000" />}
+                >
+                  <Text style={{ color: '#000', fontWeight: '600' }}>Upgrade to Pro</Text>
+                </Button>
+              )}
+              
+              {!isPro && (
+                <Button
+                  variant="ghost"
+                  style={[styles.standardButton, { marginTop: 10 }]}
+                  onPress={async () => {
+                    try {
+                      setIsLoading(true);
+                      const success = await restorePurchases();
+                      if (success) {
+                        Alert.alert('Success', 'Your purchases have been restored.');
+                      } else {
+                        Alert.alert('No Purchases Found', 'No previous purchases were found for this account.');
+                      }
+                    } catch (error) {
+                      Alert.alert('Error', 'Failed to restore purchases. Please try again.');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                  disabled={isLoading}
+                >
+                  Restore Purchases
+                </Button>
+              )}
+            </View>
+          )}
+
+          {!rcInitialized && (
+            <View style={styles.subscriptionLoading}>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>
+                Loading subscription status...
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Notifications Section */}
@@ -756,5 +906,39 @@ const styles = StyleSheet.create({
   compassTimestamp: {
     fontSize: 16,
     marginBottom: 20,
+  },
+  subscriptionHeader: {
+    marginBottom: 20,
+  },
+  subscriptionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  subscriptionDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginLeft: 36,
+  },
+  proBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  proBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  subscriptionActions: {
+    gap: 0,
+  },
+  subscriptionLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
   },
 }); 

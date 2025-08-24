@@ -2,6 +2,7 @@ import Editor from '@/components/TipTap';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { getCoachingMessage } from '@/lib/firestore';
 import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
@@ -84,6 +85,7 @@ export default function HomeContent() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, isFirebaseReady, getToken } = useAuth();
+  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated } = useAnalytics();
 
@@ -133,6 +135,11 @@ export default function HomeContent() {
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
+    },
+    isPro,
+    onProRequired: async () => {
+      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+      console.log('🎤 Voice transcription Pro check in HomeContent:', unlocked ? 'unlocked' : 'cancelled');
     },
   });
 
@@ -451,14 +458,22 @@ export default function HomeContent() {
   }, []);
 
   // Handle opening coaching session
-  const handleOpenCoachingSession = useCallback(() => {
+  const handleOpenCoachingSession = useCallback(async () => {
     if (coachingSessionData?.id) {
+      if (!initialized) return; // Wait for RevenueCat init
+      
+      if (!isPro) {
+        const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+        console.log('🎤 Coaching session access Pro check:', unlocked ? 'unlocked' : 'cancelled');
+        if (!unlocked) return; // Don't navigate if paywall was cancelled
+      }
+      
       navigation.navigate('Coaching', {
         sessionId: coachingSessionData.id,
         sessionType: coachingSessionData.sessionType
       } as any);
     }
-  }, [navigation, coachingSessionData]);
+  }, [navigation, coachingSessionData, initialized, isPro, presentPaywallIfNeeded, currentOffering]);
 
   // Check for linked coaching content when current entry changes - exactly like web app
   useEffect(() => {
@@ -810,7 +825,15 @@ export default function HomeContent() {
                     size="sm"
                     iconOnly={<MessageCircle size={20} color={colors.background} />}
                     style={{ width: 70, height: 40 }}
-                    onPress={() => {
+                    onPress={async () => {
+                      if (!initialized) return; // Wait for RevenueCat init
+                      
+                      if (!isPro) {
+                        const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+                        console.log('🎤 Coaching access Pro check:', unlocked ? 'unlocked' : 'cancelled');
+                        if (!unlocked) return; // Don't navigate if paywall was cancelled
+                      }
+                      
                       navigation.navigate('Coaching' as never);
                     }}
                   >

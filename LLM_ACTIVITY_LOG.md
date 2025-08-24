@@ -5,7 +5,7 @@ This file records all important changes and implementations made by the LLM assi
 
 *This log file should be updated after every significant LLM implementation.*
 
-
+## 2025-08-24
 
 - **Added Year Display to Home Screen**: Enhanced the date display section in HomeContent.tsx:
   * Added year display above the existing weekday/month/day display
@@ -13,6 +13,20 @@ This file records all important changes and implementations made by the LLM assi
   * Added `yearText` style with small font (12px), bold weight (600), reduced opacity (0.6), and negative margin for proper spacing
   * Maintains consistent styling with existing date display design
   * Works with both current day entries and historical entries
+
+- **Added Calendar Navigation to Journal Drawer**: Implemented date-based navigation in JournalDrawer.tsx:
+  * Added calendar icon button next to "Journal Entries" title in drawer header
+  * Installed and integrated `@react-native-community/datetimepicker` dependency
+  * Created bottom sheet modal with calendar picker for date selection
+  * Implemented date selection logic to navigate to entries for chosen date
+  * If entry exists for selected date, navigates to that entry
+  * If no entry exists for selected date, creates new entry opportunity
+  * Added proper TypeScript types and error handling
+  * Includes haptic feedback and smooth modal animations
+  * Compatible with both iOS and Android date picker styles
+  * Enhanced modal layout with proper positioning, handle bar, shadows, and safe area support
+  * Improved UX with backdrop touch handling and proper modal animations
+  * Fixed calendar layout positioning and styling for better user experience
 
 - Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
 

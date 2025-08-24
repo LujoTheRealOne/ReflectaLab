@@ -15,13 +15,16 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
+import { Calendar } from 'lucide-react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 interface JournalEntry {
   id: string;
@@ -48,6 +51,10 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   const [groupedEntries, setGroupedEntries] = useState<GroupedEntries>({});
   const [isLoading, setIsLoading] = useState(true);
   const [scrollY, setScrollY] = useState(0);
+  
+  // Calendar state
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   // Group entries by date
   const groupEntriesByDate = useCallback((entries: JournalEntry[]) => {
@@ -115,6 +122,54 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
       fetchJournalEntries();
     }
   }, [drawerStatus, isFirebaseReady, firebaseUser, fetchJournalEntries]);
+
+  // Handle calendar date selection
+  const handleDateSelect = useCallback(async (event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowCalendar(false);
+    }
+    
+    if (date) {
+      setSelectedDate(date);
+      
+      // Find entry for the selected date
+      const dateKey = date.toDateString();
+      const entriesForDate = groupedEntries[dateKey];
+      
+      if (entriesForDate && entriesForDate.length > 0) {
+        // If there's an entry for this date, navigate to it
+        const entry = entriesForDate[0]; // Take the first entry if multiple exist for the same date
+        
+        // Haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        
+        // Close calendar and drawer
+        setShowCalendar(false);
+        props.navigation.closeDrawer();
+        
+        // Navigate to the entry
+        (props.navigation as any).navigate('HomeContent', { selectedEntry: entry });
+      } else {
+        // No entry for this date - create a new entry for that date
+        // First close calendar and drawer
+        setShowCalendar(false);
+        props.navigation.closeDrawer();
+        
+        // Navigate to home with createNew flag - HomeContent will handle creating entry for the date
+        (props.navigation as any).navigate('HomeContent', { createNew: true });
+      }
+    }
+    
+    if (Platform.OS === 'ios') {
+      setShowCalendar(false);
+    }
+  }, [groupedEntries, props.navigation]);
+
+  // Handle calendar button press
+  const handleCalendarPress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowCalendar(true);
+  }, []);
 
 
 
@@ -274,6 +329,12 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           Journal Entries
         </Text>
+        <TouchableOpacity
+          onPress={handleCalendarPress}
+          style={styles.calendarButton}
+        >
+          <Calendar size={20} color={colors.text} />
+        </TouchableOpacity>
       </View>
 
       {/* Journal Entries List */}
@@ -353,6 +414,66 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
           </View>
         ))}
       </ScrollView>
+
+      {/* Calendar Modal */}
+      {showCalendar && (
+        <Modal
+          transparent={true}
+          animationType="slide"
+          visible={showCalendar}
+          onRequestClose={() => setShowCalendar(false)}
+          statusBarTranslucent={true}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowCalendar(false)}
+          >
+            <TouchableOpacity 
+              style={[
+                styles.calendarModal, 
+                { 
+                  backgroundColor: colors.background,
+                  paddingBottom: Math.max(useSafeAreaInsets().bottom, 20)
+                }
+              ]}
+              activeOpacity={1}
+              onPress={() => {}}
+            >
+              {/* Modal Handle */}
+              <View style={styles.modalHandle}>
+                <View style={[styles.handleBar, { backgroundColor: colors.text }]} />
+              </View>
+              
+              <View style={styles.calendarHeader}>
+                <Text style={[styles.calendarTitle, { color: colors.text }]}>
+                  Select Date
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowCalendar(false)}
+                  style={styles.calendarCloseButton}
+                >
+                  <Text style={[styles.calendarCloseText, { color: colors.tint }]}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.datePickerContainer}>
+                <DateTimePicker
+                  value={selectedDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+                  onChange={handleDateSelect}
+                  maximumDate={new Date()}
+                  textColor={colors.text}
+                  themeVariant={colorScheme === 'dark' ? 'dark' : 'light'}
+                  style={styles.datePicker}
+                />
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -479,5 +600,70 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  calendarButton: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 0,
+  },
+  calendarModal: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  calendarTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  calendarCloseButton: {
+    padding: 4,
+  },
+  calendarCloseText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  datePickerContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 200,
+  },
+  datePicker: {
+    width: '100%',
+    height: Platform.OS === 'ios' ? 200 : 'auto',
+  },
+  modalHandle: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  handleBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.3,
   },
 }); 

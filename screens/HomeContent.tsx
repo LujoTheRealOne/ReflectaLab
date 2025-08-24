@@ -361,7 +361,7 @@ export default function HomeContent() {
         // Animate microphone button to keyboard position
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
         micButtonTranslateY.value = withTiming(
-          -(event?.endCoordinates?.height || 300) + 80, // Klavyeye daha yakın
+          -(event?.endCoordinates?.height || 300) + 95, // Klavyeye daha yakın
           { duration: 300 }
         );
       }
@@ -372,7 +372,7 @@ export default function HomeContent() {
         setIsKeyboardVisible(false);
         // Animate microphone button back to right side position
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
-        micButtonTranslateY.value = withTiming(-100, { duration: 300 });
+        micButtonTranslateY.value = withTiming(-80, { duration: 300 });
       }
     );
 
@@ -393,7 +393,7 @@ export default function HomeContent() {
   useEffect(() => {
     // Set initial position to right side (slightly above navbar)
     micButtonTranslateX.value = -2;
-    micButtonTranslateY.value = -100;
+    micButtonTranslateY.value = -80;
   }, []);
 
   // Keep screen awake while recording
@@ -721,7 +721,7 @@ export default function HomeContent() {
                 )}
 
                 {/* Thoughts Section */}
-                <View style={{ flex: 1, marginBottom: 80, width: '100%', overflow: 'hidden' }}>
+                <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 120, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
                   <Editor
                     content={entry}
                     onUpdate={handleContentChange}
@@ -763,13 +763,13 @@ export default function HomeContent() {
               >
                 {isRecording ? (
                   <Square
-                    size={24}
-                    color={colors.background}
+                    size={20}
+                    color="#666666"
                   />
                 ) : (
                   <Mic
-                    size={24}
-                    color={colors.background}
+                    size={20}
+                    color="#666666"
                   />
                 )}
               </TouchableOpacity>
@@ -964,9 +964,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 120,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -980,7 +980,7 @@ const styles = StyleSheet.create({
   micButtonTouchable: {
     width: '100%',
     height: '100%',
-    borderRadius: 30,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -56,6 +56,9 @@ This file records all important changes and implementations made by the LLM assi
   * Restored coaching cards to always be visible (reversed previous hiding behavior)
   * Resized microphone button from 60x60px to 50x50px for better proportion
   * Changed microphone icon color from white to gray (#666666) and reduced icon size to 20px
+  * Added plus button next to date text for creating new journal entries
+  * Plus button triggers createNewEntry() function with haptic feedback
+  * Styled as minimal icon without background or border
 
 - Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
 

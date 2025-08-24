@@ -24,7 +24,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2 } from 'lucide-react-native';
+import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2, Plus } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import CoachingSessionCard from '@/components/CoachingSessionCard';
@@ -688,11 +688,22 @@ export default function HomeContent() {
                     {year}
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text
-                      style={[styles.dateText, { color: colors.text }]}
-                    >
-                      {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text
+                        style={[styles.dateText, { color: colors.text }]}
+                      >
+                        {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          createNewEntry();
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        style={{ paddingVertical: 8, paddingHorizontal: 4 }}
+                      >
+                        <Plus size={20} color={colors.text} style={{ opacity: 0.6 }} />
+                      </TouchableOpacity>
+                    </View>
                     <Text style={{ fontSize: 16, marginTop: 10, marginRight: 5, color: colors.text, textAlign: 'right', opacity: 0.3 }}>
                       {getSaveStatusText()}
                     </Text>

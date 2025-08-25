@@ -4,7 +4,6 @@ import React from "react";
 import styles from "@/styles/tiptap.css";
 import Link from "@tiptap/extension-link";
 import Typography from "@tiptap/extension-typography";
-import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,9 +32,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Placeholder.configure({
-        placeholder: 'Start writing... (Press space on a new line to get AI coaching)',
-      }),
+
       Link.configure({
         openOnClick: false,
       }),

@@ -8,7 +8,8 @@ type PurchasesOffering = RevenueCatOffering;
 const REVENUECAT_ENTITLEMENT_ID = 'reflecta_pro'; // entitlement identifier in RC
 
 export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
-  const [initialized, setInitialized] = useState(false);
+  // TEMPORARY BYPASS: Always initialized for TestFlight testing  
+  const [initialized, setInitialized] = useState(true);
   const [customerInfo, setCustomerInfo] = useState<RevenueCatCustomerInfo>({ entitlements: { active: {} } });
   const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | undefined>(undefined);
   const [offeringsError, setOfferingsError] = useState<string | undefined>(undefined);
@@ -17,11 +18,16 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
   const retryCountRef = useRef(0);
   const maxRetries = 3;
 
-  // Configure RevenueCat SDK only once
+  // TEMPORARY BYPASS: Skip RevenueCat configuration to prevent crashes
   useEffect(() => {
     if (configuredRef.current) return;
     configuredRef.current = true;
 
+    // Skip RevenueCat configuration during bypass mode
+    console.log('🚫 RevenueCat configuration skipped (BYPASS MODE)');
+    
+    // Original configuration (commented out temporarily)
+    /*
     Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.WARN);
 
     const configureSDK = async () => {
@@ -53,10 +59,15 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
         (removeListener as unknown as () => void)();
       }
     };
+    */
   }, []);
 
-  // Fetch offerings with retry logic
+  // TEMPORARY BYPASS: Skip offerings fetch to prevent crashes
   const fetchOfferingsWithRetry = useCallback(async (retryCount = 0): Promise<void> => {
+    console.log('🚫 Offerings fetch skipped (BYPASS MODE)');
+    
+    // Original offerings logic (commented out temporarily)
+    /*
     try {
       console.log(`🛒 Fetching offerings (attempt ${retryCount + 1}/${maxRetries})...`);
       const offerings = await Purchases.getOfferings();
@@ -79,6 +90,7 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
         console.error('🚫 Max retry attempts reached for offerings');
       }
     }
+    */
   }, [maxRetries]);
 
   // Initialize user and fetch data when userId changes
@@ -86,6 +98,11 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
   const initTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
+    // TEMPORARY BYPASS: Skip user initialization to prevent crashes
+    console.log('🚫 RevenueCat user initialization skipped (BYPASS MODE)');
+    
+    // Original initialization (commented out temporarily)
+    /*
     // Clear any existing timeout
     if (initTimeoutRef.current) {
       clearTimeout(initTimeoutRef.current);
@@ -142,6 +159,7 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
     };
     
     initializeUser();
+    */
     
     // Cleanup function
     return () => {
@@ -151,7 +169,14 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
     };
   }, [userId, fetchOfferingsWithRetry]);
 
+  // TEMPORARY BYPASS: Always return Pro status for TestFlight testing
+  // TODO: Remove this bypass when RevenueCat integration is fixed
   const isPro = useMemo(() => {
+    // Temporary bypass - always return true for testing
+    return true;
+    
+    // Original RevenueCat logic (commented out temporarily)
+    /*
     if (!customerInfo) return false;
     const entitlements = customerInfo.entitlements?.active || {};
     if (entitlements[REVENUECAT_ENTITLEMENT_ID]) return true;
@@ -159,6 +184,7 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
     // Fallback: if any active entitlement contains 'pro' treat as pro
     if (keys.some(k => k.toLowerCase().includes('pro'))) return true;
     return false;
+    */
   }, [customerInfo]);
 
   const activeEntitlementIds = useMemo(() => {
@@ -167,6 +193,11 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
   }, [customerInfo]);
 
   const refresh = useCallback(async () => {
+    // TEMPORARY BYPASS: Skip refresh to prevent crashes
+    console.log('🚫 RevenueCat refresh skipped (BYPASS MODE)');
+    
+    // Original refresh logic (commented out temporarily)
+    /*
     try {
       console.log('🔄 Refreshing RevenueCat data...');
       
@@ -188,9 +219,16 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
       console.warn('RevenueCat refresh error:', e);
       // Don't throw here, let UI handle the error state
     }
+    */
   }, [fetchOfferingsWithRetry]);
 
   const presentPaywall = async (opts?: { offering?: PurchasesOffering; requiredEntitlementIdentifier?: string }) => {
+    // TEMPORARY BYPASS: Always return true to prevent crashes
+    console.log('🚫 Paywall presentation skipped (BYPASS MODE)');
+    return true;
+    
+    // Original paywall logic (commented out temporarily)
+    /*
     try {
       const anyOpts: any = opts?.offering ? { offering: opts.offering as any } : undefined;
       const result: PAYWALL_RESULT = await RevenueCatUI.presentPaywall(anyOpts);
@@ -205,9 +243,16 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
     } catch {
       return false;
     }
+    */
   };
 
   const presentPaywallIfNeeded = async (requiredEntitlementIdentifier?: string, offering?: PurchasesOffering) => {
+    // TEMPORARY BYPASS: Always return true to prevent crashes
+    console.log('🚫 Paywall if needed presentation skipped (BYPASS MODE)');
+    return true;
+    
+    // Original paywall logic (commented out temporarily)
+    /*
     try {
       const result: PAYWALL_RESULT = await RevenueCatUI.presentPaywallIfNeeded({
         requiredEntitlementIdentifier: requiredEntitlementIdentifier || REVENUECAT_ENTITLEMENT_ID,
@@ -228,9 +273,16 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
       console.log('❌ Paywall error:', e);
       return false;
     }
+    */
   };
 
   const restorePurchases = async () => {
+    // TEMPORARY BYPASS: Always return true to prevent crashes
+    console.log('🚫 Restore purchases skipped (BYPASS MODE)');
+    return true;
+    
+    // Original restore logic (commented out temporarily)
+    /*
     try {
       await Purchases.restorePurchases();
       await refresh();
@@ -238,6 +290,7 @@ export function useRevenueCat(userId?: string | null): UseRevenueCatResult {
     } catch {
       return false;
     }
+    */
   };
 
   return {

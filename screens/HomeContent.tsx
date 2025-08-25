@@ -538,7 +538,7 @@ export default function HomeContent() {
   // Get save status icon
   const getSaveStatusIcon = () => {
     const iconColor = colorScheme === 'dark' ? '#ffffff' : '#000000';
-    const iconOpacity = colorScheme === 'dark' ? 0.8 : 0.4;
+    const iconOpacity = colorScheme === 'dark' ? 0.8 : 0.8;
     
     // Show draft icon when we have a new entry with no content
     if (isNewEntry && (!entry || entry.trim() === '' || entry === '<p></p>')) {
@@ -809,12 +809,12 @@ export default function HomeContent() {
                 {isRecording ? (
                   <Square
                     size={20}
-                    color="#666666"
+                    color={colorScheme === 'dark' ? '#666666' : '#ffffff'}
                   />
                 ) : (
                   <Mic
                     size={20}
-                    color="#666666"
+                    color={colorScheme === 'dark' ? '#666666' : '#ffffff'}
                   />
                 )}
               </TouchableOpacity>
@@ -853,7 +853,7 @@ export default function HomeContent() {
                         color={`${colors.tint}99`}
                       />
                     }
-                    style={{ width: 45, height: 40 }}
+                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
                     onPress={() => {
                       navigation.navigate('Settings' as never);
                     }}
@@ -863,7 +863,7 @@ export default function HomeContent() {
                     variant="primary"
                     size="sm"
                     iconOnly={<MessageCircle size={20} color={colors.background} />}
-                    style={{ width: 45, height: 40 }}
+                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
                     onPress={async () => {
                       if (!initialized) return; // Wait for RevenueCat init
                       

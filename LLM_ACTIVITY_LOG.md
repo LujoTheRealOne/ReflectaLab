@@ -139,3 +139,27 @@ This file records all important changes and implementations made by the LLM assi
   * Used ghost variant for subtle appearance with 10px top margin
   * Maintained existing restore functionality with proper error handling
   * Preserved original layout for Free users
+
+- **TEMPORARY: RevenueCat Bypass for TestFlight Testing**: Disabled RevenueCat integration to prevent crashes:
+  * Modified `useRevenueCat` hook to always return `isPro: true` and `initialized: true`
+  * Bypassed all RevenueCat SDK configuration, initialization, and API calls
+  * Disabled paywall presentations (`presentPaywall`, `presentPaywallIfNeeded`) - always return true
+  * Disabled purchase restoration and customer info refresh functions
+  * Added clear bypass comments and TODO notes for easy reversion
+  * Users can now access all Pro features (coaching, compass, voice recording) without subscription
+  * All original RevenueCat code preserved in comments for future restoration
+  * This allows full app testing in TestFlight without subscription-related crashes
+
+- **Enhanced Editor and UI Polish**: Improved user experience with personalized welcome and theme consistency:
+  * Updated TipTap editor placeholder to "Welcome Louis, what's on your mind?" for personalized greeting
+  * Fixed microphone button icon color in light mode - now white (#ffffff) for better contrast
+  * Confirmed save status icons are properly themed - black (#000000) in light mode, white (#ffffff) in dark mode
+  * Placeholder text disappears automatically when user starts typing (built-in TipTap behavior)
+  * All UI elements now properly respect system theme changes
+
+- **UI Refinements and Cleanup**: Final polish for better user experience:
+  * Increased save status icon opacity to 0.8 in light mode for better visibility (was 0.4, too faint)
+  * Centered chat and settings icons in navbar with justifyContent and alignItems center alignment
+  * Removed TipTap placeholder extension completely - clean editor with no placeholder text
+  * Removed unused user prop from TipTap component for cleaner code
+  * All UI elements now have consistent visual hierarchy and proper contrast

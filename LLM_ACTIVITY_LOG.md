@@ -5,6 +5,127 @@ This file records all important changes and implementations made by the LLM assi
 
 *This log file should be updated after every significant LLM implementation.*
 
+## 2025-08-25
+
+- **Fixed Logout White Screen Issue**: Resolved critical UX problem where users saw white screen during logout:
+  * **Enhanced Auth State Management**: 
+    - Added `isSigningOut` state to track logout process and prevent auth state confusion
+    - Improved `isAuthReady` logic to remain stable during logout transitions
+    - Added proper timing control with 500ms delay to allow smooth navigation completion
+  * **Navigation Loading Enhancement**: 
+    - Updated Navigation component to show splash screen during logout process
+    - Prevented white screen flash by maintaining loading state throughout sign out
+    - Added debug logging for `isSigningOut` state for better monitoring
+  * **Firebase Auth State Cleanup**: 
+    - Preserved `isSigningOut` state during Firebase auth cleanup to maintain stability
+    - Enhanced comment documentation for timeout management strategy
+  * **Result**: Logout now provides smooth transition with proper loading state, eliminating jarring white screen experience
+
+- **Fixed Logout Navigation & Auth Token Errors**: Resolved persistent navigation issues and API errors during logout:
+  * **HomeContent Auth Guards**: 
+    - Added authentication checks to `fetchCoachingSession` to prevent API calls when `firebaseUser` is null
+    - Enhanced dependency arrays to include `firebaseUser` for proper cleanup during logout
+    - Added early return logic with descriptive logging for auth state validation
+  * **Navigation Flow Optimization**: 
+    - Force auth flow during sign out by including `isSigningOut` in `shouldShowAuthFlow` logic
+    - Enhanced navigation key to include logout state for immediate navigation reset
+    - Improved logout transition timing from 500ms to 200ms for faster UX
+  * **Auth State Cleanup Enhancement**: 
+    - Added comprehensive logging for auth state reset completion
+    - Immediate state cleanup in Firebase auth change handler when user signs out
+    - Faster isSigningOut reset with improved timeout management
+  * **Result**: Eliminated "Error fetching coaching session: No auth token" errors and ensured immediate navigation to auth flow during logout
+
+- **Fixed Critical Logout Race Condition**: Resolved persistent auto re-sign-in issue that was causing infinite logout loops:
+  * **Enhanced Timing Control**: 
+    - Removed premature timeout-based `isSigningOut` reset (200ms) that was causing race conditions
+    - Reset `isSigningOut` only when Firebase auth state actually changes to null (proper lifecycle management)
+    - Added comprehensive logging for sign out completion and auth state transitions
+  * **Multi-Layer Auto Sign-In Guards**: 
+    - Added `isSigningOut` guard to prevent auto sign-in during logout process
+    - Added `isFirebaseReady` check to ensure Firebase is ready before attempting auto sign-in
+    - Implemented 2-second cooldown period after sign out using `lastSignOutTimeRef` timestamp
+    - Added detailed logging for each guard condition with remaining cooldown time
+  * **Robust State Management**: 
+    - Track sign out timestamp in `lastSignOutTimeRef` to prevent immediate re-authentication
+    - Enhanced dependency arrays to include `isSigningOut` in auto sign-in and user loading effects
+    - Comprehensive cleanup of all auth-related state when Firebase user becomes null
+  * **Result**: Eliminated race condition where logout would complete but immediately trigger auto sign-in, causing white screen and auth loops
+
+- **Enhanced PostHog Analytics for New User Tracking**: Implemented comprehensive user tracking system with intelligent new user detection:
+  * **Enhanced Analytics Functions**: 
+    - Enhanced `trackSignUp` with detailed user properties (email, name, method, account creation time, duration)
+    - Enhanced `trackSignIn` with user identification and returning user detection
+    - Enhanced `trackOnboardingCompleted` with onboarding data, user responses, and completion analytics
+    - Added `trackFirstTimeAppOpened` for new user funnel analysis and first-session tracking
+  * **Intelligent New User Detection**: 
+    - Implemented smart detection based on account creation time (within 60 seconds) and onboarding status
+    - Automatic differentiation between new sign-ups and returning user sign-ins
+    - Fallback account creation tracking for edge cases and error scenarios
+  * **Comprehensive Logging System**: 
+    - Added detailed console logging for all PostHog events with user identification
+    - Enhanced debug logging for sign-up vs sign-in detection with timing analysis
+    - Structured logging with user properties, methods, and duration tracking
+  * **Enhanced OAuth Flow Tracking**: 
+    - Added step-by-step logging for Google and Apple OAuth flows
+    - Enhanced error tracking and user journey analytics
+    - Improved sign-in duration tracking and method detection
+  * **Result**: Complete PostHog analytics pipeline for user acquisition, onboarding funnel analysis, and retention tracking with production-ready event structure
+
+- **Fixed Onboarding Consistency System**: Resolved critical issue where OnboardingChatScreen (life deep dive) wouldn't resume properly after app restart:
+  * **Enhanced Navigation Priority Logic**: 
+    - Implemented 3-tier priority system in AuthNavigator: step 17 resume > saved progress > fresh start
+    - Added priority override for OnboardingChat (step 17) to ALWAYS resume regardless of Firestore state
+    - Enhanced getInitialRouteName with detailed logging and step-by-step decision tracking
+  * **Fixed Timing and State Conflicts**: 
+    - Added progressLoading dependency to root Navigation component to wait for AsyncStorage before routing
+    - Enhanced navigation route determination to respect AsyncStorage progress over Firestore user account state
+    - Added hasOnboardingChatProgress check to force auth flow when user has step 17 progress
+  * **Enhanced Progress Persistence**: 
+    - Added immediate progress saving on OnboardingChatScreen mount with detailed parameter logging
+    - Implemented unmount progress saving to catch user navigation away from screen
+    - Enhanced progress tracking with comprehensive console logging for debugging
+  * **Added AppNavigator Safeguard**: 
+    - Implemented safety mechanism to redirect users back to auth flow if they reach main app with OnboardingChat progress
+    - Added CommonActions.reset navigation to ensure proper flow redirection
+    - Comprehensive logging for safeguard activation and user flow tracking
+  * **Enhanced Debug Logging System**: 
+    - Added detailed logging for shouldResumeOnboarding and canNavigateToChat decisions
+    - Enhanced AuthNavigator debug logs with full progress state and routing decisions
+    - Added comprehensive logging for progress loading, saving, and navigation state changes
+  * **Result**: Bulletproof onboarding consistency system that ensures users always resume from their exact position in OnboardingChatScreen, with multiple layers of safeguards and comprehensive debugging
+
+- **Fixed Infinite Loop and Analytics Dependencies**: Resolved critical performance issues in OnboardingChatScreen and useAnalytics.ts:
+  * **OnboardingChatScreen Infinite Loop Fix**: 
+    - Identified and fixed infinite unmount/mount loop caused by excessive dependencies in useEffect cleanup function
+    - Changed unmount useEffect to empty dependency array to only run on actual component unmount
+    - Eliminated continuous "Component unmounting, ensuring progress is saved" console spam
+    - Improved component lifecycle management and performance
+  * **useAnalytics.ts Dependencies Fix**: 
+    - Fixed missing posthog dependencies in 15+ useCallback functions causing potential stale closure issues
+    - Added posthog dependency to all analytics tracking functions for proper React hooks compliance
+    - Fixed trackSignOut, trackAppOpened, trackEntryCreated, trackMeaningfulAction, and 10+ other functions
+    - Ensured all PostHog tracking functions properly update when posthog instance changes
+  * **Result**: Eliminated performance degradation and infinite loops, improved analytics reliability with proper React hooks patterns
+
+- **Fixed Onboarding Completion Loop**: Resolved critical issue where completed onboarding would restart life deep dive:
+  * **Root Cause Analysis**: OnboardingChatScreen was saving progress on component unmount even after successful onboarding completion
+    - User completes life deep dive → `handleEnterApp()` → onboarding completion ✅
+    - AsyncStorage cleared → `🗑️ Cleared onboarding progress` ✅
+    - Firebase updated → `needsOnboarding: false, onboardingCompleted: true` ✅
+    - BUT component unmount cleanup → `💾 Saved onboarding progress: {currentStep: 17}` ❌
+    - Next app start → Found progress → Redirected to OnboardingChat again ❌
+  * **Solution Implemented**: 
+    - Added `isOnboardingCompleted` state and `isOnboardingCompletedRef` useRef for closure-safe tracking
+    - Enhanced `handleEnterApp()` to mark completion before navigation: `setIsOnboardingCompleted(true)` + `isOnboardingCompletedRef.current = true`
+    - Modified unmount useEffect cleanup to check completion status before saving progress
+    - Added safeguard: `if (isOnboardingCompletedRef.current) { skip progress save }`
+  * **Technical Details**:
+    - Used useRef pattern to avoid stale closure issues in useEffect cleanup with empty dependencies
+    - Maintained proper React hooks patterns while preventing unwanted side effects
+    - Added comprehensive logging for debugging onboarding completion flow
+  * **Result**: Clean onboarding completion → no progress saved on unmount → no false resume → direct home screen access after life deep dive completion
+
 ## 2025-08-24
 
 - **Fixed Authentication Consistency Issues**: Completely overhauled authentication state management to provide smooth user experience:

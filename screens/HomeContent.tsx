@@ -473,7 +473,10 @@ export default function HomeContent() {
 
   // Fetch coaching session data - stable callback like web app
   const fetchCoachingSession = useCallback(async (sessionId: string) => {
-    if (!sessionId) return;
+    if (!sessionId || !firebaseUser) {
+      console.log('⏭️ Skipping coaching session fetch - no sessionId or firebaseUser');
+      return;
+    }
 
     setLoadingCoachingSession(true);
     try {
@@ -515,7 +518,7 @@ export default function HomeContent() {
     } finally {
       setLoadingCoachingSession(false);
     }
-  }, [getToken]); // Empty dependency array like web app
+  }, [getToken, firebaseUser]); // Include firebaseUser dependency
 
   // Fetch coaching message data - similar to web app
   const fetchCoachingMessage = useCallback(async (messageId: string) => {

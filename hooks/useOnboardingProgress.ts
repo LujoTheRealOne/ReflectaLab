@@ -85,19 +85,39 @@ export const useOnboardingProgress = () => {
   };
 
   const shouldResumeOnboarding = (): boolean => {
-    return progress !== null && !progress.completedAt && progress.currentStep > 1;
+    const result = progress !== null && !progress.completedAt && progress.currentStep > 1;
+    console.log('🔄 shouldResumeOnboarding:', { 
+      result, 
+      hasProgress: !!progress, 
+      completedAt: progress?.completedAt,
+      currentStep: progress?.currentStep 
+    });
+    return result;
   };
 
   const canNavigateToChat = (): boolean => {
-    if (!progress) return false;
+    if (!progress) {
+      console.log('❌ canNavigateToChat: false - no progress');
+      return false;
+    }
     
     // If already in OnboardingChat (step 17), can navigate to chat
-    if (progress.currentStep === 17) return true;
+    if (progress.currentStep === 17) {
+      console.log('✅ canNavigateToChat: true - step 17 (OnboardingChat)');
+      return true;
+    }
     
     // If onboarding is marked as completed, can navigate to chat
-    if (progress.completedAt) return true;
+    if (progress.completedAt) {
+      console.log('✅ canNavigateToChat: true - onboarding completed');
+      return true;
+    }
     
     // Otherwise, user is still in onboarding process - should not navigate to chat
+    console.log('❌ canNavigateToChat: false - still in onboarding process', { 
+      currentStep: progress.currentStep,
+      completedAt: progress.completedAt 
+    });
     return false;
   };
 

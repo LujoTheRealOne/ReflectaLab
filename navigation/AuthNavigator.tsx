@@ -41,25 +41,50 @@ const Stack = createStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
   const { shouldShowGetStarted, needsOnboarding, isSignedIn } = useAuth();
-  const { shouldResumeOnboarding, canNavigateToChat, progress } = useOnboardingProgress();
+  const { shouldResumeOnboarding, canNavigateToChat, progress, isLoading: progressLoading } = useOnboardingProgress();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  
+  // Wait for progress to load before rendering navigation
+  if (progressLoading) {
+    console.log('⏳ AuthNavigator waiting for progress to load...');
+    return null;
+  }
 
   // Determine initial route based on auth state and onboarding progress
   const getInitialRouteName = () => {
+    console.log('🔄 AuthNavigator getInitialRouteName - Starting route determination...');
+    
     if (!isSignedIn) {
+      console.log('📱 Not signed in, showing auth flow');
       return shouldShowGetStarted ? 'GetStarted' : 'Login';
     }
     
-    if (needsOnboarding) {
-      // If user has completed all onboarding steps and can navigate to chat
-      if (shouldResumeOnboarding() && canNavigateToChat() && progress) {
+    // PRIORITY 1: If user has saved progress at OnboardingChat (step 17), ALWAYS resume there
+    if (progress && progress.currentStep === 17 && !progress.completedAt) {
+      console.log('🎯 PRIORITY: Resuming OnboardingChat from step 17');
+      return 'OnboardingChat';
+    }
+    
+    // PRIORITY 2: If user needs onboarding and has saved progress, resume onboarding
+    if (needsOnboarding && shouldResumeOnboarding() && progress) {
+      console.log('🔄 Resuming onboarding from saved progress');
+      if (canNavigateToChat()) {
+        console.log('📱 Can navigate to chat, going to OnboardingChat');
         return 'OnboardingChat';
+      } else {
+        console.log('📱 Cannot navigate to chat yet, going to Onboarding');
+        return 'Onboarding';
       }
-      // Always start with Onboarding screen - it will resume from saved step
+    }
+    
+    // PRIORITY 3: If user needs onboarding but no saved progress, start fresh
+    if (needsOnboarding) {
+      console.log('📱 Needs onboarding, no saved progress - starting fresh');
       return 'Onboarding';
     }
     
+    console.log('📱 Fallback to Login');
     return 'Login'; // Fallback
   };
 
@@ -71,11 +96,15 @@ export default function AuthNavigator() {
     shouldResumeOnboarding: shouldResumeOnboarding(),
     canNavigateToChat: canNavigateToChat(),
     progressCurrentStep: progress?.currentStep,
-    initialRouteName
+    progressCompletedAt: progress?.completedAt,
+    progressExists: !!progress,
+    initialRouteName,
+    fullProgress: progress
   });
 
   return (
     <Stack.Navigator 
+      key={`auth-${isSignedIn ? 'signed-in' : 'signed-out'}-${needsOnboarding ? 'onboarding' : 'complete'}`}
       screenOptions={{ headerShown: false }}
       initialRouteName={initialRouteName}
     >

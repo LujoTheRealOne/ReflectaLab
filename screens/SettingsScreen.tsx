@@ -322,6 +322,7 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = () => {
+    console.log('🚪 Settings - Sign out button pressed');
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -331,11 +332,13 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            console.log('🚪 Settings - User confirmed sign out, calling signOut()...');
             try {
               await signOut();
+              console.log('🚪 Settings - signOut() completed successfully');
             } catch (error) {
-              console.error('Sign out error:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
+              console.error('❌ Settings - Sign out error:', error);
+              Alert.alert('Error', `Failed to sign out: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
             }
           }
         }
@@ -757,6 +760,7 @@ export default function SettingsScreen() {
             iconRight={<LogOut size={20} color={colors.text} />}
             style={styles.standardButton}
             onPress={() => {
+              console.log('🚪 Settings - Sign Out button onPress triggered');
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
               handleSignOut();
             }}

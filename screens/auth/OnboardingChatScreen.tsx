@@ -273,7 +273,19 @@ export default function OnboardingChatScreen() {
 
   // Save progress as step 17 (OnboardingChat) when entering this screen
   useEffect(() => {
-    saveProgress({
+    console.log('💾 OnboardingChatScreen - Component mounted, saving progress as step 17');
+    console.log('📋 OnboardingChatScreen - Route params:', {
+      name,
+      selectedRoles,
+      selectedSelfReflection,
+      clarityLevel,
+      stressLevel,
+      coachingStylePosition,
+      timeDuration
+    });
+    
+    // Immediately save progress to ensure consistency
+    const progressData = {
       currentStep: 17, // Special step for OnboardingChat
       name,
       selectedRoles,
@@ -285,8 +297,45 @@ export default function OnboardingChatScreen() {
       coachingStylePosition,
       hasInteractedWithCoachingStyle: true,
       timeDuration,
-    }).catch(error => console.error('Failed to save OnboardingChat progress:', error));
+    };
+    
+    console.log('💾 Saving progress data:', progressData);
+    
+    saveProgress(progressData).then(() => {
+      console.log('✅ OnboardingChatScreen - Progress saved successfully as step 17');
+    }).catch(error => {
+      console.error('❌ Failed to save OnboardingChat progress:', error);
+    });
   }, []); // Only run once when component mounts
+  
+  // Save progress when component unmounts (user navigates away) - NO DEPENDENCIES TO AVOID INFINITE LOOP
+  useEffect(() => {
+    return () => {
+      // Don't save progress if onboarding is already completed to prevent endless loop
+      if (isOnboardingCompletedRef.current) {
+        console.log('🚪 OnboardingChatScreen - Component unmounting but onboarding completed, skipping progress save');
+        return;
+      }
+      
+      console.log('🚪 OnboardingChatScreen - Component truly unmounting, saving final progress');
+      // Use ref to get latest values or save what we have
+      saveProgress({
+        currentStep: 17,
+        name,
+        selectedRoles,
+        selectedSelfReflection,
+        clarityLevel,
+        stressLevel,
+        hasInteractedWithClaritySlider: true,
+        hasInteractedWithStressSlider: true,
+        coachingStylePosition,
+        hasInteractedWithCoachingStyle: true,
+        timeDuration,
+      }).catch(error => {
+        console.error('❌ Failed to save progress on unmount:', error);
+      });
+    };
+  }, []); // EMPTY DEPENDENCIES - only run on actual unmount
 
   // Session ID state - will be generated when first message is sent
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -306,6 +355,8 @@ export default function OnboardingChatScreen() {
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
+  const isOnboardingCompletedRef = useRef(false);
 
   // Use the audio transcription hook
   const {
@@ -1367,7 +1418,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   };
 
   const handleEnterApp = async () => {
-    console.log('User clicked Enter App');
+    console.log('🏁 User clicked Enter App - completing onboarding');
     console.log('📊 Session Stats:', completionStats);
     console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
     
@@ -1378,10 +1429,18 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       console.log('✅ Onboarding completion finished successfully', result);
       
       // Clear onboarding progress from AsyncStorage
+      console.log('🗑️ Clearing onboarding progress from AsyncStorage...');
       await clearProgress();
+      console.log('✅ Onboarding progress cleared successfully');
+      
+      // Mark onboarding as completed to prevent saving progress on unmount
+      setIsOnboardingCompleted(true);
+      isOnboardingCompletedRef.current = true;
+      console.log('✅ Marked onboarding as completed - will skip progress save on unmount');
 
       // After marking onboarding complete, forcefully go to the main app route at the root navigator
       // This avoids relying solely on state propagation timing
+      console.log('🔄 Navigating to main app...');
       // @ts-ignore - allow parent navigator access
       navigation.getParent()?.reset({
         index: 0,

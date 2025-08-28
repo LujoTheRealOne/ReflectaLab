@@ -5,6 +5,7 @@ import React from 'react';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuth } from '@/hooks/useAuth';
+import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { View, Text, TouchableOpacity } from 'react-native';
 import AppNavigator from './AppNavigator';
 import AuthNavigator from './AuthNavigator';
@@ -21,13 +22,28 @@ export default function Navigation() {
     isUserAccountReady,
     userAccountLoading,
     authError,
-    retryAuthentication
+    retryAuthentication,
+    isSigningOut
   } = useAuth();
+  
+  // Import onboarding progress to make better auth flow decisions
+  const { progress: onboardingProgress, isLoading: progressLoading } = useOnboardingProgress();
 
   // Keep showing loading until authentication state is FULLY determined
   // This prevents the flash of login screen for authenticated users
-  if (!isAuthReady) {
-    return null; // Keep splash screen visible
+  // Also wait for onboarding progress to load to make correct routing decisions
+  if ((!isAuthReady || progressLoading) && !isSigningOut) {
+    console.log('⏳ Waiting for auth ready and progress loading - showing loading', {
+      isAuthReady,
+      progressLoading,
+      isSigningOut
+    });
+    return null; // Keep splash screen visible until both auth and progress are ready
+  }
+  
+  // Allow navigation during sign out
+  if (isSigningOut) {
+    console.log('🚪 Signing out - proceeding with navigation to auth flow');
   }
 
   // Show authentication error with retry option
@@ -68,12 +84,25 @@ export default function Navigation() {
   // Don't block users waiting for user account data - let them proceed to app
   // User account will load in background and update state when ready
 
-  // Determine navigation route
-  const shouldShowAuthFlow = !isSignedIn || needsOnboarding;
+  // Determine navigation route - force auth flow during sign out
+  // CRITICAL: If user has progress at OnboardingChat (step 17), ALWAYS show auth flow
+  const hasOnboardingChatProgress = onboardingProgress && onboardingProgress.currentStep === 17 && !onboardingProgress.completedAt;
+  const shouldShowAuthFlow = !isSignedIn || needsOnboarding || isSigningOut || hasOnboardingChatProgress;
   const initialRouteName = shouldShowAuthFlow ? 'Auth' : 'App';
+  
+  console.log('🧭 Navigation route determination:', {
+    isSignedIn,
+    needsOnboarding,
+    isSigningOut,
+    hasOnboardingChatProgress,
+    progressStep: onboardingProgress?.currentStep,
+    progressCompleted: onboardingProgress?.completedAt,
+    shouldShowAuthFlow,
+    initialRouteName
+  });
 
-  // Simplified navigation key to reduce resets
-  const navigationKey = `nav-${shouldShowAuthFlow ? 'auth' : 'app'}`;
+  // Include auth state in navigation key to force reset when auth state changes
+  const navigationKey = `nav-${shouldShowAuthFlow ? 'auth' : 'app'}-${isSignedIn ? 'signed-in' : 'signed-out'}`;
 
   console.log('🧭 Navigation state:', {
     isSignedIn,
@@ -81,6 +110,7 @@ export default function Navigation() {
     isAuthReady,
     isUserAccountReady,
     userAccountLoading,
+    isSigningOut,
     shouldShowAuthFlow,
     initialRouteName,
     navigationKey

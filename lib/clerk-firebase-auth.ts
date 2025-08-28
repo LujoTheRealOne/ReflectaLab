@@ -98,9 +98,15 @@ export const signInWithClerkToken = async (clerkToken: string): Promise<User> =>
 
 export const signOutFromFirebase = async (): Promise<void> => {
   try {
+    console.log('🔥 Starting Firebase sign-out...');
+    const currentUser = auth.currentUser;
+    console.log('🔥 Current Firebase user before sign out:', { uid: currentUser?.uid, hasUser: !!currentUser });
+    
     await signOut(auth);
+    
+    console.log('🔥 Firebase sign-out completed successfully');
   } catch (error) {
-    console.error('Firebase sign-out failed:', error);
+    console.error('❌ Firebase sign-out failed:', error);
     throw error;
   }
 };

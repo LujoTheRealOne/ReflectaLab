@@ -30,27 +30,73 @@ export function useAnalytics() {
     method?: string;
     hasExistingData?: boolean;
     anonymousEntryCount?: number;
+    userEmail?: string;
+    userName?: string;
+    userId?: string;
+    isNewUser?: boolean;
+    accountCreatedAt?: string;
+    signUpDuration?: number;
   }) => {
+    console.log('🎉 [POSTHOG] Tracking user_signed_up:', {
+      userId: properties?.userId,
+      method: properties?.method,
+      isNewUser: properties?.isNewUser,
+      userEmail: properties?.userEmail,
+      userName: properties?.userName,
+      hasExistingData: properties?.hasExistingData,
+      signUpDuration: properties?.signUpDuration
+    });
+    
     posthog?.capture('user_signed_up', {
       timestamp: new Date().toISOString(),
       method: properties?.method || 'clerk',
       has_existing_data: properties?.hasExistingData || false,
       anonymous_entry_count: properties?.anonymousEntryCount || 0,
+      user_email: properties?.userEmail,
+      user_name: properties?.userName,
+      user_id: properties?.userId,
+      is_new_user: properties?.isNewUser || true,
+      account_created_at: properties?.accountCreatedAt,
+      sign_up_duration_seconds: properties?.signUpDuration,
+      platform: 'mobile',
+      app_version: '1.0.0' // TODO: Get from package.json
     });
-  }, []);
+  }, [posthog]);
 
   const trackSignIn = useCallback((properties?: {
     method?: string;
     hasExistingData?: boolean;
     anonymousEntryCount?: number;
+    userEmail?: string;
+    userName?: string;
+    userId?: string;
+    isNewUser?: boolean;
+    signInDuration?: number;
   }) => {
+    console.log('🔐 [POSTHOG] Tracking user_signed_in:', {
+      userId: properties?.userId,
+      method: properties?.method,
+      isNewUser: properties?.isNewUser,
+      userEmail: properties?.userEmail,
+      userName: properties?.userName,
+      hasExistingData: properties?.hasExistingData,
+      signInDuration: properties?.signInDuration
+    });
+    
     posthog?.capture('user_signed_in', {
       timestamp: new Date().toISOString(),
       method: properties?.method || 'clerk',
       has_existing_data: properties?.hasExistingData || false,
       anonymous_entry_count: properties?.anonymousEntryCount || 0,
+      user_email: properties?.userEmail,
+      user_name: properties?.userName,
+      user_id: properties?.userId,
+      is_new_user: properties?.isNewUser || false,
+      sign_in_duration_seconds: properties?.signInDuration,
+      platform: 'mobile',
+      app_version: '1.0.0'
     });
-  }, []);
+  }, [posthog]);
 
   const trackSignOut = useCallback(() => {
     console.log('🚪 [POSTHOG] User signing out, clearing identify state');
@@ -59,21 +105,71 @@ export function useAnalytics() {
     });
     // Clear identified user state so next user gets identified
     identifiedUserId = null;
-  }, []);
+  }, [posthog]);
 
   // Onboarding Events
   const trackOnboardingCompleted = useCallback((properties?: {
     onboarding_duration?: number;
     steps_completed?: number;
     user_responses?: number;
+    userId?: string;
+    userName?: string;
+    selectedRoles?: string[];
+    clarityLevel?: number;
+    stressLevel?: number;
+    coachingStyle?: string;
+    timeDuration?: number;
   }) => {
+    console.log('🎯 [POSTHOG] Tracking onboarding_completed:', {
+      userId: properties?.userId,
+      userName: properties?.userName,
+      duration: properties?.onboarding_duration,
+      steps: properties?.steps_completed,
+      clarityLevel: properties?.clarityLevel,
+      stressLevel: properties?.stressLevel
+    });
+    
     posthog?.capture('onboarding_completed', {
       timestamp: new Date().toISOString(),
-      ...(properties?.onboarding_duration && { onboarding_duration: properties.onboarding_duration }),
+      onboarding_duration_seconds: properties?.onboarding_duration || 0,
       steps_completed: properties?.steps_completed || 0,
       user_responses: properties?.user_responses || 0,
+      user_id: properties?.userId,
+      user_name: properties?.userName,
+      selected_roles: properties?.selectedRoles,
+      clarity_level: properties?.clarityLevel,
+      stress_level: properties?.stressLevel,
+      coaching_style: properties?.coachingStyle,
+      time_duration: properties?.timeDuration,
+      platform: 'mobile',
+      app_version: '1.0.0'
     });
-  }, []);
+  }, [posthog]);
+
+  const trackFirstTimeAppOpened = useCallback((properties?: {
+    userId?: string;
+    userName?: string;
+    userEmail?: string;
+    method?: string;
+    accountCreatedAt?: string;
+  }) => {
+    console.log('🌟 [POSTHOG] Tracking first_time_app_opened:', {
+      userId: properties?.userId,
+      userName: properties?.userName,
+      method: properties?.method
+    });
+    
+    posthog?.capture('first_time_app_opened', {
+      timestamp: new Date().toISOString(),
+      user_id: properties?.userId,
+      user_name: properties?.userName,
+      user_email: properties?.userEmail,
+      sign_up_method: properties?.method,
+      account_created_at: properties?.accountCreatedAt,
+      platform: 'mobile',
+      app_version: '1.0.0'
+    });
+  }, [posthog]);
 
   // App Lifecycle Events
   const trackAppOpened = useCallback((properties?: {
@@ -85,7 +181,7 @@ export function useAnalytics() {
       source: properties?.source || 'app_launch',
       ...(properties?.previous_screen && { previous_screen: properties.previous_screen }),
     });
-  }, []);
+  }, [posthog]);
 
   const trackAppOpenedFromCoachingMessage = useCallback((properties?: {
     message_id?: string;
@@ -96,7 +192,7 @@ export function useAnalytics() {
       ...(properties?.message_id && { message_id: properties.message_id }),
       ...(properties?.message_type && { message_type: properties.message_type }),
     });
-  }, []);
+  }, [posthog]);
 
   // Journal Actions
   const trackEntryCreated = useCallback((properties?: {
@@ -107,7 +203,7 @@ export function useAnalytics() {
       timestamp: new Date().toISOString(),
       ...(properties?.entry_id && { entry_id: properties.entry_id }),
     });
-  }, []);
+  }, [posthog]);
 
   const trackEntryUpdated = useCallback((properties?: {
     entry_id?: string;
@@ -122,7 +218,7 @@ export function useAnalytics() {
       content_length: properties?.content_length || 0,
       ...(properties?.edit_duration && { edit_duration: properties.edit_duration }),
     });
-  }, []);
+  }, [posthog]);
 
   const trackEntryDeleted = useCallback((properties?: {
     entry_id?: string;
@@ -135,7 +231,7 @@ export function useAnalytics() {
       content_length: properties?.content_length || 0,
       ...(properties?.entry_age_days && { entry_age_days: properties.entry_age_days }),
     });
-  }, []);
+  }, [posthog]);
 
   // Additional tracking functions from the original pattern
   const trackCoachingCompletion = useCallback((properties?: {
@@ -155,7 +251,7 @@ export function useAnalytics() {
       has_options: properties?.hasOptions || false,
       option_count: properties?.optionCount || 0,
     });
-  }, []);
+  }, [posthog]);
 
   const trackAlignmentSet = useCallback((properties?: {
     alignmentLength?: number;
@@ -166,7 +262,7 @@ export function useAnalytics() {
       alignment_length: properties?.alignmentLength || 0,
       is_update: properties?.isUpdate || false,
     });
-  }, []);
+  }, [posthog]);
 
   // Enhanced Analytics for Professional Dashboards
   
@@ -188,7 +284,7 @@ export function useAnalytics() {
       ...(properties.duration && { duration: properties.duration }),
       ...(properties.content_length && { content_length: properties.content_length }),
     });
-  }, []);
+  }, [posthog]);
 
   // Enhanced Onboarding Funnel Tracking
   const trackOnboardingStep = useCallback((properties: {
@@ -207,7 +303,7 @@ export function useAnalytics() {
       ...(properties.user_input && { user_input: JSON.stringify(properties.user_input) }),
       ...(properties.time_spent && { time_spent: properties.time_spent }),
     });
-  }, []);
+  }, [posthog]);
 
   const trackOnboardingDropoff = useCallback((properties: {
     step_name: string;
@@ -220,7 +316,7 @@ export function useAnalytics() {
       step_number: properties.step_number,
       ...(properties.time_spent && { time_spent: properties.time_spent }),
     });
-  }, []);
+  }, [posthog]);
 
   // Coaching Session Tracking
   const trackCoachingSessionStarted = useCallback((properties?: {
@@ -240,7 +336,7 @@ export function useAnalytics() {
       session_type: properties?.session_type || 'regular',
       trigger: properties?.trigger || 'manual',
     });
-  }, []);
+  }, [posthog]);
 
   const trackCoachingSessionCompleted = useCallback((properties?: {
     session_id?: string;
@@ -265,7 +361,7 @@ export function useAnalytics() {
       ...(properties?.insights_generated && { insights_generated: properties.insights_generated }),
       session_type: properties?.session_type || 'regular',
     });
-  }, []);
+  }, [posthog]);
 
   // Notification Permission Tracking
   const trackNotificationPermissionRequested = useCallback(() => {
@@ -273,7 +369,7 @@ export function useAnalytics() {
     posthog?.capture('notification_permission_requested', {
       timestamp: new Date().toISOString(),
     });
-  }, []);
+  }, [posthog]);
 
   const trackNotificationPermissionGranted = useCallback((properties?: {
     granted_via?: 'onboarding' | 'settings' | 'prompt';
@@ -283,7 +379,7 @@ export function useAnalytics() {
       timestamp: new Date().toISOString(),
       granted_via: properties?.granted_via || 'unknown',
     });
-  }, []);
+  }, [posthog]);
 
   const trackNotificationPermissionDenied = useCallback((properties?: {
     denied_via?: 'onboarding' | 'settings' | 'prompt';
@@ -293,7 +389,7 @@ export function useAnalytics() {
       timestamp: new Date().toISOString(),
       denied_via: properties?.denied_via || 'unknown',
     });
-  }, []);
+  }, [posthog]);
 
   const trackCoachingMessagesOptIn = useCallback((properties?: {
     opted_in: boolean;
@@ -307,7 +403,7 @@ export function useAnalytics() {
       ...(properties?.frequency && { frequency: properties.frequency }),
       context: properties?.context || 'unknown',
     });
-  }, []);
+  }, [posthog]);
 
   // Life Compass Tracking
   const trackLifeCompassViewed = useCallback((properties?: {
@@ -320,7 +416,7 @@ export function useAnalytics() {
       viewed_via: properties?.viewed_via || 'unknown',
       ...(properties?.compass_data && { compass_data: JSON.stringify(properties.compass_data) }),
     });
-  }, []);
+  }, [posthog]);
 
   return {
     // Core Authentication
@@ -330,6 +426,7 @@ export function useAnalytics() {
 
     // Onboarding
     trackOnboardingCompleted,
+    trackFirstTimeAppOpened,
 
     // App Lifecycle
     trackAppOpened,

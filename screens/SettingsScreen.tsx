@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
@@ -32,6 +33,7 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user, signOut, firebaseUser } = useAuth();
+  const { trackNotificationPermissionRequested, trackNotificationPermissionGranted, trackNotificationPermissionDenied, trackCoachingMessagesOptIn } = useAnalytics();
   const { insights, loading: insightsLoading, hasInsights } = useInsights();
   const {
     requestPermissions,
@@ -204,13 +206,16 @@ export default function SettingsScreen() {
     try {
       if (newValue) {
         // Enabling notifications - request permissions first
+        trackNotificationPermissionRequested();
         const granted = await requestPermissions();
 
         if (granted) {
           // Permissions granted, save preference and token
+          trackNotificationPermissionGranted({ granted_via: 'settings' });
           await savePushNotificationPreference(true);
         } else {
           // Permissions denied - revert the switch
+          trackNotificationPermissionDenied({ denied_via: 'settings' });
           setPushNotificationsEnabled(false);
           Alert.alert(
             'Permissions Required',
@@ -249,6 +254,11 @@ export default function SettingsScreen() {
     setIsLoading(true);
 
     try {
+      // Track coaching messages opt-in
+      trackCoachingMessagesOptIn({
+        opted_in: newValue,
+        context: 'settings',
+      });
       await saveCoachingMessagesPreference(newValue);
     } catch (error) {
       console.error('Error toggling coaching messages:', error);

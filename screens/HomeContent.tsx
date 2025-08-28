@@ -1,4 +1,5 @@
 import Editor from '@/components/TipTap';
+import EditorErrorBoundary from '@/components/EditorErrorBoundary';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -91,7 +92,7 @@ export default function HomeContent() {
   const { firebaseUser, isFirebaseReady, getToken } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
-  const { trackEntryCreated, trackEntryUpdated } = useAnalytics();
+  const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
 
   // Get today's date as fallback
   const today = new Date();
@@ -278,7 +279,7 @@ export default function HomeContent() {
           lastUpdated: serverTimestamp()
         });
 
-        // Track journal entry update
+        // Track journal entry update (for all entries, regardless of size)
         trackEntryUpdated({
           entry_id: latestEntry.id,
           content_length: content.length,
@@ -296,7 +297,7 @@ export default function HomeContent() {
         const docRef = doc(db, 'journal_entries', entryId);
         await setDoc(docRef, newEntry);
 
-        // Track journal entry creation
+        // Track journal entry creation (for all entries, regardless of size)
         trackEntryCreated({
           entry_id: entryId,
         });
@@ -318,7 +319,7 @@ export default function HomeContent() {
       console.error('Error saving entry:', error);
       setSaveStatus('unsaved');
     }
-  }, [firebaseUser, latestEntry, isNewEntry, trackEntryCreated, trackEntryUpdated]);
+  }, [firebaseUser, latestEntry, isNewEntry]);
 
   // Handle content changes with debounced save
   const handleContentChange = useCallback((newContent: string) => {
@@ -344,11 +345,54 @@ export default function HomeContent() {
     }, 2000); // 2 seconds delay
   }, [saveEntry]);
 
-  // Clean up timeout on unmount
+  // Track journal entries when save status changes to 'saved' (debounced)
+  const lastTrackedContentRef = useRef('');
+  const trackingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    if (saveStatus === 'saved' && lastSavedContentRef.current.length >= 200 && 
+        lastSavedContentRef.current !== lastTrackedContentRef.current) {
+      
+      // Clear any existing tracking timeout
+      if (trackingTimeoutRef.current) {
+        clearTimeout(trackingTimeoutRef.current);
+      }
+      
+      // Debounce tracking to avoid rapid fire events
+      trackingTimeoutRef.current = setTimeout(() => {
+        const content = lastSavedContentRef.current;
+        const entryId = latestEntry?.id || 'unknown';
+        
+        // Track meaningful action for substantial journal entries
+        trackMeaningfulAction({
+          action_type: 'journal_entry',
+          session_id: entryId,
+          content_length: content.length,
+        });
+        
+        // Track entry created or updated (less frequent)
+        if (isNewEntry || !latestEntry) {
+          trackEntryCreated({ entry_id: entryId });
+        } else {
+          trackEntryUpdated({
+            entry_id: entryId,
+            content_length: content.length,
+          });
+        }
+        
+        lastTrackedContentRef.current = content;
+      }, 500); // 500ms delay to debounce tracking
+    }
+  }, [saveStatus]);
+
+  // Clean up timeouts on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (trackingTimeoutRef.current) {
+        clearTimeout(trackingTimeoutRef.current);
       }
     };
   }, []);
@@ -767,13 +811,15 @@ export default function HomeContent() {
 
                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 120, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
-                  <Editor
-                    content={entry}
-                    onUpdate={handleContentChange}
-                    isLoaded={setEditorLoaded}
-                    getAuthToken={getToken}
-                    apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
-                  />
+                  <EditorErrorBoundary>
+                    <Editor
+                      content={entry}
+                      onUpdate={handleContentChange}
+                      isLoaded={setEditorLoaded}
+                      getAuthToken={getToken}
+                      apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
+                    />
+                  </EditorErrorBoundary>
                 </View>
               </View>
               {/* <TouchableOpacity

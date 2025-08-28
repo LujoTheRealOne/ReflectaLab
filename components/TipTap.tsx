@@ -1,5 +1,18 @@
 "use dom";
 
+// WebView bridge safety check - prevent webkit messageHandlers errors in DOM context
+if (typeof window !== 'undefined' && !window.webkit) {
+  window.webkit = {
+    messageHandlers: {
+      ReactNativeWebView: {
+        postMessage: () => {
+          console.warn('WebView postMessage called in DOM context - ignoring');
+        }
+      }
+    }
+  } as any;
+}
+
 import React from "react";
 import styles from "@/styles/tiptap.css";
 import Link from "@tiptap/extension-link";

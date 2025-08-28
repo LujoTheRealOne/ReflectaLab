@@ -32,7 +32,7 @@ export default function OnboardingScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, signOut } = useAuth();
-  const { trackOnboardingCompleted } = useAnalytics();
+  const { trackOnboardingCompleted, trackOnboardingStep } = useAnalytics();
   const { 
     progress, 
     isLoading: isProgressLoading, 
@@ -471,6 +471,38 @@ export default function OnboardingScreen() {
     );
   };
 
+  // Helper function to get meaningful step names for tracking - detailed onboarding funnel
+  const getStepName = (step: number): 'name_entered' | 'roles_selected' | 'self_reflection_selected' | 'clarity_level_set' | 'stress_level_set' | 'motivation_viewed' | 'research_viewed' | 'figures_viewed' | 'ready_confirmed' | 'coaching_style_configured' | 'time_duration_set' | 'configuration_loading' | 'meditation_intro_viewed' | 'meditation_prepared' | 'meditation_started' | null => {
+    switch (step) {
+      case 1: return 'name_entered'; // User entered their name
+      case 2: return 'roles_selected'; // User selected their life roles
+      case 3: return 'self_reflection_selected'; // User selected self-reflection practices
+      case 4: return 'clarity_level_set'; // User set their life clarity level
+      case 5: return 'stress_level_set'; // User set their stress level
+      case 6: return 'motivation_viewed'; // User viewed motivational message
+      case 8: return 'research_viewed'; // User viewed research-backed benefits
+      case 9: return 'figures_viewed'; // User viewed world leading figures
+      case 10: return 'ready_confirmed'; // User confirmed they're ready
+      case 11: return 'coaching_style_configured'; // User configured coaching style
+      case 12: return 'time_duration_set'; // User set session duration
+      case 13: return 'configuration_loading'; // System loading custom configuration
+      case 14: return 'meditation_intro_viewed'; // User viewed meditation introduction
+      case 15: return 'meditation_prepared'; // User prepared for meditation (headphones step)
+      case 16: return 'meditation_started'; // User started 5-minute meditation
+      default: return null; // Steps 7 (studying yourself) not tracked individually
+    }
+  };
+
+  // Helper function to get user input for tracking
+  const getStepUserInput = (step: number) => {
+    switch (step) {
+      case 2: return { roles: selectedRoles };
+      case 11: return { coaching_style: coachingStylePosition };
+      case 15: return { meditation_duration: timeDuration };
+      default: return undefined;
+    }
+  };
+
   const animateToStep = (newStep: number) => {
     if (currentStep == null) return; // Safety check
     
@@ -518,6 +550,17 @@ export default function OnboardingScreen() {
           hasInteractedWithCoachingStyle,
           timeDuration,
         }).catch(error => console.error('Failed to save progress:', error));
+      }
+
+      // Track onboarding step completion for key steps
+      const stepName = getStepName(newStep);
+      if (stepName) {
+        trackOnboardingStep({
+          step_name: stepName,
+          step_number: newStep,
+          user_input: getStepUserInput(newStep),
+          time_spent: Math.floor((Date.now() - onboardingStartTime) / 1000),
+        });
       }
 
       // Reset interaction states when moving to or from interactive steps

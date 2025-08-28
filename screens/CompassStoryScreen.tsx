@@ -16,6 +16,7 @@ import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navig
 import { useColorScheme } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
@@ -142,6 +143,7 @@ export default function CompassStoryScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { completeOnboarding, firebaseUser } = useAuth();
+  const { trackLifeCompassViewed, trackOnboardingStep } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   
   // Real insights data
@@ -268,6 +270,27 @@ export default function CompassStoryScreen() {
       console.log('🔄 Insights should be extracted automatically or need manual trigger...');
     }
   }, [sessionId]);
+
+  // Track life compass viewed when component mounts
+  useEffect(() => {
+    trackLifeCompassViewed({
+      viewed_via: fromOnboarding ? 'onboarding' : fromCoaching ? 'coaching' : 'navigation',
+      compass_data: insights ? {
+        mainFocus: insights.mainFocus.headline,
+        keyBlockers: insights.keyBlockers.headline,
+        plan: insights.plan.headline,
+      } : parsedCoachingData || undefined,
+    });
+
+    // If viewed from onboarding, also track as onboarding step completion
+    if (fromOnboarding) {
+      trackOnboardingStep({
+        step_name: 'life_compass_viewed',
+        step_number: 18, // After coaching session completion
+        time_spent: 0, // Just viewed
+      });
+    }
+  }, [fromOnboarding, fromCoaching, insights, parsedCoachingData, trackLifeCompassViewed, trackOnboardingStep]);
   
   // Process real insights data or fallback to coaching/placeholder data
   const processCompassData = () => {

@@ -76,7 +76,6 @@ export default function AuthNavigator() {
 
   return (
     <Stack.Navigator 
-      key={`auth-${isSignedIn ? 'in' : 'out'}-${needsOnboarding ? 'needs' : 'done'}`}
       screenOptions={{ headerShown: false }}
       initialRouteName={initialRouteName}
     >

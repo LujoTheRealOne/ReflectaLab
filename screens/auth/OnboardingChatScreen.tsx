@@ -14,6 +14,7 @@ import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -260,6 +261,15 @@ export default function OnboardingChatScreen() {
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding, firebaseUser, getToken } = useAuth();
   const { clearProgress, saveProgress } = useOnboardingProgress();
+  const { 
+    trackCoachingSessionStarted, 
+    trackCoachingSessionCompleted, 
+    trackOnboardingStep,
+    trackNotificationPermissionRequested,
+    trackNotificationPermissionGranted,
+    trackNotificationPermissionDenied,
+    trackCoachingMessagesOptIn
+  } = useAnalytics();
 
   // Save progress as step 17 (OnboardingChat) when entering this screen
   useEffect(() => {
@@ -941,6 +951,27 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         // Store parsed coaching data for future use
         setParsedCoachingData(parsedData);
         
+        // Log initial life deep dive session completion
+        console.log('✅ [COACHING] Completing initial life deep dive session...', {
+          sessionId: sessionId,
+          duration: sessionMinutes,
+          messageCount: messages.length,
+          wordsWritten: totalWords,
+          insights: keyInsights
+        });
+        
+        // Track initial life deep dive session completion
+        if (sessionId) {
+          trackCoachingSessionCompleted({
+            session_id: sessionId,
+            duration_minutes: Math.max(sessionMinutes, 1),
+            message_count: messages.length,
+            words_written: totalWords,
+            insights_generated: keyInsights,
+            session_type: 'initial_life_deep_dive',
+          });
+        }
+        
         // Show completion popup for this specific message
         setShowCompletionForMessage(lastAIMessage.id);
       }
@@ -978,6 +1009,27 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       currentSessionId = generateSessionId();
       setSessionId(currentSessionId);
       console.log(`🆔 Generated new session ID for onboarding: ${currentSessionId}`);
+      
+      // Log initial life deep dive session start
+      console.log('🎯 [COACHING] Starting initial life deep dive session...', {
+        sessionId: currentSessionId,
+        sessionType: 'initial_life_deep_dive',
+        trigger: 'manual'
+      });
+      
+      // Track initial life deep dive session started on first user message
+      trackCoachingSessionStarted({
+        session_id: currentSessionId,
+        session_type: 'initial_life_deep_dive',
+        trigger: 'manual',
+      });
+      
+      // Also track this as an onboarding step completion
+      trackOnboardingStep({
+        step_name: 'initial_life_deep_dive_started',
+        step_number: 17,
+        time_spent: Math.floor((Date.now() - sessionStartTime.getTime()) / 1000),
+      });
     }
 
     const messageContent = chatInput.trim();
@@ -1043,12 +1095,18 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     switch (action) {
       case 'decline':
         console.log('User declined notification permissions');
+        // Track notification permission denied
+        trackNotificationPermissionDenied({ denied_via: 'onboarding' });
         break;
       case 'accept':
         try {
+          // Track notification permission requested
+          trackNotificationPermissionRequested();
           const granted = await requestPermissions();
           if (granted) {
             console.log('✅ Notification permissions granted and push token saved');
+            // Track notification permission granted
+            trackNotificationPermissionGranted({ granted_via: 'onboarding' });
             
             // Send confirmation message to chat
             const confirmationMessage: CoachingMessage = {
@@ -1060,6 +1118,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             setMessages([...messages, confirmationMessage]);
           } else {
             console.log('❌ Notification permissions denied');
+            // Track notification permission denied
+            trackNotificationPermissionDenied({ denied_via: 'onboarding' });
             // Add message about manual setup
             const declineMessage: CoachingMessage = {
               id: (Date.now() + 3).toString(),
@@ -1092,6 +1152,11 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       case 'decline':
         console.log('User declined scheduling checkins');
         setShowSchedulingForMessage(null);
+        // Track coaching messages opt-in as declined
+        trackCoachingMessagesOptIn({
+          opted_in: false,
+          context: 'onboarding',
+        });
         // Add optional decline message
         const declineMessage: CoachingMessage = {
           id: (Date.now() + 3).toString(),
@@ -1112,6 +1177,13 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       case 'confirm':
         try {
           console.log('✅ User confirmed scheduling:', { frequency: selectedFrequency, checkinCard: checkinCard.props });
+          
+          // Track coaching messages opt-in as confirmed
+          trackCoachingMessagesOptIn({
+            opted_in: true,
+            frequency: selectedFrequency === 'once a week' ? 'weekly' : selectedFrequency === 'couple times a week' ? 'weekly' : 'daily',
+            context: 'onboarding',
+          });
           
           // Show confirmed state immediately
           setShowSchedulingForMessage(null);

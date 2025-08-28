@@ -10,6 +10,7 @@ import { AppStackParamList } from '@/navigation/AppNavigator';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
@@ -238,6 +239,10 @@ export default function CoachingScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
+  const { 
+    trackCoachingSessionStarted, 
+    trackCoachingSessionCompleted
+  } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
   // Get route parameters for existing session
@@ -615,6 +620,57 @@ export default function CoachingScreen() {
     }, [initialized, isPro, presentPaywallIfNeeded, currentOffering, navigation])
   );
 
+  // Track session completion when user leaves the screen (only once)
+  const sessionCompletedRef = useRef(false);
+  const messagesRef = useRef(messages);
+  const sessionStartRef = useRef(sessionStartTime);
+  
+  // Keep refs updated
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  
+  useFocusEffect(
+    useCallback(() => {
+      // Reset completion flag when entering screen
+      sessionCompletedRef.current = false;
+      
+      // Cleanup function that runs when leaving the screen
+      return () => {
+        if (sessionId && !sessionCompletedRef.current) {
+          sessionCompletedRef.current = true; // Prevent multiple calls
+          
+          const sessionMinutes = Math.max(Math.floor((Date.now() - sessionStartRef.current.getTime()) / (1000 * 60)), 1);
+          const messageCount = messagesRef.current.length;
+          const totalWords = messagesRef.current.reduce((total, msg) => {
+            if (msg.role === 'user') {
+              return total + msg.content.split(/\s+/).filter(word => word.length > 0).length;
+            }
+            return total;
+          }, 0);
+
+          // Log coaching session completion (only once)
+          console.log('✅ [COACHING] Regular coaching session completed (user left screen)', {
+            sessionId: sessionId,
+            duration: sessionMinutes,
+            messageCount: messageCount,
+            wordsWritten: totalWords
+          });
+
+          // Track coaching session completion
+          trackCoachingSessionCompleted({
+            session_id: sessionId,
+            duration_minutes: sessionMinutes,
+            message_count: messageCount,
+            words_written: totalWords,
+            insights_generated: 0,
+            session_type: 'regular',
+          });
+        }
+      };
+    }, [sessionId])
+  );
+
   // Initialize chat - either load existing session or create new one
   useEffect(() => {
     // Load existing session via route param
@@ -868,6 +924,20 @@ export default function CoachingScreen() {
     if (!currentSessionId) {
       currentSessionId = generateSessionId();
       setSessionId(currentSessionId);
+      
+      // Log coaching session start
+      console.log('🎯 [COACHING] Starting regular coaching session...', {
+        sessionId: currentSessionId,
+        sessionType: routeSessionType || 'regular',
+        trigger: 'manual'
+      });
+      
+      // Track coaching session started
+      trackCoachingSessionStarted({
+        session_id: currentSessionId,
+        session_type: 'regular',
+        trigger: 'manual',
+      });
     }
 
     const messageContent = chatInput.trim();

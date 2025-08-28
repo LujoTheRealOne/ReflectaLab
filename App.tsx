@@ -31,10 +31,13 @@ function AppContent() {
   const { trackAppOpened } = useAnalytics();
 
   useEffect(() => {
-    // Hide splash screen when authentication state is determined
-    setTimeout(() => {
-      SplashScreen.hideAsync();
-    }, 2000);
+    // Only hide splash screen when Clerk auth is fully loaded
+    if (isLoaded) {
+      // Small delay to ensure smooth transition
+      setTimeout(() => {
+        SplashScreen.hideAsync();
+      }, 500);
+    }
   }, [isLoaded]);
 
   // Track app opened when the app loads

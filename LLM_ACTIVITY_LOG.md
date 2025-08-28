@@ -7,6 +7,53 @@ This file records all important changes and implementations made by the LLM assi
 
 ## 2025-08-24
 
+- **Fixed Authentication Consistency Issues**: Completely overhauled authentication state management to provide smooth user experience:
+  * **Enhanced useAuth Hook**: 
+    - Added timeout handling (10s) for user account loading to prevent infinite loading states
+    - Implemented exponential backoff retry logic for Firebase authentication failures
+    - Added comprehensive error state management with user-friendly messages
+    - Created fallback user account creation to prevent blocking when Firestore fails
+    - Added proper cleanup of timeouts and retry mechanisms on component unmount
+    - Improved state synchronization between Clerk and Firebase authentication
+  * **Improved Navigation State Management**: 
+    - Simplified navigation keys to reduce unnecessary stack resets
+    - Added dedicated error screens with retry functionality
+    - Implemented proper loading states for both authentication and user data
+    - Removed blocking user account loading that could cause infinite loading
+    - Added graceful handling of network failures and timeouts
+  * **Enhanced Security & Error Handling**: 
+    - Added input validation for authentication tokens and API configurations
+    - Improved error messages with specific handling for network and token errors
+    - Added proper response validation for token exchange operations
+    - Enhanced logging with security-conscious debug information
+    - Implemented proper error recovery mechanisms
+  * **Professional Code Structure**: 
+    - Organized state variables with clear comments and sections
+    - Added comprehensive TypeScript types for all authentication states
+    - Implemented proper cleanup patterns for all async operations
+    - Added computed authentication states for better navigation decisions
+  * **Result**: Authentication now handles edge cases gracefully, provides clear error feedback, and never blocks users indefinitely. The app provides a smooth authentication experience even with poor network conditions or service failures.
+
+- **Fixed Login Screen Flash Issue**: Eliminated the bad UX of showing login screen before redirecting to home for authenticated users:
+  * **Enhanced Splash Screen Management**: 
+    - Modified App.tsx to keep splash screen visible until Clerk authentication is fully loaded
+    - Reduced splash screen timeout from 2s to 500ms after auth state is determined
+    - Prevents premature hiding of splash screen during auth initialization
+  * **Improved Authentication State Logic**: 
+    - Enhanced isAuthReady computation to wait for both Clerk and Firebase auth states
+    - Added comprehensive authentication state checks before showing navigation
+    - Implemented conservative auth state management to prevent false negatives
+  * **Optimized Navigation Flow**: 
+    - Return null from Navigation component until auth is fully ready (keeps splash visible)
+    - Removed blocking user account loading that caused additional loading screens
+    - Allow authenticated users to proceed to app while user data loads in background
+  * **Enhanced Debug Logging**: 
+    - Added detailed console logs for authentication state changes
+    - Improved debugging capabilities for authentication flow issues
+  * **Result**: App now opens directly to the correct screen (home for authenticated users, login for non-authenticated) without any intermediate flashing or loading screens. Provides a smooth, professional app startup experience.
+
+## 2025-08-24 (Previous)
+
 - **Added Year Display to Home Screen**: Enhanced the date display section in HomeContent.tsx:
   * Added year display above the existing weekday/month/day display
   * Extracted year from the same `displayDate` used for other date components
@@ -163,3 +210,123 @@ This file records all important changes and implementations made by the LLM assi
   * Removed TipTap placeholder extension completely - clean editor with no placeholder text
   * Removed unused user prop from TipTap component for cleaner code
   * All UI elements now have consistent visual hierarchy and proper contrast
+
+## 2025-01-13
+
+- **Enhanced PostHog Analytics Implementation**: Comprehensive tracking system for professional dashboards and metrics:
+  * **Enhanced Analytics Functions in `useAnalytics.ts`**:
+    - `trackMeaningfulAction` - Tracks substantial user actions (journal entries 200+ chars, coaching sessions) for true DAU/WAU measurement
+    - `trackOnboardingStep` - Detailed funnel tracking for key steps (signup → coaching config → meditation → session start → compass view)
+    - `trackCoachingSessionStarted/Completed` - Full coaching session lifecycle with duration, message count, words written, insights generated
+    - `trackNotificationPermissionRequested/Granted/Denied` - Permission tracking with context (onboarding/settings/prompt)
+    - `trackCoachingMessagesOptIn` - Coach message preference tracking with frequency and context
+    - `trackLifeCompassViewed` - Life compass viewing analytics with source context and compass data
+  * **Implementation across all key screens**:
+    - `HomeContent.tsx` - Meaningful action tracking for journal entries (triggers at 200+ characters)
+    - `Onboarding.tsx` - Key onboarding step completion tracking with user input and time spent
+    - `OnboardingChatScreen.tsx` - Coaching session lifecycle, notification permissions, and coaching message opt-ins
+    - `SettingsScreen.tsx` - Settings-based notification and coaching message preference changes
+    - `CompassStoryScreen.tsx` - Life compass viewing from different contexts (onboarding/coaching/navigation)
+  * **Professional Dashboard Metrics Now Available**:
+    - DAU/WAU based on meaningful actions (not just app opens)
+    - Retention analysis based on valuable user actions
+    - Detailed onboarding funnel with drop-off analysis
+    - Notification opt-in rates and coaching message adoption
+    - Coaching session engagement and completion rates
+    - Life compass viewing patterns and user journey mapping
+  * All tracking includes proper timestamps, user context, and relevant metadata for comprehensive analytics
+
+- **Enhanced Onboarding Analytics for Detailed Funnel Analysis**: Significantly improved onboarding step tracking for granular drop-off analysis:
+  * **Expanded Step Tracking in `Onboarding.tsx`**: Updated `getStepName()` function to track 15 detailed onboarding steps:
+    - `name_entered` (Step 1) - User entered their name
+    - `roles_selected` (Step 2) - User selected their life roles 
+    - `self_reflection_selected` (Step 3) - User selected self-reflection practices
+    - `clarity_level_set` (Step 4) - User set their life clarity level
+    - `stress_level_set` (Step 5) - User set their stress level
+    - `motivation_viewed` (Step 6) - User viewed motivational message
+    - `research_viewed` (Step 8) - User viewed research-backed benefits
+    - `figures_viewed` (Step 9) - User viewed world leading figures
+    - `ready_confirmed` (Step 10) - User confirmed they're ready
+    - `coaching_style_configured` (Step 11) - User configured coaching style
+    - `time_duration_set` (Step 12) - User set session duration
+    - `configuration_loading` (Step 13) - System loading custom configuration
+    - `meditation_intro_viewed` (Step 14) - User viewed meditation introduction
+    - `meditation_prepared` (Step 15) - User prepared for meditation (headphones step)
+    - `meditation_started` (Step 16) - User started 5-minute meditation
+  * **Renamed Initial Coaching Session Tracking**: Distinguished initial life deep dive from regular coaching sessions:
+    - Changed `session_type` from 'onboarding' to 'initial_life_deep_dive' in `OnboardingChatScreen.tsx`
+    - Updated `trackOnboardingStep` call to use 'initial_life_deep_dive_started' instead of 'coaching_session_started'
+    - Updated `trackCoachingSessionStarted` type definition to include 'initial_life_deep_dive' session type
+    - Enhanced console logging to clarify when initial life deep dive starts vs. regular coaching sessions
+  * **Enhanced Analytics Type System**: Updated `trackOnboardingStep` function in `useAnalytics.ts`:
+    - Added all 15 new step names plus 'initial_life_deep_dive_started' and 'life_compass_viewed' to type definitions
+    - Enables comprehensive funnel analysis with detailed drop-off points identification
+    - Better segmentation between initial onboarding deep dive and regular coaching usage
+  * **PostHog Dashboard Benefits**: With these analytics improvements, now possible to create:
+    - Detailed 17-step onboarding funnel (signup → name → roles → ... → meditation → deep dive → compass)
+    - Precise drop-off analysis at every onboarding checkpoint
+    - Distinction between initial life deep dive engagement vs. ongoing coaching sessions
+    - User journey mapping from first touch to compass completion
+    - Granular retention analysis based on specific onboarding completion milestones
+
+- **Separated Initial vs Regular Coaching Session Events**: Enhanced event naming for clearer PostHog analytics distinction:
+  * **Updated `trackCoachingSessionStarted` Function**: Modified to use different event names based on session type:
+    - Initial life deep dive sessions → `initial_coaching_session_started` event
+    - Regular coaching sessions → `coaching_session_started` event  
+    - Session type automatically determined from `session_type` parameter
+  * **Updated `trackCoachingSessionCompleted` Function**: Added session type parameter and dynamic event naming:
+    - Initial life deep dive completion → `initial_coaching_session_completed` event
+    - Regular coaching completion → `coaching_session_completed` event
+    - Added `session_type` parameter to completion tracking calls
+  * **Enhanced All Coaching Session Tracking**: Updated both `OnboardingChatScreen.tsx` and `CoachingScreen.tsx`:
+    - OnboardingChatScreen tracks with `session_type: 'initial_life_deep_dive'`
+    - CoachingScreen tracks with `session_type: 'regular'`
+    - Console logging now shows the specific event name being tracked
+  * **PostHog Dashboard Benefits**: With these changes, now possible to create:
+    - Separate funnel analysis for initial life deep dive vs. regular coaching engagement
+    - Clear conversion tracking from onboarding deep dive to regular coaching usage
+    - Distinct session duration and completion rate metrics for each coaching type
+    - Better user journey understanding: onboarding → initial deep dive → regular coaching patterns
+
+- **Fixed Critical WebView Bridge Error in TipTap Editor**: Resolved production crash caused by webkit messageHandlers access in DOM context:
+  * **Root Cause**: TipTap editor using `"use dom"` directive was trying to access `window.webkit.messageHandlers.ReactNativeWebView.postMessage()` which doesn't exist in DOM context
+  * **Solution in `TipTap.tsx`**: Added WebView bridge safety polyfill to prevent undefined object access:
+    ```typescript
+    // WebView bridge safety check - prevent webkit messageHandlers errors in DOM context
+    if (typeof window !== 'undefined' && !window.webkit) {
+      window.webkit = {
+        messageHandlers: {
+          ReactNativeWebView: {
+            postMessage: () => {
+              console.warn('WebView postMessage called in DOM context - ignoring');
+            }
+          }
+        }
+      } as any;
+    }
+    ```
+  * **Added Error Boundary Protection**: Created `EditorErrorBoundary.tsx` component to catch and handle editor errors gracefully
+  * **Wrapped Editor in HomeContent**: Protected TipTap editor with error boundary to prevent app crashes and provide user-friendly error messages
+  * **Impact**: Prevents production crashes, improves app stability, maintains journal functionality even if editor encounters errors
+
+- **Improved Onboarding Event Naming for PostHog Clarity**: Changed from generic to specific event names for each onboarding step:
+  * **Before**: Single `onboarding_step_completed` event with `step_name` property differentiation
+  * **After**: Individual event names using `onboarding_${step_name}` pattern for cleaner analytics:
+    - `onboarding_name_entered` - User entered their name  
+    - `onboarding_roles_selected` - User selected life roles
+    - `onboarding_self_reflection_selected` - User selected self-reflection practices
+    - `onboarding_clarity_level_set` - User set clarity level
+    - `onboarding_stress_level_set` - User set stress level
+    - `onboarding_motivation_viewed` - User viewed motivational content
+    - `onboarding_research_viewed` - User viewed research benefits
+    - `onboarding_figures_viewed` - User viewed world leading figures
+    - `onboarding_ready_confirmed` - User confirmed readiness
+    - `onboarding_coaching_style_configured` - User configured coaching style
+    - `onboarding_time_duration_set` - User set session duration
+    - `onboarding_configuration_loading` - System loading configuration
+    - `onboarding_meditation_intro_viewed` - User viewed meditation intro
+    - `onboarding_meditation_prepared` - User prepared for meditation
+    - `onboarding_meditation_started` - User started meditation
+    - `onboarding_initial_life_deep_dive_started` - User started initial coaching
+    - `onboarding_life_compass_viewed` - User viewed life compass results
+  * **PostHog Dashboard Benefits**: Each step now appears as a separate event for easier filtering, funnel creation, and drop-off analysis without needing property-based breakdowns

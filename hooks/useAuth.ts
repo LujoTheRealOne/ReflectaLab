@@ -36,6 +36,9 @@ export function useAuth() {
   const userAccountTimeout = 10000; // 10 seconds
   const signOutCooldownMs = 2000; // 2 seconds cooldown after sign out
   
+  // Track which user we've already logged analytics for in this session
+  const lastTrackedUserIdRef = useRef<string | null>(null);
+  
   const { trackSignUp, trackSignIn, trackSignOut, trackFirstTimeAppOpened } = useAnalytics();
 
   // Listen to Firebase auth state changes
@@ -54,10 +57,13 @@ export function useAuth() {
         setUserAccountLoading(false);
         setAuthAttempts(0);
         
+        // Clear tracking state so next user can be tracked properly
+        lastTrackedUserIdRef.current = null;
+        
         // Reset signing out state when Firebase user is actually gone
         setIsSigningOut(false);
         
-        console.log('🔄 Auth state reset completed for sign out, isSigningOut reset to false');
+        console.log('🔄 Auth state reset completed for sign out, tracking state cleared for next user');
         
         // Clear any pending timeouts
         if (userAccountTimeoutRef.current) {
@@ -203,37 +209,47 @@ export function useAuth() {
           onboardingData: account.onboardingData
         });
         
-        // Track appropriate event based on user type
-        if (isNewUser && accountCreatedRecently) {
-          console.log('🎉 New user detected - tracking sign up and first time app opened');
-          trackSignUp({
-            method: 'google', // TODO: Detect actual method
-            userId: firebaseUser.uid,
-            userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName || account.firstName,
-            isNewUser: true,
-            hasExistingData: false,
-            accountCreatedAt: account.createdAt?.toISOString(),
-          });
+        // Track analytics events only once per session for this user
+        const hasAlreadyTrackedThisUser = lastTrackedUserIdRef.current === firebaseUser.uid;
+        
+        if (!hasAlreadyTrackedThisUser) {
+          // Mark this user as tracked for this session
+          lastTrackedUserIdRef.current = firebaseUser.uid;
           
-          // Also track first time app opened
-          trackFirstTimeAppOpened({
-            userId: firebaseUser.uid,
-            userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName || account.firstName,
-            method: 'google', // TODO: Detect actual method
-            accountCreatedAt: account.createdAt?.toISOString(),
-          });
+          // Track appropriate event based on user type
+          if (isNewUser && accountCreatedRecently) {
+            console.log('🎉 New user detected - tracking sign up and first time app opened (session-once)');
+            trackSignUp({
+              method: 'google', // TODO: Detect actual method
+              userId: firebaseUser.uid,
+              userEmail: user?.emailAddresses?.[0]?.emailAddress,
+              userName: user?.fullName || account.firstName,
+              isNewUser: true,
+              hasExistingData: false,
+              accountCreatedAt: account.createdAt?.toISOString(),
+            });
+            
+            // Also track first time app opened
+            trackFirstTimeAppOpened({
+              userId: firebaseUser.uid,
+              userEmail: user?.emailAddresses?.[0]?.emailAddress,
+              userName: user?.fullName || account.firstName,
+              method: 'google', // TODO: Detect actual method
+              accountCreatedAt: account.createdAt?.toISOString(),
+            });
+          } else {
+            console.log('🔐 Returning user detected - tracking sign in (session-once)');
+            trackSignIn({
+              method: 'google', // TODO: Detect actual method
+              userId: firebaseUser.uid,
+              userEmail: user?.emailAddresses?.[0]?.emailAddress,
+              userName: user?.fullName || account.firstName,
+              isNewUser: false,
+              hasExistingData: true,
+            });
+          }
         } else {
-          console.log('🔐 Returning user detected - tracking sign in');
-          trackSignIn({
-            method: 'google', // TODO: Detect actual method
-            userId: firebaseUser.uid,
-            userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName || account.firstName,
-            isNewUser: false,
-            hasExistingData: true,
-          });
+          console.log('⏭️ User analytics already tracked for this session, skipping duplicate tracking');
         }
         
       } catch (error) {

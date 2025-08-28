@@ -126,6 +126,25 @@ This file records all important changes and implementations made by the LLM assi
     - Added comprehensive logging for debugging onboarding completion flow
   * **Result**: Clean onboarding completion → no progress saved on unmount → no false resume → direct home screen access after life deep dive completion
 
+- **Fixed PostHog Analytics Spam**: Eliminated excessive user_signed_in event tracking that was flooding analytics:
+  * **Problem Identified**: `user_signed_in` event was being tracked multiple times per session on every Firebase auth state change
+    - Every Firebase auth state update → `initializeUserDocument()` → `trackSignIn()` call
+    - Same user session producing 5-10+ duplicate analytics events
+    - PostHog dashboard polluted with redundant sign-in data
+    - Analytics data accuracy compromised by false engagement metrics
+  * **Solution Implemented**: 
+    - Added session-based tracking with `lastTrackedUserIdRef` to prevent duplicate events
+    - Enhanced tracking logic: `if (!hasAlreadyTrackedThisUser) { track() }` pattern
+    - Session tracking state: Mark user as tracked once per app session
+    - Logout state cleanup: Reset `lastTrackedUserIdRef.current = null` on user sign-out
+    - Smart logging: Added "(session-once)" markers and "already tracked" skip messages
+  * **Technical Implementation**:
+    - Used `useRef` for session-persistent tracking state across auth state changes
+    - Maintained proper lifecycle: Track on first auth → Skip subsequent → Reset on logout → Track next user
+    - Preserved all tracking functionality while eliminating spam
+    - Added comprehensive logging for tracking decisions and skips
+  * **Result**: Clean analytics flow → One sign-in event per user per session → Accurate PostHog metrics → No tracking spam
+
 ## 2025-08-24
 
 - **Fixed Authentication Consistency Issues**: Completely overhauled authentication state management to provide smooth user experience:

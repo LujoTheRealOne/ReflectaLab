@@ -1,8 +1,10 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
-import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { getAuth, connectAuthEmulator, initializeAuth, getReactNativePersistence } from "firebase/auth";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCQXH2oz7CfCUcFabyU-nNupCL-T7AYzBM",
@@ -16,7 +18,28 @@ const firebaseConfig = {
 // Initialize Firebase only if it hasn't been initialized already
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const db = getFirestore(app);
-const auth = getAuth(app);
+
+// Ensure persistent auth on React Native by using AsyncStorage
+// initializeAuth must be called only once and before getAuth on RN
+const auth = (() => {
+  if (Platform.OS !== 'web') {
+    try {
+      const a = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+      console.log('🔐 Firebase Auth initialized with AsyncStorage persistence');
+      return a;
+    } catch (_e) {
+      // initializeAuth throws if called more than once; fall back to getAuth
+      const a = getAuth(app);
+      console.log('🔐 Firebase Auth obtained via getAuth (initializeAuth already called)');
+      return a;
+    }
+  }
+  // Web uses default persistence
+  return getAuth(app);
+})();
+
 const storage = getStorage(app);
 
 // Connect to emulators in development

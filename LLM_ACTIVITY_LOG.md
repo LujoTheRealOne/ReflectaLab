@@ -145,6 +145,18 @@ This file records all important changes and implementations made by the LLM assi
     - Added comprehensive logging for tracking decisions and skips
   * **Result**: Clean analytics flow → One sign-in event per user per session → Accurate PostHog metrics → No tracking spam
 
+- **CRITICAL FIX: Firebase Auth Persistence on React Native**
+  * Implemented AsyncStorage-backed persistence to prevent random logouts across sessions
+  * Changes in `lib/firebase.ts`:
+    - Switched to `initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) })`
+    - Added guard to fallback to `getAuth(app)` if `initializeAuth` was already called
+    - Ensured this runs only on React Native (non-web) platforms
+    - Kept emulator connections intact and idempotent
+  * Impact:
+    - Fixes `@firebase/auth` warning about memory persistence
+    - Prevents auth state loss after app restarts → no more random logouts
+    - Stabilizes auth flow and onboarding state across sessions
+
 ## 2025-08-24
 
 - **Fixed Authentication Consistency Issues**: Completely overhauled authentication state management to provide smooth user experience:

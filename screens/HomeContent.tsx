@@ -1,5 +1,6 @@
-import Editor from '@/components/TipTap';
+import Editor, { EditorRef } from '@/components/ArdaEditor';
 import EditorErrorBoundary from '@/components/EditorErrorBoundary';
+import KeyboardToolbar from '@/components/KeyboardToolbar';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -108,6 +109,10 @@ export default function HomeContent() {
   const [originalContent, setOriginalContent] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [activeFormats, setActiveFormats] = useState<string[]>([]);
+  
+
 
   // Coaching session state
   const [coachingSessionData, setCoachingSessionData] = useState<CoachingSession | null>(null);
@@ -119,6 +124,7 @@ export default function HomeContent() {
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
+  const editorRef = useRef<EditorRef>(null);
 
   // Audio transcription hook
   const {
@@ -402,22 +408,30 @@ export default function HomeContent() {
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (event) => {
+        const keyboardHeight = event?.endCoordinates?.height || 0;
+        // Mikrofonunu keyboard'ın üstüne konumlandır
+        const newTranslateY = -(keyboardHeight - 117); // Keyboard - 5px (daha aşağıda)
+        
+
+        
         setIsKeyboardVisible(true);
-        // Animate microphone button to keyboard position
+        setKeyboardHeight(keyboardHeight);
+        
+        // Animate microphone button to keyboard position - higher up for toolbar space
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
-        micButtonTranslateY.value = withTiming(
-          -(event?.endCoordinates?.height || 300) + 95, // Klavyeye daha yakın
-          { duration: 300 }
-        );
+        micButtonTranslateY.value = withTiming(newTranslateY, { duration: 300 });
       }
     );
     const keyboardWillHideListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
+
+        
         setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
         // Animate microphone button back to right side position
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
-        micButtonTranslateY.value = withTiming(-80, { duration: 300 });
+        micButtonTranslateY.value = withTiming(-80, { duration: 300 }); // Geri original pozisyon
       }
     );
 
@@ -437,8 +451,9 @@ export default function HomeContent() {
   // Initialize microphone button position
   useEffect(() => {
     // Set initial position to right side (slightly above navbar)
+
     micButtonTranslateX.value = -2;
-    micButtonTranslateY.value = -80;
+    micButtonTranslateY.value = -80; // Original pozisyon
   }, []);
 
   // Spinner animation for save status
@@ -815,13 +830,17 @@ export default function HomeContent() {
                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 120, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
                   <EditorErrorBoundary>
-                    <Editor
-                      content={entry}
-                      onUpdate={handleContentChange}
-                      isLoaded={setEditorLoaded}
-                      getAuthToken={getToken}
-                      apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
-                    />
+                                    <Editor
+                  ref={editorRef}
+                  content={entry}
+                  onUpdate={handleContentChange}
+                  isLoaded={setEditorLoaded}
+                  getAuthToken={getToken}
+                  apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
+                  keyboardHeight={keyboardHeight}
+                  isKeyboardVisible={isKeyboardVisible}
+                  onActiveFormatsChange={setActiveFormats}
+                />
                   </EditorErrorBoundary>
                 </View>
               </View>
@@ -934,6 +953,16 @@ export default function HomeContent() {
           </Animated.View>
         </Animated.View>
       </PanGestureHandler>
+
+      {/* Keyboard Toolbar - Outside of any container for proper positioning */}
+                  <KeyboardToolbar
+              isVisible={isKeyboardVisible}
+              onFormatText={(formatType, prefix, suffix) => {
+                editorRef.current?.formatText(formatType, prefix, suffix);
+              }}
+              keyboardHeight={keyboardHeight}
+              activeFormats={activeFormats}
+            />
     </View>
   );
 }
@@ -1058,9 +1087,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 120,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -1074,7 +1103,7 @@ const styles = StyleSheet.create({
   micButtonTouchable: {
     width: '100%',
     height: '100%',
-    borderRadius: 25,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },

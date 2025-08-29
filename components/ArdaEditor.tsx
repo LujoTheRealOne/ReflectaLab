@@ -425,7 +425,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
         style={styles.scrollContainer} 
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
-        contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 100 : 40 }}
+        contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 300 : 40 }}
         // Native keyboard dismiss behavior
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
@@ -447,14 +447,14 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               paddingLeft: '0px',
               paddingRight: '0px',
               paddingTop: '20px',
-              paddingBottom: '20px',
+              paddingBottom: isKeyboardVisible ? '200px' : '20px',
               // Remove any default margins/paddings applied inside the web content
               cssText: `body { margin:0; padding:0; } * { caret-color: ${colors.text} !important; }`,
               contentCSSText: `margin:0; padding:0; p{margin:0;padding:0;} div{margin:0;padding:0;} * { caret-color: ${colors.text} !important; }`,
             }}
 
             useContainer={true}
-            initialHeight={200}
+            initialHeight={500}
           />
         </View>
 
@@ -515,11 +515,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   editorStack: {
-    minHeight: 200,
+    minHeight: 500,
     position: 'relative',
   },
   richEditor: {
-    minHeight: 200,
+    minHeight: 500,
     flex: 1,
   },
   coachingBlock: {

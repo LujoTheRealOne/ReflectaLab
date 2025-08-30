@@ -151,6 +151,24 @@ export default function CoachingScreen() {
     rawData: string;
   } | null>(null);
 
+  // Conversation starters state
+  const [shouldShowStarters, setShouldShowStarters] = useState(false);
+  const startersOpacity = useRef(new Animated.Value(0)).current;
+  const [hasInitiallyShown, setHasInitiallyShown] = useState(false);
+
+  // Conversation starter options
+  const conversationStarters = [
+    "Help me reflect on my personal growth",
+    "I want to be more productive",
+    "How can I build better daily habits?",
+    "I'm struggling with making an important decision",
+    "I want to improve my relationships",
+    "I'm dealing with stress and anxiety",
+    "How can I find more purpose in life?",
+    "I want to work on my self-confidence",
+    "I'm feeling lost",
+  ];
+
   // Function to parse coaching completion data between finish tokens
   const parseCoachingCompletion = (content: string) => {
     const finishStartIndex = content.indexOf('[finish-start]');
@@ -348,7 +366,7 @@ export default function CoachingScreen() {
           timestamp: new Date()
         };
         setMessages([initialMessage]);
-      }, 1000);
+      }, 500);
     }
   }, [routeSessionId, firebaseUser, messages.length, setMessages, user?.firstName, getToken]);
 
@@ -469,6 +487,37 @@ export default function CoachingScreen() {
     };
   }, []);
 
+  // Handle conversation starters visibility
+  useEffect(() => {
+    // Show starters only when:
+    // 1. No messages from user have been sent (only initial AI message or no messages)
+    // 2. User hasn't started typing
+    // 3. Not loading an existing session
+    const userMessages = messages.filter(msg => msg.role === 'user');
+    const shouldShow = userMessages.length === 0 && chatInput.trim() === '' && !loadingExistingSession;
+    
+    if (shouldShow !== shouldShowStarters) {
+      setShouldShowStarters(shouldShow);
+      
+      // Handle initial fade-in with delay, or immediate show/hide for subsequent changes
+      const duration = !hasInitiallyShown && shouldShow ? 300 : 200;
+      const delay = !hasInitiallyShown && shouldShow ? 1000 : 0;
+      
+      setTimeout(() => {
+        Animated.timing(startersOpacity, {
+          toValue: shouldShow ? 1 : 0,
+          duration: duration,
+          useNativeDriver: true,
+        }).start(() => {
+          // Mark as initially shown after first fade-in completes
+          if (!hasInitiallyShown && shouldShow) {
+            setHasInitiallyShown(true);
+          }
+        });
+      }, delay);
+    }
+  }, [messages, chatInput, loadingExistingSession, shouldShowStarters, startersOpacity, hasInitiallyShown]);
+
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
@@ -520,6 +569,11 @@ export default function CoachingScreen() {
 
   const handleRecordingConfirm = () => {
     stopRecordingAndTranscribe();
+  };
+
+  const handleConversationStarterPress = (starter: string) => {
+    setChatInput(starter);
+    textInputRef.current?.focus();
   };
 
   const handleCompletionAction = async () => {
@@ -728,6 +782,36 @@ export default function CoachingScreen() {
             )}
           </ScrollView>
         </View>
+
+        {/* Conversation Starters - Above Input */}
+        <Animated.View 
+          style={[
+            styles.conversationStartersContainer,
+            { opacity: startersOpacity }
+          ]}
+          pointerEvents={shouldShowStarters ? 'auto' : 'none'}
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.startersScrollContent}
+            style={styles.startersScrollView}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="interactive"
+          >
+            {conversationStarters.map((starter, index) => (
+              <Button
+                key={index}
+                style={styles.starterButton}
+                variant="outline"
+                size="sm"
+                onPress={() => handleConversationStarterPress(starter)}
+              >
+                {starter}
+              </Button>
+            ))}
+          </ScrollView>
+        </Animated.View>
 
         {/* Input */}
         <View style={styles.chatInputContainer}>
@@ -1100,5 +1184,21 @@ const styles = StyleSheet.create({
   resendButtonText: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  conversationStartersContainer: {
+    paddingBottom: 12,
+    width: '100%',
+  },
+  startersScrollView: {
+    maxHeight: 50,
+  },
+  startersScrollContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  starterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
   },
 }); 

@@ -1,11 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { useEffect, useState } from 'react';
-
-export interface NetworkState {
-  isConnected: boolean | null;
-  isInternetReachable: boolean | null;
-  type: string | null;
-}
+import { NetworkState } from '@/types';
 
 export const useNetworkConnectivity = () => {
   const [networkState, setNetworkState] = useState<NetworkState>({

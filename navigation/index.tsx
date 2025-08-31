@@ -9,6 +9,7 @@ import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { View, Text, TouchableOpacity } from 'react-native';
 import AppNavigator from './AppNavigator';
 import AuthNavigator from './AuthNavigator';
+import OfflineNavigator from './OfflineNavigator';
 
 // Define the root stack navigator type
 const Stack = createNativeStackNavigator();
@@ -23,7 +24,9 @@ export default function Navigation() {
     userAccountLoading,
     authError,
     retryAuthentication,
-    isSigningOut
+    isSigningOut,
+    isOfflineMode,
+    isOfflineAuthenticated
   } = useAuth();
   
   // Import onboarding progress to make better auth flow decisions
@@ -64,6 +67,16 @@ export default function Navigation() {
         }}>
           {authError}
         </Text>
+        {isOfflineMode && (
+          <Text style={{ 
+            color: '#FFA500',
+            fontSize: 14,
+            textAlign: 'center',
+            marginBottom: 10
+          }}>
+            Offline Mode - Limited functionality available
+          </Text>
+        )}
         <TouchableOpacity 
           onPress={retryAuthentication}
           style={{
@@ -88,12 +101,23 @@ export default function Navigation() {
   // CRITICAL: If user has progress at OnboardingChat (step 17), ALWAYS show auth flow
   const hasOnboardingChatProgress = onboardingProgress && onboardingProgress.currentStep === 17 && !onboardingProgress.completedAt;
   const shouldShowAuthFlow = !isSignedIn || needsOnboarding || isSigningOut || hasOnboardingChatProgress;
-  const initialRouteName = shouldShowAuthFlow ? 'Auth' : 'App';
+  
+  // Determine initial route: Offline mode gets special treatment
+  let initialRouteName: string;
+  if (shouldShowAuthFlow) {
+    initialRouteName = 'Auth';
+  } else if (isOfflineMode && isOfflineAuthenticated) {
+    initialRouteName = 'Offline';
+  } else {
+    initialRouteName = 'App';
+  }
   
   console.log('🧭 Navigation route determination:', {
     isSignedIn,
     needsOnboarding,
     isSigningOut,
+    isOfflineMode,
+    isOfflineAuthenticated,
     hasOnboardingChatProgress,
     progressStep: onboardingProgress?.currentStep,
     progressCompleted: onboardingProgress?.completedAt,
@@ -102,7 +126,7 @@ export default function Navigation() {
   });
 
   // Include auth state in navigation key to force reset when auth state changes
-  const navigationKey = `nav-${shouldShowAuthFlow ? 'auth' : 'app'}-${isSignedIn ? 'signed-in' : 'signed-out'}`;
+  const navigationKey = `nav-${initialRouteName.toLowerCase()}-${isSignedIn ? 'signed-in' : 'signed-out'}-${isOfflineMode ? 'offline' : 'online'}`;
 
   console.log('🧭 Navigation state:', {
     isSignedIn,
@@ -131,6 +155,7 @@ export default function Navigation() {
         >
           <Stack.Screen name="Auth" component={AuthNavigator} />
           <Stack.Screen name="App" component={AppNavigator} />
+          <Stack.Screen name="Offline" component={OfflineNavigator} />
         </Stack.Navigator>
       </NavigationContainer>
     </View>

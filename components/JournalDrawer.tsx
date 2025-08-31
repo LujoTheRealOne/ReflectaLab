@@ -1,7 +1,7 @@
 import { Colors } from '@/constants/Colors';
-import { db } from '@/lib/firebase';
+import { OfflineJournalService } from '@/services/offlineJournalService';
 import { DrawerContentComponentProps, useDrawerStatus } from '@react-navigation/drawer';
-import { collection, getDocs, orderBy, query, where, deleteDoc, doc } from 'firebase/firestore';
+// Firebase imports removed - using offline storage instead
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActionSheetIOS,
@@ -73,7 +73,7 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
     return grouped;
   }, []);
 
-  // Fetch journal entries from Firestore
+  // Fetch journal entries from offline storage
   const fetchJournalEntries = useCallback(async () => {
     if (!firebaseUser) {
       setIsLoading(false);
@@ -81,27 +81,22 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
     }
 
     try {
-      const entriesQuery = query(
-        collection(db, 'journal_entries'),
-        where('uid', '==', firebaseUser.uid),
-        orderBy('timestamp', 'desc')
-      );
+      const offlineEntries = await OfflineJournalService.getOfflineEntries();
+      const userEntries = Object.values(offlineEntries)
+        .filter(entry => entry.uid === firebaseUser.uid)
+        .map(entry => ({
+          id: entry.id,
+          title: entry.title || '',
+          content: entry.content,
+          timestamp: entry.timestamp, // This is a string now, but our grouping function should handle it
+          userId: entry.uid
+        }))
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-      const querySnapshot = await getDocs(entriesQuery);
-      const entriesList: JournalEntry[] = [];
-
-      querySnapshot.forEach((doc) => {
-        const entryData = doc.data() as Omit<JournalEntry, 'id'>;
-        entriesList.push({
-          id: doc.id,
-          ...entryData
-        });
-      });
-
-      setJournalEntries(entriesList);
-      setGroupedEntries(groupEntriesByDate(entriesList));
+      setJournalEntries(userEntries);
+      setGroupedEntries(groupEntriesByDate(userEntries));
     } catch (error) {
-      console.error('Error fetching journal entries:', error);
+      console.error('Error fetching offline journal entries:', error);
     } finally {
       setIsLoading(false);
     }
@@ -224,15 +219,15 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
       // Find the entry to get its details for tracking
       const entryToDelete = journalEntries.find(entry => entry.id === entryId);
       
-      // Delete from Firestore
-      await deleteDoc(doc(db, 'journal_entries', entryId));
+      // Delete from offline storage
+      await OfflineJournalService.deleteOfflineEntry(entryId);
       
       // Track journal entry deletion
       trackEntryDeleted({
         entry_id: entryId,
         content_length: entryToDelete?.content?.length || 0,
         entry_age_days: entryToDelete?.timestamp ? 
-          Math.floor((new Date().getTime() - new Date(entryToDelete.timestamp.toDate()).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+          Math.floor((new Date().getTime() - new Date(entryToDelete.timestamp).getTime()) / (1000 * 60 * 60 * 24)) : 0,
       });
       
       // Update local state

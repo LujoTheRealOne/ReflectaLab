@@ -44,6 +44,10 @@ export const NetworkStatusModal: React.FC<NetworkStatusModalProps> = ({
           <Text style={[styles.helpText, { color: colors.text }]}>
             Make sure you're connected to Wi-Fi or mobile data.
           </Text>
+
+          <Text style={[styles.offlineNote, { color: '#FFA500' }]}>
+            Note: If you've used Reflecta before, you may be able to continue journaling in offline mode once authenticated.
+          </Text>
         </View>
       </View>
     </Modal>
@@ -106,5 +110,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     opacity: 0.6,
+  },
+  offlineNote: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
   },
 }); 

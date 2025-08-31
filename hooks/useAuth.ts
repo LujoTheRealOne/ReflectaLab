@@ -6,6 +6,8 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { useAnalytics } from './useAnalytics';
+import { useNetworkConnectivity } from './useNetworkConnectivity';
+import { OfflineAuthService } from '@/services/offlineAuthService';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -15,6 +17,7 @@ export function useAuth() {
   const { user } = useUser();
   const { startOAuthFlow: startGoogleOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const { startOAuthFlow: startAppleOAuthFlow } = useOAuth({ strategy: 'oauth_apple' });
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
   const [isLoading, setIsLoading] = useState(false);
   const [shouldShowGetStarted, setShouldShowGetStarted] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -27,6 +30,7 @@ export function useAuth() {
   const [userAccountLoading, setUserAccountLoading] = useState(false);
   const [authAttempts, setAuthAttempts] = useState(0);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   
   // Timeout and cleanup refs
   const userAccountTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -41,9 +45,70 @@ export function useAuth() {
   
   const { trackSignUp, trackSignIn, trackSignOut, trackFirstTimeAppOpened } = useAnalytics();
 
+  // Check if we're offline
+  const isOffline = !isConnected || !isInternetReachable;
+
+  // Offline authentication state
+  const [offlineUserData, setOfflineUserData] = useState<{
+    firebaseUser: any | null;
+    userAccount: UserAccount | null;
+  }>({ firebaseUser: null, userAccount: null });
+
+  // Initialize offline authentication if needed (with proper dependency control)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const initOfflineAuth = async () => {
+      if (!isMounted) return;
+      
+      if (isOffline && !firebaseUser && !isOfflineMode) {
+        console.log('🔒 Offline detected, checking for cached user...');
+        const cachedUser = await OfflineAuthService.verifyCachedUser();
+        
+        if (!isMounted) return;
+        
+        if (cachedUser) {
+          console.log('🔐 Using cached user for offline mode');
+          setOfflineUserData({
+            firebaseUser: cachedUser.firebaseUser,
+            userAccount: cachedUser.userAccount
+          });
+          setIsOfflineMode(true);
+          await OfflineAuthService.startOfflineSession(cachedUser);
+        } else {
+          console.log('🔒 No valid cached user found for offline mode');
+          setIsOfflineMode(false);
+        }
+      } else if (!isOffline && isOfflineMode) {
+        console.log('🌐 Back online, ending offline mode');
+        setIsOfflineMode(false);
+        setOfflineUserData({ firebaseUser: null, userAccount: null });
+        await OfflineAuthService.endOfflineSession();
+      }
+    };
+
+    initOfflineAuth();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [isOffline, firebaseUser?.uid, isOfflineMode]); // Use firebaseUser.uid instead of firebaseUser object
+
+  // Cache user data when successfully authenticated online
+  useEffect(() => {
+    const cacheUserWhenOnline = async () => {
+      if (!isOffline && firebaseUser && userAccount) {
+        const clerkUserId = user?.id || null;
+        await OfflineAuthService.cacheUserData(firebaseUser, userAccount, clerkUserId);
+      }
+    };
+
+    cacheUserWhenOnline();
+  }, [isOffline, firebaseUser, userAccount, user?.id]);
+
   // Listen to Firebase auth state changes
   useEffect(() => {
-    const unsubscribe = onFirebaseAuthStateChanged((user) => {
+    const unsubscribe = onFirebaseAuthStateChanged(async (user) => {
       console.log('🔥 Firebase auth state changed:', { uid: user?.uid, hasUser: !!user });
       setFirebaseUser(user);
       setIsFirebaseReady(true);
@@ -59,6 +124,11 @@ export function useAuth() {
         
         // Clear tracking state so next user can be tracked properly
         lastTrackedUserIdRef.current = null;
+        
+        // Clear cached user data for security
+        await OfflineAuthService.clearCachedUser();
+        setIsOfflineMode(false);
+        setOfflineUserData({ firebaseUser: null, userAccount: null });
         
         // Reset signing out state when Firebase user is actually gone
         setIsSigningOut(false);
@@ -103,6 +173,20 @@ export function useAuth() {
       }
       
       if (isSignedIn && user && !firebaseUser && authAttempts < maxAuthAttempts) {
+        // Skip Firebase sign-in if offline and we have cached user
+        if (isOffline) {
+          console.log('🔒 Offline detected during auth, checking for cached user...');
+          const canUseOffline = await OfflineAuthService.canWorkOffline();
+          if (canUseOffline) {
+            console.log('🔐 Valid cached user found, will use offline mode');
+            return; // Let the offline auth effect handle this
+          } else {
+            console.log('🔒 No valid cached user for offline mode');
+            setAuthError('No internet connection and no cached user data. Please connect to the internet.');
+            return;
+          }
+        }
+
         try {
           setIsLoading(true);
           setAuthError(null);
@@ -119,14 +203,25 @@ export function useAuth() {
           
           console.error(`❌ Firebase sign-in failed (attempt ${nextAttempt}/${maxAuthAttempts}):`, error);
           
+          // If this is a network error and we have cached user, suggest offline mode
+          if (error instanceof Error && error.message.includes('network')) {
+            const canUseOffline = await OfflineAuthService.canWorkOffline();
+            if (canUseOffline) {
+              console.log('🔐 Network error but cached user available, will use offline mode');
+              return; // Let the offline auth effect handle this
+            }
+          }
+          
           if (nextAttempt >= maxAuthAttempts) {
-            setAuthError('Authentication failed. Please try signing out and back in.');
+            setAuthError('Authentication failed. Please check your internet connection or try signing out and back in.');
           } else {
-            // Retry after exponential backoff
-            const retryDelay = Math.min(1000 * Math.pow(2, nextAttempt - 1), 5000);
-            firebaseRetryTimeoutRef.current = setTimeout(() => {
-              signInToFirebase();
-            }, retryDelay);
+            // Retry after exponential backoff (only if online)
+            if (!isOffline) {
+              const retryDelay = Math.min(1000 * Math.pow(2, nextAttempt - 1), 5000);
+              firebaseRetryTimeoutRef.current = setTimeout(() => {
+                signInToFirebase();
+              }, retryDelay);
+            }
           }
         } finally {
           setIsLoading(false);
@@ -315,7 +410,7 @@ export function useAuth() {
             method: 'google', // TODO: Detect actual method
             userId: firebaseUser.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName,
+            userName: user?.fullName || undefined,
             isNewUser: true,
             hasExistingData: false,
             accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
@@ -325,7 +420,7 @@ export function useAuth() {
           trackFirstTimeAppOpened({
             userId: firebaseUser.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName,
+            userName: user?.fullName || undefined,
             method: 'google', // TODO: Detect actual method
             accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
           });
@@ -494,37 +589,55 @@ export function useAuth() {
 
   // Computed auth states for better navigation decisions
   const isFullyAuthenticated = isSignedIn && !!firebaseUser;
+  const isOfflineAuthenticated = isOfflineMode && !!offlineUserData.firebaseUser;
+  
+  // Effective user data (online or offline)
+  const effectiveFirebaseUser = isOfflineMode ? {
+    uid: offlineUserData.firebaseUser?.uid,
+    email: offlineUserData.firebaseUser?.email,
+    displayName: offlineUserData.firebaseUser?.displayName,
+    photoURL: offlineUserData.firebaseUser?.photoURL,
+  } : firebaseUser;
+  
+  const effectiveUserAccount = isOfflineMode ? offlineUserData.userAccount : userAccount;
   
   // Only consider auth ready when we have determined the actual auth state
   // Wait for both Firebase to be ready AND Clerk to have loaded
   // During sign out, keep auth ready to prevent white screen flash
+  // ALSO consider ready when in offline mode with valid cached user
   const isAuthReady = isClerkLoaded && isFirebaseReady && (
     // During sign out, consider auth as ready to maintain stable navigation
     isSigningOut ||
     // Either user is not signed in (confirmed by Clerk) 
-    (!isSignedIn && !firebaseUser) ||
+    (!isSignedIn && !firebaseUser && !isOfflineAuthenticated) ||
     // Or user is fully authenticated AND we've attempted to load user account
-    (isFullyAuthenticated && (!!userAccount || !userAccountLoading))
+    (isFullyAuthenticated && (!!userAccount || !userAccountLoading)) ||
+    // OR user is authenticated in offline mode
+    isOfflineAuthenticated
   );
   
   const isUserAccountReady = isFullyAuthenticated && (!!userAccount || !userAccountLoading);
 
   return {
-    // User data
+    // User data (effective - online or offline)
     user,
-    firebaseUser,
-    userAccount,
+    firebaseUser: effectiveFirebaseUser,
+    userAccount: effectiveUserAccount,
     
     // Authentication state
-    isSignedIn: isFullyAuthenticated,
+    isSignedIn: isFullyAuthenticated || isOfflineAuthenticated,
     isLoading,
     isFirebaseReady,
     isAuthReady,
     isUserAccountReady,
     userAccountLoading,
     shouldShowGetStarted,
-    needsOnboarding,
+    needsOnboarding: isOfflineMode ? false : needsOnboarding, // Don't require onboarding in offline mode
     isSigningOut,
+    
+    // Offline state
+    isOfflineMode,
+    isOfflineAuthenticated,
     
     // Error state
     authError,

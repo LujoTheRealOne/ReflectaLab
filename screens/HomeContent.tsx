@@ -5,6 +5,8 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
+import { useOfflineJournal } from '@/hooks/useOfflineJournal';
+import { useNetworkConnectivity } from '@/hooks/useNetworkConnectivity';
 import { getCoachingMessage } from '@/lib/firestore';
 import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
@@ -60,7 +62,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 type DrawerNavigation = DrawerNavigationProp<any>;
 
-type SaveStatus = 'saved' | 'saving' | 'unsaved';
+// SaveStatus is now imported from useOfflineJournal hook
 
 interface JournalEntry {
   id: string;
@@ -90,10 +92,24 @@ export default function HomeContent() {
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { firebaseUser, isFirebaseReady, getToken } = useAuth();
+  const { firebaseUser, isFirebaseReady, getToken, isOfflineMode } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
-  const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
+  const { trackMeaningfulAction } = useAnalytics();
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
+  
+  // Use offline journal hook instead of local state
+  const {
+    latestEntry,
+    saveEntry: saveEntryOffline,
+    createNewEntry: createNewEntryOffline,
+    saveStatus,
+    isOffline,
+    isSyncing,
+    syncNow,
+    pendingSyncCount,
+    isLoadingEntry
+  } = useOfflineJournal();
 
   // Get today's date as fallback
   const today = new Date();
@@ -103,9 +119,6 @@ export default function HomeContent() {
   const [entry, setEntry] = useState('');
   const [editorLoaded, setEditorLoaded] = useState(false);
   const [hasTriggeredHaptic, setHasTriggeredHaptic] = useState(false);
-  const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
-  const [isLoadingEntry, setIsLoadingEntry] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [originalContent, setOriginalContent] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -123,7 +136,6 @@ export default function HomeContent() {
   const [loadingCoachingMessage, setLoadingCoachingMessage] = useState(false);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedContentRef = useRef<string>('');
   const editorRef = useRef<EditorRef>(null);
 
   // Audio transcription hook
@@ -156,27 +168,12 @@ export default function HomeContent() {
 
   // Create a new entry
   const createNewEntry = useCallback(() => {
-    if (!firebaseUser) return;
-
-    const now = new Date();
-    const newEntry: JournalEntry = {
-      id: Crypto.randomUUID(),
-      uid: firebaseUser.uid,
-      content: '',
-      timestamp: now,
-      title: ''
-    };
-
-    // Update state to show new entry
-    setLatestEntry(newEntry);
+    createNewEntryOffline();
     setEntry('');
     setOriginalContent('');
-    lastSavedContentRef.current = '';
-    setSaveStatus('saved');
     setIsNewEntry(true);
-
-    console.log('New entry created:', newEntry.id);
-  }, [firebaseUser]);
+    console.log('New entry created (offline)');
+  }, [createNewEntryOffline]);
 
   // Handle selected entry from drawer navigation
   useEffect(() => {
@@ -184,11 +181,8 @@ export default function HomeContent() {
     const createNew = (route.params as any)?.createNew;
 
     if (selectedEntry) {
-      setLatestEntry(selectedEntry);
       setEntry(selectedEntry.content || '');
       setOriginalContent(selectedEntry.content || '');
-      lastSavedContentRef.current = selectedEntry.content || '';
-      setSaveStatus('saved');
       setIsNewEntry(false);
 
       // Clear the route params to prevent re-loading on re-renders
@@ -209,7 +203,7 @@ export default function HomeContent() {
 
   // Calculate display values based on latest entry or fallback to today
   const displayDate = (latestEntry && !isNewEntry)
-    ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
+    ? new Date(latestEntry.timestamp)
     : today;
 
   const weekday = displayDate.toLocaleDateString('en-US', { weekday: 'short' });
@@ -218,114 +212,23 @@ export default function HomeContent() {
   const year = displayDate.getFullYear();
   const formattedDate = `${weekday}, ${month} ${day}`;
 
-  // Fetch the latest journal entry
-  const fetchLatestEntry = useCallback(async () => {
-    if (!firebaseUser) {
-      setIsLoadingEntry(false);
-      return;
-    }
-
-    try {
-      const entriesQuery = query(
-        collection(db, 'journal_entries'),
-        where('uid', '==', firebaseUser.uid),
-        orderBy('timestamp', 'desc'),
-        limit(1)
-      );
-
-      const querySnapshot = await getDocs(entriesQuery);
-
-      if (!querySnapshot.empty) {
-        const doc = querySnapshot.docs[0];
-        const entryData = doc.data() as Omit<JournalEntry, 'id'>;
-        const latestEntryData = {
-          id: doc.id,
-          ...entryData
-        };
-
-        setLatestEntry(latestEntryData);
-        setEntry(latestEntryData.content || '');
-        setOriginalContent(latestEntryData.content || '');
-        lastSavedContentRef.current = latestEntryData.content || '';
-        setSaveStatus('saved');
-        setIsNewEntry(false);
-      } else {
-        setLatestEntry(null);
-        setEntry('');
-        setOriginalContent('');
-        lastSavedContentRef.current = '';
-        setSaveStatus('saved');
-        setIsNewEntry(false);
-      }
-    } catch (error) {
-      console.error('Error fetching latest entry:', error);
-      setLatestEntry(null);
+  // Sync entry content from offline journal when latestEntry changes
+  useEffect(() => {
+    if (latestEntry) {
+      setEntry(latestEntry.content || '');
+      setOriginalContent(latestEntry.content || '');
+      setIsNewEntry(!latestEntry.isSynced);
+    } else {
       setEntry('');
       setOriginalContent('');
-      lastSavedContentRef.current = '';
-      setSaveStatus('saved');
       setIsNewEntry(false);
-    } finally {
-      setIsLoadingEntry(false);
     }
-  }, [firebaseUser]);
+  }, [latestEntry]);
 
-  // Save entry to database
+  // Save entry using offline journal
   const saveEntry = useCallback(async (content: string) => {
-    if (!firebaseUser) return;
-
-    try {
-      setSaveStatus('saving');
-
-      if (latestEntry && !isNewEntry) {
-        // Update existing entry
-        const entryRef = doc(db, 'journal_entries', latestEntry.id);
-        await updateDoc(entryRef, {
-          content,
-          lastUpdated: serverTimestamp()
-        });
-
-        // Track journal entry update (for all entries, regardless of size)
-        trackEntryUpdated({
-          entry_id: latestEntry.id,
-          content_length: content.length,
-        });
-      } else {
-        // Create new entry in database using the pre-generated ID
-        const entryId = latestEntry?.id || Crypto.randomUUID();
-        const newEntry = {
-          uid: firebaseUser.uid,
-          content,
-          timestamp: serverTimestamp(),
-          lastUpdated: serverTimestamp()
-        };
-
-        const docRef = doc(db, 'journal_entries', entryId);
-        await setDoc(docRef, newEntry);
-
-        // Track journal entry creation (for all entries, regardless of size)
-        trackEntryCreated({
-          entry_id: entryId,
-        });
-
-        // Update local state with new entry info from database (keep the same ID)
-        setLatestEntry({
-          id: entryId,
-          uid: firebaseUser.uid,
-          content,
-          timestamp: new Date(),
-          title: ''
-        });
-        setIsNewEntry(false);
-      }
-
-      lastSavedContentRef.current = content;
-      setSaveStatus('saved');
-    } catch (error) {
-      console.error('Error saving entry:', error);
-      setSaveStatus('unsaved');
-    }
-  }, [firebaseUser, latestEntry, isNewEntry]);
+    await saveEntryOffline(content, isNewEntry);
+  }, [saveEntryOffline, isNewEntry]);
 
   // Handle content changes with debounced save
   const handleContentChange = useCallback((newContent: string) => {
@@ -337,68 +240,32 @@ export default function HomeContent() {
     }
 
     // Check if content has actually changed
-    if (newContent === lastSavedContentRef.current) {
-      setSaveStatus('saved');
+    if (newContent === originalContent) {
       return;
     }
-
-    // Set status to unsaved immediately
-    setSaveStatus('unsaved');
 
     // Set new timeout for auto-save
     saveTimeoutRef.current = setTimeout(() => {
       saveEntry(newContent);
     }, 2000); // 2 seconds delay
-  }, [saveEntry]);
+  }, [saveEntry, originalContent]);
 
-  // Track journal entries when save status changes to 'saved' (debounced)
-  const lastTrackedContentRef = useRef('');
-  const trackingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  // Track meaningful actions when entries are saved
   useEffect(() => {
-    if (saveStatus === 'saved' && lastSavedContentRef.current.length >= 200 && 
-        lastSavedContentRef.current !== lastTrackedContentRef.current) {
-      
-      // Clear any existing tracking timeout
-      if (trackingTimeoutRef.current) {
-        clearTimeout(trackingTimeoutRef.current);
-      }
-      
-      // Debounce tracking to avoid rapid fire events
-      trackingTimeoutRef.current = setTimeout(() => {
-        const content = lastSavedContentRef.current;
-        const entryId = latestEntry?.id || 'unknown';
-        
-        // Track meaningful action for substantial journal entries
-        trackMeaningfulAction({
-          action_type: 'journal_entry',
-          session_id: entryId,
-          content_length: content.length,
-        });
-        
-        // Track entry created or updated (less frequent)
-        if (isNewEntry || !latestEntry) {
-          trackEntryCreated({ entry_id: entryId });
-        } else {
-          trackEntryUpdated({
-            entry_id: entryId,
-            content_length: content.length,
-          });
-        }
-        
-        lastTrackedContentRef.current = content;
-      }, 500); // 500ms delay to debounce tracking
+    if (saveStatus === 'saved' && entry.length >= 200) {
+      trackMeaningfulAction({
+        action_type: 'journal_entry',
+        session_id: latestEntry?.id || 'unknown',
+        content_length: entry.length,
+      });
     }
-  }, [saveStatus]);
+  }, [saveStatus, entry.length, latestEntry?.id, trackMeaningfulAction]);
 
   // Clean up timeouts on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
-      }
-      if (trackingTimeoutRef.current) {
-        clearTimeout(trackingTimeoutRef.current);
       }
     };
   }, []);
@@ -441,12 +308,7 @@ export default function HomeContent() {
     };
   }, []);
 
-  // Fetch latest entry when Firebase is ready
-  useEffect(() => {
-    if (isFirebaseReady) {
-      fetchLatestEntry();
-    }
-  }, [fetchLatestEntry, isFirebaseReady]);
+  // Initialize when Firebase is ready - offline journal hook handles data loading
 
   // Initialize microphone button position
   useEffect(() => {
@@ -600,6 +462,8 @@ export default function HomeContent() {
   // Get save status icon
   const getSaveStatusIcon = () => {
     const iconColor = colorScheme === 'dark' ? '#ffffff' : '#000000';
+    const offlineColor = '#FFA500'; // Orange for offline
+    const syncFailedColor = '#FF6B6B'; // Red for sync failed
     const iconOpacity = colorScheme === 'dark' ? 0.8 : 0.8;
     
     // Show draft icon when we have a new entry with no content
@@ -609,6 +473,7 @@ export default function HomeContent() {
 
     switch (saveStatus) {
       case 'saving':
+      case 'syncing':
         return (
           <Animated.View style={spinnerAnimatedStyle}>
             <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
@@ -620,6 +485,10 @@ export default function HomeContent() {
             <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
           </Animated.View>
         );
+      case 'offline':
+        return <Check size={18} color={offlineColor} style={{ opacity: iconOpacity }} />;
+      case 'sync_failed':
+        return <Check size={18} color={syncFailedColor} style={{ opacity: iconOpacity }} />;
       case 'saved':
       default:
         return <Check size={18} color={iconColor} style={{ opacity: iconOpacity }} />;
@@ -800,7 +669,27 @@ export default function HomeContent() {
                         <Plus size={20} color={colors.text} style={{ opacity: 0.6 }} />
                       </TouchableOpacity>
                     </View>
-                    <View style={{ marginTop: 10, marginRight: 5, alignItems: 'flex-end' }}>
+                    <View style={{ marginTop: 10, marginRight: 5, alignItems: 'flex-end', flexDirection: 'row', gap: 8 }}>
+                      {/* Offline/Sync Status Indicator */}
+                      {(isOffline || pendingSyncCount > 0 || isSyncing) && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          {isOffline && (
+                            <Text style={{ fontSize: 12, color: '#FFA500', fontWeight: '500' }}>
+                              Offline
+                            </Text>
+                          )}
+                          {!isOffline && pendingSyncCount > 0 && (
+                            <Text style={{ fontSize: 12, color: '#FFA500', fontWeight: '500' }}>
+                              {pendingSyncCount} pending
+                            </Text>
+                          )}
+                          {isSyncing && (
+                            <Text style={{ fontSize: 12, color: '#2196F3', fontWeight: '500' }}>
+                              Syncing...
+                            </Text>
+                          )}
+                        </View>
+                      )}
                       {getSaveStatusIcon()}
                     </View>
                   </View>
@@ -897,54 +786,61 @@ export default function HomeContent() {
                 }
               ]}>
                 <View style={[styles.buttonGroup, { gap: 8 }]}>
-                  {/* Settings Button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconOnly={
-                      <AlignLeft
-                        size={20}
-                        color={`${colors.tint}99`}
-                      />
-                    }
-                    style={{ width: 40, height: 40 }}
-                    onPress={() => {
-                      navigation.openDrawer();
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconOnly={
-                      <Settings2
-                        size={20}
-                        color={`${colors.tint}99`}
-                      />
-                    }
-                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => {
-                      navigation.navigate('Settings' as never);
-                    }}
-                  />
-                  {/* Enter Coach Mode Button */}
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    iconOnly={<MessageCircle size={20} color={colors.background} />}
-                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={async () => {
-                      if (!initialized) return; // Wait for RevenueCat init
-                      
-                      if (!isPro) {
-                        const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-                        console.log('🎤 Coaching access Pro check:', unlocked ? 'unlocked' : 'cancelled');
-                        if (!unlocked) return; // Don't navigate if paywall was cancelled
+                  {/* Settings Button - Hidden in offline mode */}
+                  {!isOfflineMode && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconOnly={
+                        <AlignLeft
+                          size={20}
+                          color={`${colors.tint}99`}
+                        />
                       }
-                      
-                      navigation.navigate('Coaching' as never);
-                    }}
-                  >
-                  </Button>
+                      style={{ width: 40, height: 40 }}
+                      onPress={() => {
+                        navigation.openDrawer();
+                      }}
+                    />
+                  )}
+                  {/* Settings Button - Hidden in offline mode */}
+                  {!isOfflineMode && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconOnly={
+                        <Settings2
+                          size={20}
+                          color={`${colors.tint}99`}
+                        />
+                      }
+                      style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
+                      onPress={() => {
+                        navigation.navigate('Settings' as never);
+                      }}
+                    />
+                  )}
+                  {/* Enter Coach Mode Button - Hidden in offline mode */}
+                  {!isOfflineMode && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      iconOnly={<MessageCircle size={20} color={colors.background} />}
+                      style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
+                      onPress={async () => {
+                        if (!initialized) return; // Wait for RevenueCat init
+                        
+                        if (!isPro) {
+                          const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+                          console.log('🎤 Coaching access Pro check:', unlocked ? 'unlocked' : 'cancelled');
+                          if (!unlocked) return; // Don't navigate if paywall was cancelled
+                        }
+                        
+                        navigation.navigate('Coaching' as never);
+                      }}
+                    >
+                    </Button>
+                  )}
                 </View>
               </View>
             )}

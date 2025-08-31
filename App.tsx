@@ -7,6 +7,7 @@ import { PostHogProvider } from 'posthog-react-native'
 import { NetworkStatusModal } from './components/NetworkStatusModal';
 import { useNetworkConnectivity } from './hooks/useNetworkConnectivity';
 import { useAnalytics } from './hooks/useAnalytics';
+import { useAuth as useAppAuth } from './hooks/useAuth';
 import Navigation from './navigation';
 import { StatusBar, useColorScheme, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -29,6 +30,7 @@ function AppContent() {
   const { isLoaded } = useAuth();
   const networkState = useNetworkConnectivity();
   const { trackAppOpened } = useAnalytics();
+  const { isOfflineMode, isOfflineAuthenticated } = useAppAuth();
 
   useEffect(() => {
     // Only hide splash screen when Clerk auth is fully loaded
@@ -63,8 +65,21 @@ function AppContent() {
     return () => subscription?.remove();
   }, [trackAppOpened]);
 
-  // Show offline modal if there's no internet connection
+  // Show offline modal only if there's no internet connection AND no valid offline authentication
   const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
+  const shouldShowOfflineModal = isOffline && !isOfflineAuthenticated && !isOfflineMode;
+
+  // Debug log for offline state
+  useEffect(() => {
+    console.log('🔍 App offline state debug:', {
+      isOffline,
+      isOfflineAuthenticated,
+      isOfflineMode,
+      shouldShowOfflineModal,
+      networkConnected: networkState.isConnected,
+      internetReachable: networkState.isInternetReachable
+    });
+  }, [isOffline, isOfflineAuthenticated, isOfflineMode, shouldShowOfflineModal, networkState]);
 
   return (
     <>
@@ -81,7 +96,7 @@ function AppContent() {
         <Navigation />
       </PostHogProvider>
       <NetworkStatusModal
-        visible={isOffline}
+        visible={shouldShowOfflineModal}
       />
     </>
   );

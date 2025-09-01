@@ -47,12 +47,41 @@ export function useAuth() {
 
   // Check if we're offline
   const isOffline = !isConnected || !isInternetReachable;
+  
+  // Debug network state
+  useEffect(() => {
+    console.log('🌐 Network state:', { isConnected, isInternetReachable, isOffline });
+  }, [isConnected, isInternetReachable, isOffline]);
 
   // Offline authentication state
   const [offlineUserData, setOfflineUserData] = useState<{
     firebaseUser: any | null;
     userAccount: UserAccount | null;
   }>({ firebaseUser: null, userAccount: null });
+
+  // Early offline check on app start
+  useEffect(() => {
+    const earlyOfflineCheck = async () => {
+      console.log('🔒 Early offline check...', { isOffline, isOfflineMode, hasFirebaseUser: !!firebaseUser });
+      if (isOffline && !isOfflineMode && !firebaseUser) {
+        console.log('🔒 Offline detected, checking for cached user...');
+        const cachedUser = await OfflineAuthService.verifyCachedUser();
+        if (cachedUser) {
+          console.log('🔐 Early offline mode activation');
+          setOfflineUserData({
+            firebaseUser: cachedUser.firebaseUser,
+            userAccount: cachedUser.userAccount
+          });
+          setIsOfflineMode(true);
+          await OfflineAuthService.startOfflineSession(cachedUser);
+        } else {
+          console.log('🔒 No cached user found for offline mode');
+        }
+      }
+    };
+    
+    earlyOfflineCheck();
+  }, []); // Run only once on mount
 
   // Initialize offline authentication if needed (with proper dependency control)
   useEffect(() => {
@@ -61,7 +90,7 @@ export function useAuth() {
     const initOfflineAuth = async () => {
       if (!isMounted) return;
       
-      if (isOffline && !firebaseUser && !isOfflineMode) {
+      if (isOffline && !isOfflineMode) {
         console.log('🔒 Offline detected, checking for cached user...');
         const cachedUser = await OfflineAuthService.verifyCachedUser();
         
@@ -92,7 +121,7 @@ export function useAuth() {
     return () => {
       isMounted = false;
     };
-  }, [isOffline, firebaseUser?.uid, isOfflineMode]); // Use firebaseUser.uid instead of firebaseUser object
+  }, [isOffline, isOfflineMode]); // Removed firebaseUser dependency to prevent circular logic
 
   // Cache user data when successfully authenticated online
   useEffect(() => {
@@ -605,16 +634,27 @@ export function useAuth() {
   // Wait for both Firebase to be ready AND Clerk to have loaded
   // During sign out, keep auth ready to prevent white screen flash
   // ALSO consider ready when in offline mode with valid cached user
-  const isAuthReady = isClerkLoaded && isFirebaseReady && (
-    // During sign out, consider auth as ready to maintain stable navigation
-    isSigningOut ||
-    // Either user is not signed in (confirmed by Clerk) 
-    (!isSignedIn && !firebaseUser && !isOfflineAuthenticated) ||
-    // Or user is fully authenticated AND we've attempted to load user account
-    (isFullyAuthenticated && (!!userAccount || !userAccountLoading)) ||
-    // OR user is authenticated in offline mode
-    isOfflineAuthenticated
+  const isAuthReady = (
+    // AGGRESSIVE: If offline and we have any cached user data, consider ready
+    (isOffline && isFirebaseReady) ||
+    // In offline mode with cached user, consider ready immediately
+    (isOffline && !!offlineUserData.firebaseUser) ||
+    // In offline mode, don't wait for Clerk to load
+    (isOfflineMode && isOfflineAuthenticated) ||
+    // Normal online mode: wait for both Clerk and Firebase
+    (isClerkLoaded && isFirebaseReady && (
+      // During sign out, consider auth as ready to maintain stable navigation
+      isSigningOut ||
+      // Either user is not signed in (confirmed by Clerk) 
+      (!isSignedIn && !firebaseUser && !isOfflineAuthenticated) ||
+      // Or user is fully authenticated AND we've attempted to load user account
+      (isFullyAuthenticated && (!!userAccount || !userAccountLoading)) ||
+      // OR user is authenticated in offline mode
+      isOfflineAuthenticated
+    ))
   );
+
+
   
   const isUserAccountReady = isFullyAuthenticated && (!!userAccount || !userAccountLoading);
 

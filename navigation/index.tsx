@@ -100,7 +100,7 @@ export default function Navigation() {
   // Determine navigation route - force auth flow during sign out
   // CRITICAL: If user has progress at OnboardingChat (step 17), ALWAYS show auth flow
   const hasOnboardingChatProgress = onboardingProgress && onboardingProgress.currentStep === 17 && !onboardingProgress.completedAt;
-  const shouldShowAuthFlow = !isSignedIn || needsOnboarding || isSigningOut || hasOnboardingChatProgress;
+  const shouldShowAuthFlow = (!isSignedIn && !isOfflineAuthenticated) || needsOnboarding || isSigningOut || hasOnboardingChatProgress;
   
   // Determine initial route: Offline mode gets special treatment
   let initialRouteName: string;

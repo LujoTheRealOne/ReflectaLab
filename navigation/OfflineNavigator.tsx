@@ -1,11 +1,17 @@
+import { createDrawerNavigator } from '@react-navigation/drawer';
 import React, { createContext, useContext, useState } from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Wifi, WifiOff } from 'lucide-react-native';
+import { useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { Colors } from '@/constants/Colors';
-import { CurrentEntryContextType } from '@/types';
 import HomeContent from '@/screens/HomeContent';
+import JournalDrawer from '@/components/JournalDrawer';
+
+// Use the same context structure as HomeScreen to ensure compatibility
+interface CurrentEntryContextType {
+  currentEntryId: string | null;
+  setCurrentEntryId: (id: string | null) => void;
+}
 
 const CurrentEntryContext = createContext<CurrentEntryContextType | undefined>(undefined);
 
@@ -17,93 +23,43 @@ export const useCurrentEntry = () => {
   return context;
 };
 
+export type OfflineDrawerParamList = {
+  HomeContent: undefined;
+};
+
+const Drawer = createDrawerNavigator<OfflineDrawerParamList>();
+
+// Offline Journal Drawer - same as regular drawer
+function OfflineJournalDrawer(props: any) {
+  return <JournalDrawer {...props} />;
+}
+
 export default function OfflineNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
 
   return (
-    <SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <CurrentEntryContext.Provider value={{ currentEntryId, setCurrentEntryId }}>
-        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-          {/* Offline Mode Header */}
-          <View style={[styles.offlineHeader, { backgroundColor: colors.background, borderBottomColor: colors.text + '20' }]}>
-            <View style={styles.offlineIndicator}>
-              <WifiOff size={20} color="#FFA500" />
-              <Text style={[styles.offlineText, { color: colors.text }]}>
-                Offline Mode
-              </Text>
-            </View>
-            <Text style={[styles.offlineSubtext, { color: colors.text }]}>
-              Internet yok - Sadece journal kullanılabilir
-            </Text>
-          </View>
-
-          {/* Journal Content */}
-          <View style={styles.content}>
-            <HomeContent />
-          </View>
-
-          {/* Bottom Info Bar */}
-          <View style={[styles.bottomBar, { backgroundColor: colors.background, borderTopColor: colors.text + '20' }]}>
-            <View style={styles.infoRow}>
-              <View style={styles.statusDot} />
-              <Text style={[styles.bottomText, { color: colors.text }]}>
-                Yazılarınız offline kaydediliyor. İnternet bağlantısı geldiğinde otomatik senkronize edilecek.
-              </Text>
-            </View>
-          </View>
-        </SafeAreaView>
+        <Drawer.Navigator
+          screenOptions={{
+            headerShown: false,
+            drawerType: 'back',
+            drawerStyle: {
+              width: '80%',
+              backgroundColor: colors.background,
+            },
+            overlayColor: 'rgba(0, 0, 0, 0.3)',
+            swipeEdgeWidth: 50,
+          }}
+          drawerContent={(props) => <OfflineJournalDrawer {...props} />}
+        >
+          <Drawer.Screen name="HomeContent" component={HomeContent} />
+        </Drawer.Navigator>
       </CurrentEntryContext.Provider>
-    </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  offlineHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  offlineIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  offlineText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  offlineSubtext: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  content: {
-    flex: 1,
-  },
-  bottomBar: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFA500',
-  },
-  bottomText: {
-    fontSize: 12,
-    opacity: 0.8,
-    flex: 1,
-  },
-});
+

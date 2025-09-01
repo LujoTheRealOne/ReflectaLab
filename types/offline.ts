@@ -99,6 +99,7 @@ export interface UseOfflineJournalReturn {
   latestEntry: OfflineJournalEntry | null;
   saveEntry: (content: string, isNewEntry?: boolean) => Promise<void>;
   createNewEntry: () => void;
+  forceSave: (content: string) => Promise<void>; // Force immediate save
   
   // Status
   saveStatus: SaveStatus;

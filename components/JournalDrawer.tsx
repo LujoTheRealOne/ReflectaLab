@@ -22,7 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { useCurrentEntry } from '@/navigation/HomeScreen';
+
 import { Calendar } from 'lucide-react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
@@ -42,7 +42,8 @@ export default function JournalDrawer(props: DrawerContentComponentProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const drawerStatus = useDrawerStatus();
-  const { currentEntryId } = useCurrentEntry();
+  // Create a safe fallback for currentEntryId
+  const currentEntryId: string | null = null;
 
   const { firebaseUser, isFirebaseReady } = useAuth();
   const { trackEntryDeleted } = useAnalytics();

@@ -33,23 +33,23 @@ function AppContent() {
   const { isOfflineMode, isOfflineAuthenticated } = useAppAuth();
 
   useEffect(() => {
-    // Only hide splash screen when Clerk auth is fully loaded
-    if (isLoaded) {
+    // Hide splash screen when Clerk auth is loaded OR when offline mode is active
+    if (isLoaded || (isOfflineMode && isOfflineAuthenticated)) {
       // Small delay to ensure smooth transition
       setTimeout(() => {
         SplashScreen.hideAsync();
       }, 500);
     }
-  }, [isLoaded]);
+  }, [isLoaded, isOfflineMode, isOfflineAuthenticated]);
 
-  // Track app opened when the app loads
+  // Track app opened when the app loads (online or offline)
   useEffect(() => {
-    if (isLoaded) {
+    if (isLoaded || (isOfflineMode && isOfflineAuthenticated)) {
       trackAppOpened({
         source: 'app_launch',
       });
     }
-  }, [isLoaded, trackAppOpened]);
+  }, [isLoaded, isOfflineMode, isOfflineAuthenticated, trackAppOpened]);
 
   // Track app state changes (foreground/background)
   useEffect(() => {
@@ -67,7 +67,7 @@ function AppContent() {
 
   // Show offline modal only if there's no internet connection AND no valid offline authentication
   const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
-  const shouldShowOfflineModal = isOffline && !isOfflineAuthenticated && !isOfflineMode;
+  const shouldShowOfflineModal = isOffline && !isOfflineAuthenticated;
 
   // Debug log for offline state
   useEffect(() => {

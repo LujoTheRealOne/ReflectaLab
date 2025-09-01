@@ -17,6 +17,7 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
   const [isLoadingEntry, setIsLoadingEntry] = useState(true);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [isCreatingNewEntry, setIsCreatingNewEntry] = useState(false);
   
   // Refs
   const lastSavedContentRef = useRef<string>('');
@@ -39,7 +40,7 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
 
   // Load latest entry from offline storage
   const loadLatestEntry = useCallback(async () => {
-    if (!firebaseUser?.uid) {
+    if (!firebaseUser?.uid || isCreatingNewEntry) {
       setIsLoadingEntry(false);
       return;
     }
@@ -65,7 +66,7 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
     } finally {
       setIsLoadingEntry(false);
     }
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, isCreatingNewEntry]);
 
   // Save entry to offline storage with debouncing
   const saveEntry = useCallback(async (content: string, isNewEntry: boolean = false) => {
@@ -79,13 +80,33 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
       return;
     }
 
+    // Clear existing timeout
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+
+    // Debounce save operations (except for new entries)
+    if (!isNewEntry) {
+      setSaveStatus('saving');
+      syncTimeoutRef.current = setTimeout(async () => {
+        await performSave(content, isNewEntry);
+      }, 200); // 200ms debounce - very fast
+      return;
+    }
+
+    // Save immediately for new entries
+    await performSave(content, isNewEntry);
+  }, [firebaseUser?.uid, latestEntry?.id, isOffline, trackEntryCreated, trackEntryUpdated, updateSyncStats]);
+
+  // Actual save function
+  const performSave = useCallback(async (content: string, isNewEntry: boolean = false) => {
     try {
       setSaveStatus('saving');
       
       // Prepare entry data
       const entryData: Partial<JournalEntry> = {
         id: latestEntry?.id,
-        uid: firebaseUser.uid,
+        uid: firebaseUser?.uid,
         content,
         timestamp: latestEntry?.timestamp ? new Date(latestEntry.timestamp) : new Date(),
         title: latestEntry?.title || ''
@@ -149,10 +170,16 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
 
   // Create new entry
   const createNewEntry = useCallback(() => {
+    setIsCreatingNewEntry(true);
     setLatestEntry(null);
     lastSavedContentRef.current = '';
     setSaveStatus('unsaved');
     console.log('📝 Created new entry');
+    
+    // Reset flag after a short delay
+    setTimeout(() => {
+      setIsCreatingNewEntry(false);
+    }, 100);
   }, []);
 
   // Sync to Firestore
@@ -263,11 +290,23 @@ export function useOfflineJournal(): UseOfflineJournalReturn {
     };
   }, []);
 
+  // Force save current content immediately (for app state changes)
+  const forceSave = useCallback(async (content: string) => {
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+    if (content && content !== lastSavedContentRef.current) {
+      await performSave(content, false);
+    }
+  }, [performSave]);
+
   return {
     // Entry management
     latestEntry,
     saveEntry,
     createNewEntry,
+    forceSave, // New function for immediate save
     
     // Status
     saveStatus,

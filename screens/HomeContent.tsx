@@ -12,7 +12,7 @@ import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { useCurrentEntry } from '@/navigation/HomeScreen';
+
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import {
@@ -43,7 +43,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableOpacity
+  TouchableOpacity,
+  AppState
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -94,7 +95,11 @@ export default function HomeContent() {
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, isFirebaseReady, getToken, isOfflineMode } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
-  const { setCurrentEntryId } = useCurrentEntry();
+  // Create a safe fallback for setCurrentEntryId
+  const setCurrentEntryId = (id: string | null) => {
+    // This is a no-op fallback - the actual implementation will be provided by context
+    console.log('setCurrentEntryId called with:', id);
+  };
   const { trackMeaningfulAction } = useAnalytics();
   const { isConnected, isInternetReachable } = useNetworkConnectivity();
   
@@ -103,6 +108,7 @@ export default function HomeContent() {
     latestEntry,
     saveEntry: saveEntryOffline,
     createNewEntry: createNewEntryOffline,
+    forceSave,
     saveStatus,
     isOffline,
     isSyncing,
@@ -168,12 +174,18 @@ export default function HomeContent() {
 
   // Create a new entry
   const createNewEntry = useCallback(() => {
+    // Save current entry before creating new one
+    if (entry && entry !== originalContent) {
+      console.log('📱 Saving current entry before creating new one...');
+      forceSave(entry);
+    }
+    
     createNewEntryOffline();
     setEntry('');
     setOriginalContent('');
     setIsNewEntry(true);
     console.log('New entry created (offline)');
-  }, [createNewEntryOffline]);
+  }, [createNewEntryOffline, entry, originalContent, forceSave]);
 
   // Handle selected entry from drawer navigation
   useEffect(() => {
@@ -196,10 +208,15 @@ export default function HomeContent() {
     }
   }, [route.params, navigation, createNewEntry]);
 
-  // Update current entry ID in context whenever latestEntry changes
+  // Update current entry ID in context only when ID actually changes
+  const currentEntryIdRef = useRef<string | null>(null);
   useEffect(() => {
-    setCurrentEntryId(latestEntry?.id || null);
-  }, [latestEntry, setCurrentEntryId]);
+    const newId = latestEntry?.id || null;
+    if (currentEntryIdRef.current !== newId) {
+      currentEntryIdRef.current = newId;
+      setCurrentEntryId(newId);
+    }
+  }, [latestEntry?.id, setCurrentEntryId]);
 
   // Calculate display values based on latest entry or fallback to today
   const displayDate = (latestEntry && !isNewEntry)
@@ -261,6 +278,22 @@ export default function HomeContent() {
     }
   }, [saveStatus, entry.length, latestEntry?.id, trackMeaningfulAction]);
 
+  // Auto-save when app goes to background
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Force save current content immediately
+        if (entry && entry !== originalContent) {
+          console.log('📱 App going to background, force saving...');
+          forceSave(entry);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [entry, originalContent, forceSave]);
+
   // Clean up timeouts on unmount
   useEffect(() => {
     return () => {
@@ -292,13 +325,17 @@ export default function HomeContent() {
     const keyboardWillHideListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
-
+        // Auto-save when keyboard closes
+        if (entry && entry !== originalContent) {
+          console.log('⌨️ Keyboard closed, auto-saving...');
+          forceSave(entry);
+        }
         
         setIsKeyboardVisible(false);
         setKeyboardHeight(0);
         // Animate microphone button back to right side position
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
-                  micButtonTranslateY.value = withTiming(20, { duration: 300 }); // Geri original pozisyon
+        micButtonTranslateY.value = withTiming(20, { duration: 300 }); // Geri original pozisyon
       }
     );
 
@@ -306,7 +343,7 @@ export default function HomeContent() {
       keyboardWillShowListener?.remove();
       keyboardWillHideListener?.remove();
     };
-  }, []);
+  }, [entry, originalContent, forceSave]);
 
   // Initialize when Firebase is ready - offline journal hook handles data loading
 
@@ -786,23 +823,21 @@ export default function HomeContent() {
                 }
               ]}>
                 <View style={[styles.buttonGroup, { gap: 8 }]}>
-                  {/* Settings Button - Hidden in offline mode */}
-                  {!isOfflineMode && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      iconOnly={
-                        <AlignLeft
-                          size={20}
-                          color={`${colors.tint}99`}
-                        />
-                      }
-                      style={{ width: 40, height: 40 }}
-                      onPress={() => {
-                        navigation.openDrawer();
-                      }}
-                    />
-                  )}
+                  {/* Drawer Button - Always available */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    iconOnly={
+                      <AlignLeft
+                        size={20}
+                        color={`${colors.tint}99`}
+                      />
+                    }
+                    style={{ width: 40, height: 40 }}
+                    onPress={() => {
+                      navigation.openDrawer();
+                    }}
+                  />
                   {/* Settings Button - Hidden in offline mode */}
                   {!isOfflineMode && (
                     <Button

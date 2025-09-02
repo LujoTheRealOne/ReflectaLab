@@ -20,13 +20,15 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
+import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, Star } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, Star, RotateCcw, Compass } from 'lucide-react-native';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { FirestoreService } from '@/lib/firestore';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -50,6 +52,9 @@ export default function SettingsScreen() {
     restorePurchases,
     activeEntitlementIds 
   } = useRevenueCat(firebaseUser?.uid);
+  
+  // Onboarding progress hook
+  const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -317,6 +322,90 @@ export default function SettingsScreen() {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Disconnect', style: 'destructive', onPress: () => { } }
+      ]
+    );
+  };
+
+  const handleResetOnboarding = () => {
+    Alert.alert(
+      'Reset Onboarding',
+      'Are you sure you want to reset your onboarding? This will clear all your onboarding progress and you will need to complete the onboarding process again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🔄 Settings - Resetting onboarding progress...');
+              
+              // Clear AsyncStorage onboarding progress
+              await clearOnboardingProgress();
+              console.log('✅ Settings - AsyncStorage onboarding progress cleared');
+              
+              // Clear Firebase onboarding completion status
+              if (firebaseUser?.uid) {
+                console.log('🔄 Settings - Resetting Firebase onboarding status...');
+                await FirestoreService.updateUserAccount(firebaseUser.uid, {
+                  onboardingData: {
+                    onboardingCompleted: false,
+                    onboardingCompletedAt: 0,
+                    whatDoYouDoInLife: [],
+                    selfReflectionPracticesTried: [],
+                    clarityInLife: 0,
+                    stressInLife: 0,
+                  },
+                  updatedAt: new Date(),
+                });
+                console.log('✅ Settings - Firebase onboarding status reset');
+              }
+              
+              Alert.alert(
+                'Onboarding Reset',
+                'Your onboarding has been reset successfully. Please restart the app to go through the onboarding process again.',
+                [{ text: 'OK', style: 'default' }]
+              );
+            } catch (error) {
+              console.error('❌ Settings - Error resetting onboarding:', error);
+              Alert.alert('Error', 'Failed to reset onboarding. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleResetCompass = () => {
+    Alert.alert(
+      'Reset Life Compass',
+      'Are you sure you want to reset your Life Compass? This will permanently delete all your compass insights including Main Focus, Key Blockers, and Your Plan. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🧭 Settings - Resetting compass insights...');
+              
+              if (firebaseUser?.uid) {
+                await FirestoreService.deleteUserInsights(firebaseUser.uid);
+                console.log('✅ Settings - Compass insights deleted successfully');
+                
+                Alert.alert(
+                  'Compass Reset',
+                  'Your Life Compass has been reset successfully. New insights will be generated as you continue journaling and coaching.',
+                  [{ text: 'OK', style: 'default' }]
+                );
+              } else {
+                throw new Error('User not authenticated');
+              }
+            } catch (error) {
+              console.error('❌ Settings - Error resetting compass:', error);
+              Alert.alert('Error', 'Failed to reset compass. Please try again.');
+            }
+          }
+        }
       ]
     );
   };
@@ -753,6 +842,24 @@ export default function SettingsScreen() {
               }}
             >
               App Information
+            </Button>
+            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
+            <Button
+              variant="ghost"
+              iconLeft={<RotateCcw size={20} color={colors.text} />}
+              style={styles.infoButton}
+              onPress={handleResetOnboarding}
+            >
+              Reset Onboarding
+            </Button>
+            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
+            <Button
+              variant="ghost"
+              iconLeft={<Compass size={20} color={colors.text} />}
+              style={styles.infoButton}
+              onPress={handleResetCompass}
+            >
+              Reset Life Compass
             </Button>
           </View>
           <Button

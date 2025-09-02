@@ -5,6 +5,93 @@ This file records all important changes and implementations made by the LLM assi
 
 *This log file should be updated after every significant LLM implementation.*
 
+## 2025-01-27
+
+- **Added Onboarding Reset Feature to Settings**: Implemented functionality to allow users to reset their onboarding progress and go through the onboarding process again:
+  * **Settings Screen Enhancement**: Added new "Reset Onboarding" button to the "More Information" section:
+    - Added RotateCcw icon from lucide-react-native for visual clarity
+    - Positioned button in the information section alongside Privacy Policy, Terms of Service, and App Information
+    - Maintains consistent styling with other info buttons using ghost variant
+  * **Reset Functionality**: Implemented `handleResetOnboarding()` function with proper user confirmation:
+    - Shows confirmation alert explaining the consequences of resetting onboarding
+    - Uses destructive style for the reset action to indicate permanent change
+    - Calls `clearOnboardingProgress()` from useOnboardingProgress hook to clear AsyncStorage
+    - Shows success confirmation after reset completion
+    - Includes proper error handling with user-friendly error messages
+  * **Integration with Existing System**: Leverages existing onboarding infrastructure:
+    - Uses `useOnboardingProgress` hook's `clearProgress` function
+    - Removes onboarding data from AsyncStorage (@onboarding_progress key)
+    - App will automatically detect missing onboarding progress on next launch
+    - User will be redirected through complete onboarding flow again
+  * **User Experience**: Clear communication about what the reset does:
+    - Explains that all onboarding progress will be cleared
+    - Informs user they'll need to complete onboarding again
+    - Provides confirmation that reset was successful
+    - Maintains app stability - no immediate navigation changes required
+  * **CRITICAL FIX - Complete Reset Implementation**: Fixed the reset functionality to clear both AsyncStorage AND Firebase onboarding status:
+    - **Issue**: Initial implementation only cleared AsyncStorage but Firebase still had `onboardingCompleted: true`
+    - **Root Cause**: App navigation logic checks Firebase user account data (`useAuth.ts` line 195) for onboarding completion status
+    - **Solution**: Updated `handleResetOnboarding()` to also reset Firebase onboarding data:
+      - Calls `FirestoreService.updateUserAccount()` to set `onboardingCompleted: false`
+      - Resets all onboarding data fields to default values (empty arrays, 0 values)
+      - Updates `updatedAt` timestamp for proper data consistency
+    - **Complete Reset Flow**: Now properly clears both local (AsyncStorage) and server (Firebase) onboarding state
+    - **User Guidance**: Updated success message to recommend app restart for clean onboarding experience
+
+- **Added Life Compass Reset Feature to Settings**: Implemented functionality to allow users to reset their compass insights and start fresh:
+  * **Settings Screen Enhancement**: Added new "Reset Life Compass" button to the "More Information" section:
+    - Added Compass icon from lucide-react-native for visual clarity
+    - Positioned alongside other reset/utility options (Reset Onboarding, App Information)
+    - Maintains consistent styling with other info buttons using ghost variant
+  * **Compass Reset Functionality**: Implemented `handleResetCompass()` function with proper user confirmation:
+    - Shows detailed confirmation alert explaining permanent deletion of all compass data
+    - Uses destructive style to indicate irreversible action
+    - Calls new `FirestoreService.deleteUserInsights()` method to remove all insights
+    - Shows success confirmation after deletion completion
+    - Includes proper error handling with user-friendly error messages
+  * **Backend Support**: Added `deleteUserInsights()` method to FirestoreService:
+    - Queries `userInsights` collection for all documents belonging to the user
+    - Deletes all insights documents using batch Promise.all() for efficiency
+    - Includes proper error handling and logging
+    - Returns meaningful error messages for UI handling
+  * **Data Management**: Complete removal of compass insights data:
+    - Deletes all user insights from Firestore `userInsights` collection
+    - Removes Main Focus, Key Blockers, and Plan data permanently
+    - Real-time listeners automatically update UI to reflect empty state
+    - New insights will be generated as user continues journaling and coaching
+  * **User Experience**: Clear communication about compass reset consequences:
+    - Explains that all compass insights will be permanently deleted
+    - Warns that action cannot be undone
+    - Informs user that new insights will be generated through future activity
+    - Provides confirmation that reset was successful
+
+- **Restored Goal Breakout Session Generation After Coaching Completion**: Re-implemented the missing functionality where completing a coaching session automatically generates a goal breakout session linked to a journal entry:
+  * **Enhanced Coaching Completion Flow**: Modified `CoachingScreen.tsx` to create goal breakout sessions after coaching completion:
+    - Added `createGoalBreakoutSession()` function that generates a new coaching session with `sessionType: 'default-session'`
+    - Creates initial assistant message welcoming user to goal breakout planning
+    - Links the new session to the completed coaching session via `parentSessionId`
+  * **Automatic Journal Entry Linking**: Creates a new journal entry automatically linked to the goal breakout session:
+    - Generates journal entry with `linkedCoachingSessionId` pointing to the goal breakout session
+    - Sets appropriate title: "Goal Breakout - [date]"
+    - Leaves content empty for user to fill in during their reflection
+  * **Updated Type Definitions**: Enhanced `types/journal.ts` to include `linkedCoachingSessionId` field:
+    - Added `linkedCoachingSessionId?: string` to `JournalEntry` interface
+    - Maintains existing `linkedCoachingMessageId` field for coaching messages
+    - Enables proper linking between journal entries and coaching sessions
+  * **HomeContent Integration**: The existing HomeContent logic automatically detects and displays linked coaching sessions:
+    - Shows "Goal breakout session" card when `linkedCoachingSessionId` is present
+    - Allows users to click and continue the goal breakout conversation
+    - Maintains proper session type detection (`sessionType === 'default-session'` → "Goal breakout session")
+  * **User Experience Flow**: 
+    1. User completes coaching session → clicks "End this session"
+    2. System creates goal breakout session in background
+    3. System creates linked journal entry
+    4. User sees compass results, then returns to home
+    5. Home screen shows new "Goal breakout session" card
+    6. User can click to continue goal planning conversation
+  * **Error Handling**: Added proper error handling and logging for goal breakout session creation
+  * **Analytics Integration**: Tracks journal entry creation for goal breakout sessions using existing analytics
+
 ## 2025-08-25
 
 - **Replaced TipTap Editor with High-Performance Native React Native Editor**: Eliminated WebKit issues and performance problems by creating a complete native replacement:

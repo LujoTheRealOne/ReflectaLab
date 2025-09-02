@@ -315,7 +315,7 @@ export function useAuth() {
             method: 'google', // TODO: Detect actual method
             userId: firebaseUser.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName,
+            userName: user?.fullName || undefined,
             isNewUser: true,
             hasExistingData: false,
             accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
@@ -325,7 +325,7 @@ export function useAuth() {
           trackFirstTimeAppOpened({
             userId: firebaseUser.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName,
+            userName: user?.fullName || undefined,
             method: 'google', // TODO: Detect actual method
             accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
           });

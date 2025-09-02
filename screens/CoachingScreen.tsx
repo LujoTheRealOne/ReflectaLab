@@ -17,6 +17,8 @@ import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/compo
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
 
@@ -241,7 +243,8 @@ export default function CoachingScreen() {
   const { user, firebaseUser, getToken } = useAuth();
   const { 
     trackCoachingSessionStarted, 
-    trackCoachingSessionCompleted
+    trackCoachingSessionCompleted,
+    trackEntryCreated
   } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
@@ -1086,6 +1089,16 @@ export default function CoachingScreen() {
       });
     }
     
+    // Create goal breakout session and link to journal entry
+    if (sessionId && firebaseUser) {
+      try {
+        console.log('🎯 Creating goal breakout session for completed coaching session:', sessionId);
+        await createGoalBreakoutSession(sessionId);
+      } catch (error) {
+        console.error('❌ Failed to create goal breakout session:', error);
+      }
+    }
+    
     // Navigate to compass story for coaching completion immediately
     navigation.navigate('CompassStory', { 
       fromCoaching: true,
@@ -1146,6 +1159,85 @@ export default function CoachingScreen() {
       }
     } catch (error) {
       console.error('❌ Error calling insight extraction API:', error);
+    }
+  };
+
+  // Function to create goal breakout session and link to journal entry
+  const createGoalBreakoutSession = async (completedSessionId: string) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        console.error('❌ No auth token available for goal breakout session creation');
+        return;
+      }
+
+      // Generate new session ID for the goal breakout session
+      const goalBreakoutSessionId = Crypto.randomUUID();
+      
+      console.log('🎯 Creating goal breakout session...', {
+        completedSessionId,
+        goalBreakoutSessionId,
+        userId: firebaseUser?.uid
+      });
+
+      // Create the goal breakout session via API
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId: goalBreakoutSessionId,
+          sessionType: 'default-session',
+          parentSessionId: completedSessionId, // Link to the completed coaching session
+          messages: [
+            {
+              id: Crypto.randomUUID(),
+              role: 'assistant',
+              content: 'Based on our coaching session, I\'ve created a personalized goal breakout plan for you. Let\'s dive deeper into your action steps and create a concrete plan to move forward.',
+              timestamp: new Date().toISOString()
+            }
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create goal breakout session: ${response.status}`);
+      }
+
+      const sessionResult = await response.json();
+      console.log('✅ Goal breakout session created:', sessionResult);
+
+      // Create a new journal entry linked to this goal breakout session
+      const entryId = Crypto.randomUUID();
+      const newEntry = {
+        uid: firebaseUser!.uid,
+        content: '', // Empty content - user will fill this in
+        timestamp: serverTimestamp(),
+        lastUpdated: serverTimestamp(),
+        linkedCoachingSessionId: goalBreakoutSessionId, // Link to the goal breakout session
+        title: `Goal Breakout - ${new Date().toLocaleDateString()}`
+      };
+
+      const docRef = doc(db, 'journal_entries', entryId);
+      await setDoc(docRef, newEntry);
+
+      console.log('✅ Journal entry created and linked to goal breakout session:', {
+        entryId,
+        linkedSessionId: goalBreakoutSessionId
+      });
+
+      // Track goal breakout session creation
+      trackEntryCreated({
+        entry_id: entryId,
+      });
+
+    } catch (error) {
+      console.error('❌ Error creating goal breakout session:', error);
+      throw error;
     }
   };
 

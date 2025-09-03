@@ -415,19 +415,17 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
+    <View style={styles.container}>
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollContainer} 
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
-        contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 300 : 40 }}
+        contentContainerStyle={styles.scrollContent}
         // Native keyboard dismiss behavior
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        bounces={false}
+        overScrollMode="never"
       >
         <View style={styles.editorStack}>
           <RichEditor
@@ -435,7 +433,6 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
             style={[styles.richEditor, { backgroundColor: colors.background }]}
             initialContentHTML={htmlContent}
             onChange={handleRichTextChange}
-            // Avoid cursor-based resets that can cause jumps
             placeholder={placeholderText}
             editorStyle={{
               backgroundColor: colors.background,
@@ -444,17 +441,42 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               fontSize: '16px',
               lineHeight: '24px',
               fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
-              paddingLeft: '0px',
-              paddingRight: '0px',
+              paddingLeft: '16px',
+              paddingRight: '16px',
               paddingTop: '20px',
-              paddingBottom: isKeyboardVisible ? '200px' : '20px',
-              // Remove any default margins/paddings applied inside the web content
-              cssText: `body { margin:0; padding:0; } * { caret-color: ${colors.text} !important; }`,
-              contentCSSText: `margin:0; padding:0; p{margin:0;padding:0;} div{margin:0;padding:0;} * { caret-color: ${colors.text} !important; }`,
+              paddingBottom: '20px',
+              // Constrain the editor content
+              cssText: `
+                body { 
+                  margin: 0; 
+                  padding: 0; 
+                  max-width: 100%; 
+                  overflow-x: hidden;
+                  word-wrap: break-word;
+                } 
+                * { 
+                  caret-color: ${colors.text} !important; 
+                  max-width: 100% !important;
+                  box-sizing: border-box !important;
+                }
+              `,
+              contentCSSText: `
+                margin: 0; 
+                padding: 0; 
+                max-width: 100%;
+                overflow-x: hidden;
+                word-wrap: break-word;
+                p { margin: 0; padding: 0; max-width: 100%; } 
+                div { margin: 0; padding: 0; max-width: 100%; } 
+                * { 
+                  caret-color: ${colors.text} !important; 
+                  max-width: 100% !important;
+                  box-sizing: border-box !important;
+                }
+              `,
             }}
-
             useContainer={true}
-            initialHeight={500}
+            initialHeight={300}
           />
         </View>
 
@@ -501,7 +523,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
           apiBaseUrl={apiBaseUrl}
         />
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
 });
 
@@ -510,46 +532,67 @@ Editor.displayName = 'Editor';
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
   scrollContainer: {
     flex: 1,
+    maxWidth: '100%',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+    maxWidth: '100%',
   },
   editorStack: {
-    minHeight: 500,
+    minHeight: 300,
+    maxHeight: 600, // Limit maximum height
     position: 'relative',
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
   richEditor: {
-    minHeight: 500,
-    flex: 1,
+    minHeight: 300,
+    maxHeight: 600, // Limit maximum height
+    width: '100%',
+    maxWidth: '100%',
   },
   coachingBlock: {
     marginVertical: 20,
-    marginHorizontal: 0,
+    marginHorizontal: 16,
     padding: 16,
     borderRadius: 12,
     backgroundColor: 'rgba(0, 122, 255, 0.1)',
     borderLeftWidth: 3,
     borderLeftColor: '#007AFF',
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
   coachingContent: {
     fontSize: 16,
     lineHeight: 24,
     marginBottom: 12,
+    maxWidth: '100%',
+    flexWrap: 'wrap',
   },
   buttonContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    maxWidth: '100%',
   },
   optionButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
+    maxWidth: '100%',
+    flexShrink: 1,
   },
   optionText: {
     fontSize: 14,
     fontWeight: '500',
+    flexWrap: 'wrap',
   },
 });
 

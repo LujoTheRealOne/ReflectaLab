@@ -38,6 +38,32 @@ This file records all important changes and implementations made by the LLM assi
     - **Complete Reset Flow**: Now properly clears both local (AsyncStorage) and server (Firebase) onboarding state
     - **User Guidance**: Updated success message to recommend app restart for clean onboarding experience
 
+- **Fixed ArdaEditor Layout and Size Constraints**: Resolved editor expanding beyond screen boundaries and improved layout behavior:
+  * **Height Constraints**: Limited editor height to prevent unlimited expansion:
+    - Set `minHeight: 300px` and `maxHeight: 600px` for the RichEditor
+    - Reduced `initialHeight` from 500px to 300px for better initial display
+    - Added proper height constraints to `editorStack` container
+  * **Width and Overflow Control**: Prevented horizontal overflow and content expansion:
+    - Added `maxWidth: '100%'` and `overflow: 'hidden'` to all container styles
+    - Enhanced CSS styling with `max-width: 100%` and `overflow-x: hidden`
+    - Added `word-wrap: break-word` to ensure text wraps properly
+    - Applied `box-sizing: border-box` to all elements for consistent sizing
+  * **ScrollView Improvements**: Enhanced scrolling behavior and content containment:
+    - Removed `KeyboardAvoidingView` wrapper that was causing layout issues
+    - Added `bounces={false}` and `overScrollMode="never"` to prevent overscroll
+    - Updated `contentContainerStyle` to use proper style object instead of inline styles
+    - Added proper padding and margin constraints
+  * **Coaching Blocks Layout**: Fixed coaching block positioning and text wrapping:
+    - Added horizontal margins (16px) to coaching blocks for proper spacing
+    - Applied `maxWidth: '100%'` and `overflow: 'hidden'` to prevent expansion
+    - Enhanced text wrapping with `flexWrap: 'wrap'` for content and buttons
+    - Added `flexShrink: 1` to option buttons for responsive sizing
+  * **CSS Enhancements**: Improved web content styling within RichEditor:
+    - Added comprehensive CSS rules for content containment
+    - Enhanced `cssText` and `contentCSSText` with proper width constraints
+    - Added proper padding (16px left/right) for better text positioning
+    - Ensured all elements respect container boundaries with `!important` rules
+
 - **Added Life Compass Reset Feature to Settings**: Implemented functionality to allow users to reset their compass insights and start fresh:
   * **Settings Screen Enhancement**: Added new "Reset Life Compass" button to the "More Information" section:
     - Added Compass icon from lucide-react-native for visual clarity

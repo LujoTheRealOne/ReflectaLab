@@ -431,7 +431,7 @@ export default function HomeContent() {
         setKeyboardHeight(0);
         // Animate microphone button back to right side position
         micButtonTranslateX.value = withTiming(-2, { duration: 300 });
-                  micButtonTranslateY.value = withTiming(20, { duration: 300 }); // Geri original pozisyon
+                  micButtonTranslateY.value = withTiming(-80, { duration: 300 }); // Lower position at navigation level
       }
     );
 
@@ -453,7 +453,7 @@ export default function HomeContent() {
     // Set initial position to right side (slightly above navbar)
 
     micButtonTranslateX.value = -2;
-    micButtonTranslateY.value = 20; // Original pozisyon
+    micButtonTranslateY.value = -80; // Lower position at navigation level
   }, []);
 
   // Spinner animation for save status
@@ -828,7 +828,7 @@ export default function HomeContent() {
                 )}
 
                 {/* Thoughts Section */}
-                <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 80, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
+                <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 20, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
                   <EditorErrorBoundary>
                                     <Editor
                   ref={editorRef}
@@ -1086,7 +1086,7 @@ const styles = StyleSheet.create({
   floatingMicButton: {
     position: 'absolute',
     right: 20,
-    bottom: 120,
+    bottom: 40, // Moved down to navigation buttons level
     width: 44,
     height: 44,
     borderRadius: 22,

@@ -99,6 +99,113 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
     onUpdate(newHtml);
   }, [onUpdate]);
 
+  // Move cursor to end of content
+  const moveCursorToEnd = useCallback(() => {
+    if (!richTextRef.current) return;
+    
+    try {
+      console.log('📝 Moving cursor to end of content');
+      
+      // JavaScript to move cursor to the end of content only if clicked on empty area
+      const cursorScript = `
+        (function() {
+          try {
+            var editableElement = document.querySelector('[contenteditable="true"]') || document.body;
+            if (!editableElement) return;
+            
+            // Get current selection to check if user clicked on text
+            var selection = window.getSelection();
+            var clickedOnText = false;
+            
+            // Check if there's already a selection or if cursor is positioned in text
+            if (selection.rangeCount > 0) {
+              var currentRange = selection.getRangeAt(0);
+              var container = currentRange.startContainer;
+              
+              // If clicked on a text node or within content, don't move cursor
+              if (container.nodeType === Node.TEXT_NODE || 
+                  (container.nodeType === Node.ELEMENT_NODE && container.textContent.trim().length > 0)) {
+                // Check if the click was actually on text content
+                var rect = currentRange.getBoundingClientRect();
+                if (rect.width > 0 || rect.height > 0) {
+                  clickedOnText = true;
+                }
+              }
+            }
+            
+            // Only move cursor to end if clicked on empty area
+            if (!clickedOnText) {
+              console.log('📍 Clicked on empty area - moving cursor to end');
+              
+              // Focus the element first
+              editableElement.focus();
+              
+              // Create range and selection for cursor positioning
+              var range = document.createRange();
+              
+              // Move cursor to the very end of content
+              if (editableElement.childNodes.length > 0) {
+                var lastNode = editableElement.childNodes[editableElement.childNodes.length - 1];
+                if (lastNode.nodeType === Node.TEXT_NODE) {
+                  range.setStart(lastNode, lastNode.textContent.length);
+                } else {
+                  range.setStartAfter(lastNode);
+                }
+              } else {
+                range.setStart(editableElement, 0);
+              }
+              
+              range.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              
+              console.log('✅ Cursor positioned at end successfully');
+            } else {
+              console.log('📝 Clicked on text content - keeping cursor position');
+            }
+          } catch (e) {
+            console.log('⚠️ Cursor positioning error (non-critical):', e.message);
+          }
+        })();
+      `;
+      
+      // Execute cursor positioning script
+      if (richTextRef.current.injectJavaScript) {
+        richTextRef.current.injectJavaScript(cursorScript);
+      }
+    } catch (error) {
+      console.log('⚠️ Move cursor error (non-critical):', error);
+    }
+  }, []);
+
+  // Handle editor focus to ensure proper text input behavior
+  const handleEditorFocus = useCallback(() => {
+    console.log('🎯 Editor focused - checking cursor position');
+    
+    // Ensure the editor is properly focused for text input
+    if (richTextRef.current) {
+      try {
+        richTextRef.current.focusContentEditor?.();
+        
+        // Use smart cursor positioning after a delay to ensure focus is complete
+        setTimeout(() => {
+          moveCursorToEnd();
+        }, 200); // Slightly longer delay to ensure proper selection detection
+      } catch (error) {
+        console.log('Focus editor error (non-critical):', error);
+      }
+    }
+  }, [moveCursorToEnd]);
+
+  // Handle editor initialization
+  const handleEditorInitialized = useCallback(() => {
+    console.log('📝 RichEditor initialized');
+    // Set initial content if available
+    if (htmlContent && richTextRef.current) {
+      richTextRef.current.setContentHTML(htmlContent);
+    }
+  }, [htmlContent]);
+
   // Manual format state tracking since RichEditor doesn't always provide it
   const [manualFormatState, setManualFormatState] = useState<{[key: string]: boolean}>({
     bold: false,
@@ -434,6 +541,14 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
             initialContentHTML={htmlContent}
             onChange={handleRichTextChange}
             placeholder={placeholderText}
+            // Enable autocorrect and spell checking
+            autoCorrect={true}
+            spellCheck={true}
+            autoCapitalize="sentences"
+            // Improve text input behavior
+            keyboardType="default"
+            returnKeyType="default"
+            textContentType="none"
             editorStyle={{
               backgroundColor: colors.background,
               color: colors.text,
@@ -445,38 +560,129 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               paddingRight: '16px',
               paddingTop: '20px',
               paddingBottom: '20px',
-              // Constrain the editor content
+              // Constrain the editor content and enable text input features
               cssText: `
                 body { 
                   margin: 0; 
                   padding: 0; 
-                  max-width: 100%; 
-                  overflow-x: hidden;
-                  word-wrap: break-word;
+                  width: 100% !important;
+                  max-width: 100% !important; 
+                  min-width: 100% !important;
+                  overflow-x: hidden !important;
+                  word-wrap: break-word !important;
+                  word-break: break-word !important;
+                  -webkit-text-size-adjust: 100%;
+                  -webkit-tap-highlight-color: transparent;
                 } 
                 * { 
                   caret-color: ${colors.text} !important; 
+                  width: auto !important;
                   max-width: 100% !important;
+                  min-width: 0 !important;
                   box-sizing: border-box !important;
+                  word-wrap: break-word !important;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                }
+                input, textarea, [contenteditable] {
+                  -webkit-user-select: text !important;
+                  -webkit-touch-callout: default !important;
+                  -webkit-tap-highlight-color: transparent !important;
+                  -webkit-appearance: none !important;
+                  autocorrect: on !important;
+                  spellcheck: true !important;
+                  autocapitalize: sentences !important;
+                  -webkit-keyboard-accessory-view: none !important;
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  overflow-x: hidden !important;
+                }
+                [contenteditable="true"] {
+                  -webkit-user-modify: read-write-plaintext-only !important;
+                  -webkit-line-break: after-white-space !important;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  overflow-x: hidden !important;
                 }
               `,
               contentCSSText: `
                 margin: 0; 
                 padding: 0; 
-                max-width: 100%;
-                overflow-x: hidden;
-                word-wrap: break-word;
-                p { margin: 0; padding: 0; max-width: 100%; } 
-                div { margin: 0; padding: 0; max-width: 100%; } 
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 100% !important;
+                overflow-x: hidden !important;
+                word-wrap: break-word !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                -webkit-text-size-adjust: 100%;
+                -webkit-user-select: text;
+                -webkit-touch-callout: default;
+                p { 
+                  margin: 0; 
+                  padding: 0; 
+                  width: 100% !important;
+                  max-width: 100% !important; 
+                  word-wrap: break-word !important;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                } 
+                div { 
+                  margin: 0; 
+                  padding: 0; 
+                  width: 100% !important;
+                  max-width: 100% !important; 
+                  word-wrap: break-word !important;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                } 
                 * { 
                   caret-color: ${colors.text} !important; 
                   max-width: 100% !important;
                   box-sizing: border-box !important;
+                  word-wrap: break-word !important;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                }
+                [contenteditable] {
+                  -webkit-user-modify: read-write-plaintext-only;
+                  -webkit-line-break: after-white-space;
+                  word-break: break-word !important;
+                  overflow-wrap: break-word !important;
+                  autocorrect: on;
+                  spellcheck: true;
+                  autocapitalize: sentences;
+                  -webkit-keyboard-accessory-view: none;
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  overflow-x: hidden !important;
                 }
               `,
             }}
             useContainer={true}
-            initialHeight={300}
+            initialHeight={500}
+            // Additional props for better text input
+            androidHardwareAccelerationDisabled={false}
+            androidLayerType="hardware"
+            // Event handlers for better text input behavior
+            onFocus={handleEditorFocus}
+            onLoad={handleEditorInitialized}
+            // Handle clicks within the editor content
+            onShouldStartLoadWithRequest={(request) => {
+              // Allow all requests to proceed normally
+              return true;
+            }}
+            // Also handle when editor becomes active
+            onMessage={(event) => {
+              // Handle any messages from the WebView if needed
+              console.log('📨 WebView message:', event.nativeEvent.data);
+            }}
+            // Enable better text selection and input
+            disabled={false}
+            hideKeyboardAccessoryView={true}
+            keyboardDisplayRequiresUserAction={false}
           />
         </View>
 
@@ -545,15 +751,15 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   editorStack: {
-    minHeight: 300,
-    maxHeight: 600, // Limit maximum height
+    flex: 1, // Take all available space
+    minHeight: 400, // Increased minimum height
     position: 'relative',
     maxWidth: '100%',
     overflow: 'hidden',
   },
   richEditor: {
-    minHeight: 300,
-    maxHeight: 600, // Limit maximum height
+    flex: 1, // Take all available space
+    minHeight: 400, // Increased minimum height
     width: '100%',
     maxWidth: '100%',
   },

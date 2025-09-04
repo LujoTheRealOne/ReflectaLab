@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import NoteCard from '@/components/NoteCard';
 import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { useSyncSingleton } from '@/hooks/useSyncSingleton';
 
 type JournalEntry = {
   id: string;
@@ -21,46 +20,29 @@ export default function NotesScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { firebaseUser, isFirebaseReady } = useAuth();
+  
+  // Use singleton sync system for optimal performance
+  const { entries: syncedEntries, isLoading, refreshEntries, syncStatus } = useSyncSingleton();
 
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  // Convert synced entries to the format expected by this component
+  const entries: JournalEntry[] = useMemo(() => {
+    return syncedEntries.map(entry => ({
+      id: entry.id,
+      title: entry.title,
+      content: entry.content,
+      timestamp: { toDate: () => new Date(entry.timestamp) }, // Mock Firestore timestamp
+      uid: entry.uid,
+    }));
+  }, [syncedEntries]);
 
-  const fetchEntries = useCallback(async () => {
-    if (!firebaseUser) {
-      setEntries([]);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const entriesQuery = query(
-        collection(db, 'journal_entries'),
-        where('uid', '==', firebaseUser.uid),
-        orderBy('timestamp', 'desc')
-      );
-
-      const snapshot = await getDocs(entriesQuery);
-      const list: JournalEntry[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as Omit<JournalEntry, 'id'>;
-        list.push({ id: docSnap.id, ...(data as any) });
-      });
-      setEntries(list);
-    } catch (e) {
-      console.error('Failed to fetch journal entries for Notes:', e);
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [firebaseUser]);
-
+  // Show sync status for debugging (only on significant changes)
   useEffect(() => {
-    if (isFirebaseReady) {
-      fetchEntries();
+    if (syncStatus.syncInProgress) {
+      console.log('🔄 Notes: Sync in progress...');
+    } else if (entries.length > 0) {
+      console.log('✅ Notes: Sync completed. Entries:', entries.length);
     }
-  }, [isFirebaseReady, fetchEntries]);
+  }, [syncStatus.syncInProgress]); // Remove entries.length dependency to prevent spam
 
   const formatDate = useCallback((ts: any) => {
     if (!ts) return '';
@@ -155,8 +137,16 @@ export default function NotesScreen() {
         style={styles.scrollArea}
         contentContainerStyle={contentContainerStyle}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={refreshEntries}
+            tintColor={colors.text}
+            colors={[colors.text]}
+          />
+        }
       >
-        {!loading && entries.length === 0 && (
+        {!isLoading && entries.length === 0 && (
           <Text style={{ color: colors.text, opacity: 0.6 }}>No entries yet.</Text>
         )}
 

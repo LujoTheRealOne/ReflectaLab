@@ -1,24 +1,24 @@
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
-import React, { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { useColorScheme, View, Keyboard } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
 
 // Import screens
 import { Colors } from '@/constants/Colors';
 import HomeScreen from '@/navigation/HomeScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
 import InfoScreen from '@/screens/InfoScreen';
-import HomeContent from '@/screens/HomeContent';
+import CoachingScreen from '@/screens/CoachingScreen';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
-import CoachingScreen from '@/screens/CoachingScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
-import ScreenWrapper from '@/components/ScreenWrapper';
+import BottomNavBar from '@/components/BottomNavBar';
 
 
 // Define the app stack param list
 export type AppStackParamList = {
   Home: undefined;
-  Settings: undefined;
+  SettingsScreen: undefined;
   Info: undefined;
   JournalEdit: { entryId: string };
   CompassStory: { 
@@ -30,8 +30,8 @@ export type AppStackParamList = {
       rawData: string;
     };
   };
-  Coaching: undefined;
-  Notes: undefined;
+  CoachingScreen: undefined;
+  NotesScreen: undefined;
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -40,6 +40,8 @@ export default function AppNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { progress } = useOnboardingProgress();
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [currentRoute, setCurrentRoute] = useState('NotesScreen');
   
   // Safeguard: If user somehow got to main app but still has OnboardingChat progress,
   // redirect them back to auth flow
@@ -49,12 +51,44 @@ export default function AppNavigator() {
       // This will be handled at a higher level if needed
     }
   }, [progress]);
+
+  // Handle keyboard visibility for global BottomNavBar
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+    });
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
   
+  // Determine if navbar should be visible (hide on Home screen)
+  const shouldShowNavBar = currentRoute !== 'Home' && !isKeyboardVisible;
+
   return (
+    <View style={{ flex: 1 }}>
+      {/* Stack Navigator with all screens */}
     <Stack.Navigator 
-      initialRouteName="Notes"
+      initialRouteName="NotesScreen"
       screenOptions={{
         headerShown: false,
+      }}
+      screenListeners={{
+        state: (e) => {
+          // Track current route for navbar visibility
+          const navigationState = e.data.state;
+          if (navigationState) {
+            const currentRouteName = navigationState.routes[navigationState.index]?.name;
+            if (currentRouteName) {
+              setCurrentRoute(currentRouteName);
+            }
+          }
+        },
       }}
     >
       <Stack.Screen
@@ -76,25 +110,25 @@ export default function AppNavigator() {
           },
         }}
       >
-        {(props) => (
-          <ScreenWrapper showNavBar={false}>
-            <HomeScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <HomeScreen />}
       </Stack.Screen>
       
       <Stack.Screen
-        name="Settings"
+        name="SettingsScreen"
         options={{
-          gestureEnabled: true,
-          ...TransitionPresets.SlideFromRightIOS,
+          gestureEnabled: false,
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 0 } },
+            close: { animation: 'timing', config: { duration: 0 } },
+          },
+          cardStyleInterpolator: ({ current }) => ({
+            cardStyle: {
+              opacity: current.progress,
+            },
+          }),
         }}
       >
-        {(props) => (
-          <ScreenWrapper>
-            <SettingsScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <SettingsScreen />}
       </Stack.Screen>
       
       <Stack.Screen
@@ -104,11 +138,7 @@ export default function AppNavigator() {
           ...TransitionPresets.SlideFromRightIOS,
         }}
       >
-        {(props) => (
-          <ScreenWrapper>
-            <InfoScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <InfoScreen />}
       </Stack.Screen>
       
       <Stack.Screen
@@ -117,57 +147,48 @@ export default function AppNavigator() {
           gestureEnabled: false,
         }}
       >
-        {(props) => (
-          <ScreenWrapper>
-            <CompassStoryScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <CompassStoryScreen />}
       </Stack.Screen>
       
       <Stack.Screen
-        name="Coaching"
+        name="CoachingScreen"
         options={{
-          gestureEnabled: true,
-          ...TransitionPresets.SlideFromRightIOS,
-          cardStyleInterpolator: ({ current, layouts }) => {
-            return {
-              cardStyle: {
-                transform: [
-                  {
-                    translateX: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [layouts.screen.width, 0],
-                    }),
-                  },
-                ],
-              },
-              overlayStyle: {
-                opacity: 0, // Remove overlay to show both screens side by side
-              },
-            };
+          gestureEnabled: false,
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 0 } },
+            close: { animation: 'timing', config: { duration: 0 } },
           },
+          cardStyleInterpolator: ({ current }) => ({
+            cardStyle: {
+              opacity: current.progress,
+            },
+          }),
         }}
       >
-        {(props) => (
-          <ScreenWrapper>
-            <CoachingScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <CoachingScreen />}
       </Stack.Screen>
       
       <Stack.Screen
-        name="Notes"
+        name="NotesScreen"
         options={{
-          gestureEnabled: true,
-          ...TransitionPresets.SlideFromRightIOS,
+          gestureEnabled: false,
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 0 } },
+            close: { animation: 'timing', config: { duration: 0 } },
+          },
+          cardStyleInterpolator: ({ current }) => ({
+            cardStyle: {
+              opacity: current.progress,
+            },
+          }),
         }}
       >
-        {(props) => (
-          <ScreenWrapper>
-            <NotesScreen {...props} />
-          </ScreenWrapper>
-        )}
+        {() => <NotesScreen />}
       </Stack.Screen>
     </Stack.Navigator>
+    
+    {/* Global BottomNavBar - persistent across all screens (except Home) */}
+    <BottomNavBar isVisible={shouldShowNavBar} />
+    </View>
   );
 } 

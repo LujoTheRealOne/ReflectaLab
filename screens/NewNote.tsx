@@ -8,7 +8,6 @@ import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { getCoachingMessage } from '@/lib/firestore';
 import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
-import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
 import * as Haptics from 'expo-haptics';
@@ -43,7 +42,7 @@ import {
   Keyboard,
   TouchableOpacity
 } from 'react-native';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { PanGestureHandler, State, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedGestureHandler,
   useAnimatedStyle,
@@ -58,7 +57,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 
-type DrawerNavigation = DrawerNavigationProp<any>;
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
@@ -86,7 +84,7 @@ interface CoachingSession {
 }
 
 export default function HomeContent() {
-  const navigation = useNavigation<DrawerNavigation>();
+  const navigation = useNavigation();
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -568,10 +566,10 @@ export default function HomeContent() {
         if (!unlocked) return; // Don't navigate if paywall was cancelled
       }
       
-      navigation.navigate('Coaching', {
+      (navigation as any).navigate('Coaching', {
         sessionId: coachingSessionData.id,
         sessionType: coachingSessionData.sessionType
-      } as any);
+      });
     }
   }, [navigation, coachingSessionData, initialized, isPro, presentPaywallIfNeeded, currentOffering]);
 
@@ -689,6 +687,20 @@ export default function HomeContent() {
     },
   });
 
+  // Add horizontal swipe gesture for Notes navigation
+  const navigateToNotes = useCallback(() => {
+    // Replace for instant switch without animation
+    (navigation as any).replace('NotesScreen');
+  }, [navigation]);
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      // Track horizontal swipe to the right (positive translationX)
+      if (event.translationX > 100 && Math.abs(event.velocityX) > 500) {
+        runOnJS(navigateToNotes)();
+      }
+    });
+
   const animatedStyle = useAnimatedStyle(() => {
     return {
       transform: [{ translateY: translateY.value }],
@@ -757,19 +769,20 @@ export default function HomeContent() {
       </Animated.View>
 
       {/* Main content that slides down */}
-      <PanGestureHandler onGestureEvent={gestureHandler}>
-        <Animated.View style={[styles.mainContent, animatedStyle, curvedEdgesStyle]}>
+      <GestureDetector gesture={panGesture}>
+        <PanGestureHandler onGestureEvent={gestureHandler}>
+          <Animated.View style={[styles.mainContent, animatedStyle, curvedEdgesStyle]}>
           <Animated.View style={[styles.safeArea, { backgroundColor: colors.background }, curvedEdgesStyle]}>
             <SafeAreaView style={[styles.safeAreaInner, { marginTop: useSafeAreaInsets().top }]}>
               {/* Header */}
               {/* <View style={styles.header}>
                 <TouchableOpacity onPress={() => {
-                  navigation.openDrawer();
+                  (navigation as any).push('Notes');
                 }}>
                   <AlignLeft size={28} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => {
-                  navigation.navigate('Settings' as never);
+                  (navigation as any).navigate('SettingsScreen');
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}>
                   <Image source={{ uri: useAuth().user?.imageUrl }} style={{ width: 32, height: 32, borderRadius: 100, borderWidth: 1.5, borderColor: colors.text }} />
@@ -892,7 +905,8 @@ export default function HomeContent() {
 
           </Animated.View>
         </Animated.View>
-      </PanGestureHandler>
+        </PanGestureHandler>
+      </GestureDetector>
 
       {/* Keyboard Toolbar - Outside of any container for proper positioning */}
                   <KeyboardToolbar

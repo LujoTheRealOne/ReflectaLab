@@ -1100,11 +1100,11 @@ export default function CoachingScreen() {
     }
     
     // Navigate to compass story for coaching completion immediately
-    navigation.navigate('CompassStory', { 
+    (navigation as any).navigate('CompassStory', { 
       fromCoaching: true,
       sessionId: sessionId || undefined,
       parsedCoachingData: parsedCoachingData || undefined
-    } as any);
+    });
     setShowCompletionForMessage(null);
     
     // Trigger insight extraction in background if we have a session ID

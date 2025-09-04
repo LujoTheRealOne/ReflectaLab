@@ -29,16 +29,14 @@ export default function Navigation() {
   // Import onboarding progress to make better auth flow decisions
   const { progress: onboardingProgress, isLoading: progressLoading } = useOnboardingProgress();
 
-  // Keep showing loading until authentication state is FULLY determined
-  // This prevents the flash of login screen for authenticated users
-  // Also wait for onboarding progress to load to make correct routing decisions
-  if ((!isAuthReady || progressLoading) && !isSigningOut) {
-    console.log('⏳ Waiting for auth ready and progress loading - showing loading', {
+  // Optimized loading: Only block for critical auth state, not for progress loading
+  // Allow UI to show faster while data loads in background
+  if (!isAuthReady && !isSigningOut) {
+    console.log('⏳ Waiting for critical auth ready - showing loading', {
       isAuthReady,
-      progressLoading,
       isSigningOut
     });
-    return null; // Keep splash screen visible until both auth and progress are ready
+    return null; // Only wait for auth, not progress
   }
   
   // Allow navigation during sign out
@@ -86,6 +84,7 @@ export default function Navigation() {
 
   // Determine navigation route - force auth flow during sign out
   // CRITICAL: If user has progress at OnboardingChat (step 17), ALWAYS show auth flow
+  // Use cached onboarding progress if available, don't wait for loading
   const hasOnboardingChatProgress = onboardingProgress && onboardingProgress.currentStep === 17 && !onboardingProgress.completedAt;
   const shouldShowAuthFlow = !isSignedIn || needsOnboarding || isSigningOut || hasOnboardingChatProgress;
   const initialRouteName = shouldShowAuthFlow ? 'Auth' : 'App';

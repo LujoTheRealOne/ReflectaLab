@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, NavigationProp } from '@react-navigation/native';
+import { useNavigation, useRoute, NavigationProp, CommonActions } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
@@ -30,18 +30,18 @@ const DEFAULT_TABS: TabConfig[] = [
   {
     id: 'notes',
     iconName: 'note.text',
-    routeName: 'Notes',
+    routeName: 'NotesScreen',
   },
   {
     id: 'chat',
     iconName: 'message.fill',
-    routeName: 'Coaching', // Will be handled specially in handleTabPress
+    routeName: 'CoachingScreen', // Will be handled specially in handleTabPress
     requiresPro: true, // Pro requirement for coaching
   },
   {
     id: 'profile',
     iconName: 'person.crop.circle.fill',
-    routeName: 'Settings',
+    routeName: 'SettingsScreen',
   },
 ];
 
@@ -59,50 +59,68 @@ export default function BottomNavBar({
   const { firebaseUser } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
-  // Get current active tab based on route name
-  const getActiveTabId = (): string => {
-    const routeName = route.name;
-    
-    // Debug: Log current route name
-    console.log('🧭 BottomNavBar - Current route:', routeName);
+  // Helper to get the deepest active route name (handles nested navigators)
+  const getDeepActiveRouteName = (): string => {
+    try {
+      const state: any = navigation.getState();
+      let currentState: any = state;
+      // If we're at root (Auth/App), drill into 'App' state
+      while (currentState && currentState.routes && currentState.index != null) {
+        const currentRoute = currentState.routes[currentState.index];
+        if (currentRoute?.state) {
+          currentState = currentRoute.state;
+          continue;
+        }
+        return currentRoute?.name || route.name;
+      }
+      return route.name;
+    } catch {
+      return route.name;
+    }
+  };
+
+  // Memoize active tab calculation for performance
+  const activeTabId = useMemo(() => {
+    const routeName = getDeepActiveRouteName();
     
     // Map route names to tab IDs (these are AppNavigator route names)
     const routeToTabMap: Record<string, string> = {
-      'Home': 'chat',        // Home navigator (includes HomeContent)
-      'Notes': 'notes',      // Notes screen
-      'Coaching': 'chat',    // Coaching screen  
-      'Settings': 'profile', // Settings screen
-      'CompassStory': 'chat', // Compass story (part of coaching flow)
-      'Info': 'profile',     // Info screen (settings related)
+      'Home': 'chat',          // Home navigator (includes HomeContent)
+      'NotesScreen': 'notes',      // Notes screen
+      'CoachingScreen': 'chat',    // Coaching screen  
+      'SettingsScreen': 'profile', // Settings screen
+      'CompassStory': 'chat',   // Compass story (part of coaching flow)
+      'Info': 'profile',       // Info screen (settings related)
     };
 
-    const activeTabId = routeToTabMap[routeName] || 'notes'; // Default to notes since it's the initial screen
-    console.log('🧭 BottomNavBar - Active tab:', activeTabId);
-    
-    return activeTabId;
-  };
+    return routeToTabMap[routeName] || 'notes'; // Default to notes since it's the initial screen
+  }, [route.name, navigation]);
 
   // Handle tab press
   const handleTabPress = async (tab: TabConfig) => {
-    console.log(`🚀 BottomNavBar - Tab pressed: ${tab.id} -> ${tab.routeName}`);
-    
     // Haptic feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Special handling for chat button - go to coaching directly
+    // Debug logging removed for performance
+
+    // Special handling for chat button - go to coaching directly in nested App
     if (tab.id === 'chat') {
       // Check Pro requirement for coaching
       if (!initialized) return; // Wait for RevenueCat init
       
       if (!isPro) {
         const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-        console.log(`🎤 Coaching access Pro check:`, unlocked ? 'unlocked' : 'cancelled');
         if (!unlocked) return; // Don't navigate if paywall was cancelled
       }
 
-      // Navigate directly to Coaching screen
-      console.log(`🧭 BottomNavBar - Navigating to Coaching`);
-      (navigation as any).navigate('Coaching');
+      // Navigate directly to Coaching screen (nested under App)
+      navigation.dispatch(
+        CommonActions.navigate({
+          // Root has routes: Auth, App. Target App, then nested screen
+          name: 'App' as any,
+          params: { screen: 'CoachingScreen' },
+        })
+      );
       return;
     }
 
@@ -111,18 +129,32 @@ export default function BottomNavBar({
       if (!initialized) return; // Wait for RevenueCat init
       
       const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-      console.log(`🎤 ${tab.id} access Pro check:`, unlocked ? 'unlocked' : 'cancelled');
       if (!unlocked) return; // Don't navigate if paywall was cancelled
     }
 
-    // Navigate to the tab's route
-    console.log(`🧭 BottomNavBar - Navigating to: ${tab.routeName}`);
-    (navigation as any).navigate(tab.routeName);
+    // For Notes navigation, use instant navigate like other tabs
+    if (tab.routeName === 'NotesScreen') {
+      navigation.dispatch(
+        CommonActions.navigate({
+          name: 'App' as any,
+          params: { screen: 'NotesScreen' },
+        })
+      );
+      return;
+    }
+
+    // Navigate to the tab's route in nested App navigator
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'App' as any,
+        params: { screen: tab.routeName },
+      })
+    );
   };
 
   // Get icon color based on active state
   const getIconColor = (tabId: string): string => {
-    const isActive = getActiveTabId() === tabId;
+    const isActive = activeTabId === tabId;
     
     if (isActive) {
       // Active state - use full text color for better visibility

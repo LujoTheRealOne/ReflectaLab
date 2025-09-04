@@ -1,4 +1,5 @@
 import { signInWithClerkToken, signOutFromFirebase, onFirebaseAuthStateChanged, getCurrentFirebaseUser } from '@/lib/clerk-firebase-auth';
+import { syncService } from '@/services/syncService';
 import { useAuth as useClerkAuth, useOAuth, useUser } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useState, useEffect, useRef } from 'react';
@@ -430,6 +431,12 @@ export function useAuth() {
       
       await signOutFromFirebase();
       console.log('🚪 Firebase sign out completed');
+      
+      // Clear sync cache for signed out user
+      if (firebaseUser?.uid) {
+        console.log('🧹 Clearing sync cache for user:', firebaseUser.uid);
+        await syncService.clearUserData(firebaseUser.uid);
+      }
       
       console.log('✅ Sign out completed successfully');
     } catch (error) {

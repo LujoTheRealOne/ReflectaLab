@@ -444,7 +444,7 @@ export default function SettingsScreen() {
       if (!unlocked) return; // Don't navigate if paywall was cancelled
     }
     
-    navigation.navigate('CompassStory' as never);
+    (navigation as any).navigate('CompassStory');
   };
 
   // Helper function to format the last updated time
@@ -791,7 +791,7 @@ export default function SettingsScreen() {
             variant="primary"
             style={styles.editTemplateButton}
             onPress={() => {
-              navigation.navigate('TemplateEditor' as never);
+              (navigation as any).navigate('TemplateEditor');
             }}
           >
             Edit Template
@@ -838,7 +838,7 @@ export default function SettingsScreen() {
               iconLeft={<Info size={20} color={colors.text} />}
               style={styles.infoButton}
               onPress={() => {
-                navigation.navigate('Info' as never);
+                (navigation as any).navigate('Info');
               }}
             >
               App Information

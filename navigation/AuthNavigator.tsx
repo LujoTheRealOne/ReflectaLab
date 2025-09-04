@@ -45,10 +45,11 @@ export default function AuthNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   
-  // Wait for progress to load before rendering navigation
+  // Don't block on progress loading - use cached data or defaults
+  // This allows faster screen transitions while data loads in background
   if (progressLoading) {
-    console.log('⏳ AuthNavigator waiting for progress to load...');
-    return null;
+    console.log('📱 AuthNavigator proceeding with cached/default progress data');
+    // Continue with navigation, don't block
   }
 
   // Determine initial route based on auth state and onboarding progress

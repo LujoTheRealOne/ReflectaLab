@@ -7,6 +7,12 @@ This file records all important changes and implementations made by the LLM assi
 
 ## 2025-01-27
 
+- Added Notes screen and navigation wiring:
+  * Created `screens/NotesScreen.tsx` implementing the provided layout (header "Notes", grouped sections, and note cards) with light/dark theme compatibility.
+  * Registered `Notes` route in `navigation/AppNavigator.tsx` with iOS-style slide transition.
+  * Updated the journal drawer icon button in `screens/HomeContent.tsx` to navigate to `Notes` instead of opening the drawer, per request.
+  * No data hookups yet; the screen uses placeholder content and is ready to bind to Firestore later.
+
 - **Added Onboarding Reset Feature to Settings**: Implemented functionality to allow users to reset their onboarding progress and go through the onboarding process again:
   * **Settings Screen Enhancement**: Added new "Reset Onboarding" button to the "More Information" section:
     - Added RotateCcw icon from lucide-react-native for visual clarity

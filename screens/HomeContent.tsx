@@ -888,66 +888,6 @@ export default function HomeContent() {
               </TouchableOpacity>
             </Animated.View>
 
-            {/* Bottom Buttons - Only show when keyboard is hidden */}
-            {!isKeyboardVisible && (
-              <View style={[
-                styles.bottomButtonsContainer,
-                {
-                  paddingBottom: Math.max(useSafeAreaInsets().bottom, 20),
-                }
-              ]}>
-                <View style={[styles.buttonGroup, { gap: 8 }]}>
-                  {/* Settings Button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconOnly={
-                      <AlignLeft
-                        size={20}
-                        color={`${colors.tint}99`}
-                      />
-                    }
-                    style={{ width: 40, height: 40 }}
-                    onPress={() => {
-                      navigation.openDrawer();
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    iconOnly={
-                      <Settings2
-                        size={20}
-                        color={`${colors.tint}99`}
-                      />
-                    }
-                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={() => {
-                      navigation.navigate('Settings' as never);
-                    }}
-                  />
-                  {/* Enter Coach Mode Button */}
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    iconOnly={<MessageCircle size={20} color={colors.background} />}
-                    style={{ width: 45, height: 40, justifyContent: 'center', alignItems: 'center' }}
-                    onPress={async () => {
-                      if (!initialized) return; // Wait for RevenueCat init
-                      
-                      if (!isPro) {
-                        const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-                        console.log('🎤 Coaching access Pro check:', unlocked ? 'unlocked' : 'cancelled');
-                        if (!unlocked) return; // Don't navigate if paywall was cancelled
-                      }
-                      
-                      navigation.navigate('Coaching' as never);
-                    }}
-                  >
-                  </Button>
-                </View>
-              </View>
-            )}
 
 
           </Animated.View>
@@ -1054,34 +994,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'transparent',
-  },
-  bottomButtonsContainer: {
-    position: 'absolute',
-    bottom: 10,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  buttonBackground: {
-    borderRadius: 18,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderWidth: 0.5,
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 0.5,
-    },
-    shadowOpacity: 0.02,
-    shadowRadius: 20.9,
-    elevation: 2,
   },
   floatingMicButton: {
     position: 'absolute',

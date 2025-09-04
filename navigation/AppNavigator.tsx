@@ -1,7 +1,6 @@
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 import React, { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
-import { CommonActions, useNavigation } from '@react-navigation/native';
 
 // Import screens
 import { Colors } from '@/constants/Colors';
@@ -10,8 +9,10 @@ import SettingsScreen from '@/screens/SettingsScreen';
 import InfoScreen from '@/screens/InfoScreen';
 import HomeContent from '@/screens/HomeContent';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
+import NotesScreen from '@/screens/NotesScreen';
 import CoachingScreen from '@/screens/CoachingScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import ScreenWrapper from '@/components/ScreenWrapper';
 
 
 // Define the app stack param list
@@ -30,6 +31,7 @@ export type AppStackParamList = {
     };
   };
   Coaching: undefined;
+  Notes: undefined;
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -37,7 +39,6 @@ const Stack = createStackNavigator<AppStackParamList>();
 export default function AppNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const navigation = useNavigation();
   const { progress } = useOnboardingProgress();
   
   // Safeguard: If user somehow got to main app but still has OnboardingChat progress,
@@ -45,45 +46,86 @@ export default function AppNavigator() {
   useEffect(() => {
     if (progress && progress.currentStep === 17 && !progress.completedAt) {
       console.log('🚨 SAFEGUARD: User in main app but has OnboardingChat progress - redirecting to auth');
-      // Reset navigation to auth flow
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Auth' as never }],
-        })
-      );
+      // This will be handled at a higher level if needed
     }
-  }, [progress, navigation]);
+  }, [progress]);
   
   return (
     <Stack.Navigator 
-      initialRouteName="Home"
+      initialRouteName="Notes"
       screenOptions={{
         headerShown: false,
       }}
     >
       <Stack.Screen
         name="Home"
-        component={HomeScreen}
-      />
+        options={{
+          cardStyleInterpolator: ({ current, layouts }) => {
+            return {
+              cardStyle: {
+                transform: [
+                  {
+                    translateX: current.progress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [layouts.screen.width, 0],
+                    }),
+                  },
+                ],
+              },
+            };
+          },
+        }}
+      >
+        {(props) => (
+          <ScreenWrapper showNavBar={false}>
+            <HomeScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      
       <Stack.Screen
         name="Settings"
-        component={SettingsScreen}
-      />
+        options={{
+          gestureEnabled: true,
+          ...TransitionPresets.SlideFromRightIOS,
+        }}
+      >
+        {(props) => (
+          <ScreenWrapper>
+            <SettingsScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      
       <Stack.Screen
         name="Info"
-        component={InfoScreen}
-      />
+        options={{
+          gestureEnabled: true,
+          ...TransitionPresets.SlideFromRightIOS,
+        }}
+      >
+        {(props) => (
+          <ScreenWrapper>
+            <InfoScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      
       <Stack.Screen
         name="CompassStory"
-        component={CompassStoryScreen}
         options={{
           gestureEnabled: false,
         }}
-      />
+      >
+        {(props) => (
+          <ScreenWrapper>
+            <CompassStoryScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      
       <Stack.Screen
         name="Coaching"
-        component={CoachingScreen}
         options={{
           gestureEnabled: true,
           ...TransitionPresets.SlideFromRightIOS,
@@ -105,7 +147,27 @@ export default function AppNavigator() {
             };
           },
         }}
-      />
+      >
+        {(props) => (
+          <ScreenWrapper>
+            <CoachingScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
+      
+      <Stack.Screen
+        name="Notes"
+        options={{
+          gestureEnabled: true,
+          ...TransitionPresets.SlideFromRightIOS,
+        }}
+      >
+        {(props) => (
+          <ScreenWrapper>
+            <NotesScreen {...props} />
+          </ScreenWrapper>
+        )}
+      </Stack.Screen>
     </Stack.Navigator>
   );
 } 

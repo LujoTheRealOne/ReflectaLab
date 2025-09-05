@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { View, Text, TouchableOpacity } from 'react-native';
 import AppNavigator from './AppNavigator';
+import { rootNavigationRef } from './RootNavigation';
 import AuthNavigator from './AuthNavigator';
 
 // Define the root stack navigator type
@@ -123,6 +124,7 @@ export default function Navigation() {
       <NavigationContainer
         key={navigationKey}
         theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}
+        ref={rootNavigationRef}
       >
         <Stack.Navigator
           screenOptions={{ headerShown: false }}

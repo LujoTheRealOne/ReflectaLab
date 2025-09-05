@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
+import Skeleton from '@/components/skeleton/Skeleton';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -21,6 +22,7 @@ import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import { useSettingsCache } from '@/hooks/useSettingsCache';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
@@ -35,6 +37,9 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user, signOut, firebaseUser } = useAuth();
+  
+  // Use settings cache for instant loading
+  const { cachedData, refreshSettings } = useSettingsCache();
   const { trackNotificationPermissionRequested, trackNotificationPermissionGranted, trackNotificationPermissionDenied, trackCoachingMessagesOptIn } = useAnalytics();
   const { insights, loading: insightsLoading, hasInsights } = useInsights();
   const {
@@ -45,8 +50,8 @@ export default function SettingsScreen() {
     checkPermissions
   } = useNotificationPermissions();
   const { 
-    initialized: rcInitialized, 
-    isPro, 
+    initialized: rcInitializedLive, 
+    isPro: isProLive, 
     customerInfo, 
     presentPaywall, 
     restorePurchases,
@@ -59,15 +64,57 @@ export default function SettingsScreen() {
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
   const [coachingMessages, setCoachingMessages] = useState(true);
-  const [userInfo, setUserInfo] = useState<{
-    name?: string;
-    email?: string;
-  }>({});
   const [whatsappStatus, setWhatsappStatus] = useState<{
     verified: boolean;
     phoneNumber?: string;
     verificationStatus?: 'NONE' | 'PENDING' | 'VERIFIED' | 'FAILED';
   }>({ verified: false });
+
+  // Get user info with priority: live data > cache > fallback
+  const getUserName = () => {
+    // Priority 1: Live Clerk user data
+    if (user?.firstName) {
+      return `${user.firstName} ${user.lastName || ''}`.trim();
+    }
+    
+    // Priority 2: Live Firebase user data
+    if (firebaseUser?.displayName) {
+      return firebaseUser.displayName;
+    }
+    
+    // Priority 3: Cached data
+    if (cachedData?.userData?.user?.firstName) {
+      return `${cachedData.userData.user.firstName} ${cachedData.userData.user.lastName || ''}`.trim();
+    }
+    
+    // Priority 4: Cached Firebase data
+    if (cachedData?.userData?.firebaseUser?.displayName) {
+      return cachedData.userData.firebaseUser.displayName;
+    }
+    
+    // Fallback
+    return 'User';
+  };
+
+  const userInfo = {
+    name: getUserName(),
+    email: user?.primaryEmailAddress?.emailAddress || 
+           firebaseUser?.email || 
+           cachedData?.userData?.user?.emailAddresses?.[0]?.emailAddress || 
+           cachedData?.userData?.firebaseUser?.email || 
+           'No email',
+  };
+
+  // Only show skeleton on true first load (no cache yet) AND when it's actually loading
+  const shouldShowSkeleton = cachedData === null && !user;
+
+  // Get subscription info from cache
+  const isPro = cachedData?.subscriptionData?.isPro || false;
+  const rcInitialized = cachedData?.subscriptionData?.initialized || false;
+
+  // Get notification permissions from cache
+  const cachedPermissionStatus = cachedData?.permissionsData?.notificationStatus || 'undetermined';
+  const cachedExpoPushToken = cachedData?.permissionsData?.expoPushToken;
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -120,11 +167,17 @@ export default function SettingsScreen() {
     );
   };
 
-  // Load push notification preference from Firestore
+  // Load push notification preference from Firestore (background loading)
   const loadPushNotificationPreference = useCallback(async () => {
     if (!firebaseUser?.uid) return;
 
+    // Use cached permission status first for instant display
+    if (cachedPermissionStatus === 'granted') {
+      setPushNotificationsEnabled(true);
+    }
+
     try {
+      // Load from Firestore in background for accuracy
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -137,7 +190,7 @@ export default function SettingsScreen() {
     } catch (error) {
       console.error('Error loading push notification preference:', error);
     }
-  }, [firebaseUser]);
+  }, [firebaseUser, cachedPermissionStatus]);
 
   // Load coaching messages preference from Firestore
   const loadCoachingMessagesPreference = useCallback(async () => {
@@ -192,11 +245,19 @@ export default function SettingsScreen() {
     }
   }, [firebaseUser]);
 
-  // Load preference on component mount
+  // Load preferences in background (non-blocking)
   useEffect(() => {
-    loadPushNotificationPreference();
-    loadCoachingMessagesPreference();
-    checkPermissions();
+    // Use cached data first for instant display
+    if (cachedPermissionStatus === 'granted') {
+      setPushNotificationsEnabled(true);
+    }
+
+    // Load fresh data in background without blocking UI
+    setTimeout(() => {
+      loadPushNotificationPreference();
+      loadCoachingMessagesPreference();
+      checkPermissions();
+    }, 100); // Small delay to ensure UI renders first
   }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
 
   // Handle push notification toggle
@@ -279,9 +340,6 @@ export default function SettingsScreen() {
     }
   }, [isLoading, coachingMessages, saveCoachingMessagesPreference]);
 
-  const handleBack = () => {
-    navigation.goBack();
-  };
 
   const handleManageAccount = () => {
     try {
@@ -456,67 +514,199 @@ export default function SettingsScreen() {
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
     const diffInHours = Math.floor(diffInMinutes / 60);
 
-    if (diffInMinutes < 1) return 'Updated just now';
-    if (diffInMinutes < 60) return `Updated ${diffInMinutes} min ago`;
-    if (diffInHours < 24) return `Updated ${diffInHours} hours ago`;
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes} min ago`;
+    if (diffInHours < 24) return `${diffInHours}h ago`;
 
     const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays === 1) return 'Updated yesterday';
-    return `Updated ${diffInDays} days ago`;
+    if (diffInDays === 1) return 'Yesterday';
+    if (diffInDays < 7) return `${diffInDays}d ago`;
+    return `${Math.floor(diffInDays / 7)}w ago`;
   };
+
+  // Calculate today's stats (placeholder - can be connected to real data later)
+  const getTodayStats = () => {
+    // This could be connected to real user activity data
+    // For now, showing placeholder data
+    const minutes = Math.floor(Math.random() * 400) + 50; // Random between 50-450
+    return {
+      minutes,
+      activities: ['journaling', 'coaching', 'meditation'] // Could track actual activities
+    };
+  };
+
+  const todayStats = getTodayStats();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-          <Text style={[styles.backText, { color: colors.text }]}>Settings</Text>
-          <View style={{ width: 24 }} />
-        </TouchableOpacity>
+        {shouldShowSkeleton ? (
+          <View style={{ width: 120, height: 24, backgroundColor: '#E5E5E7', borderRadius: 6 }} />
+        ) : (
+          <Text style={[styles.userName, { color: 'black' }]}>
+            {userInfo.name}
+          </Text>
+        )}
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/** Skeleton header when loading fresh */}
+        {shouldShowSkeleton && (
+          <View style={{ paddingHorizontal: 10, marginTop: 10 }}>
+            <Skeleton style={{ width: 200, height: 24, borderRadius: 6, marginBottom: 16 }} />
+            <Skeleton style={{ width: '100%', height: 180, borderRadius: 16, marginBottom: 20 }} />
+            <Skeleton style={{ width: '60%', height: 16, borderRadius: 6, marginBottom: 8 }} />
+            <Skeleton style={{ width: '40%', height: 16, borderRadius: 6 }} />
+          </View>
+        )}
         {/* Settings Title */}
         {/* <Text style={[styles.title, { color: colors.text }]}>Settings</Text> */}
 
         {/* Your Compass Section */}
-        <View style={styles.compassImageContainer}>
-          <Image
-            source={require('@/assets/images/Compass-Preview.png')}
-            style={{
-              width: 280,
-              height: 360,
-            }}
-            resizeMode="contain"
-          />
-        </View>
+        {!shouldShowSkeleton && (
+          <>
+            {/* Active Commitment Card */}
+            <View 
+              style={[styles.activeCommitmentCard, { 
+                backgroundColor: '#FFFFFF'
+              }]}
+            >
+              {/* Header with title and Edit button */}
+              <View style={styles.commitmentHeader}>
+                <View style={styles.commitmentTitleContainer}>
+                  <Text style={[styles.commitmentTitle, { color: '#262626' }]}>
+                    Active Commitment
+                  </Text>
+                  <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    Write 1000 Pages every day.
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.editButton}>
+                  <Text style={[styles.editButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+                    Edit
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-        <View style={styles.compassSection}>
-          <Text style={[styles.compassTitle, { color: colors.text }]}>Your Compass</Text>
-          <Text style={[styles.compassTimestamp, { color: '#999' }]}>
-            {formatLastUpdated(insights?.updatedAt)}
-          </Text>
-          <Button
-            variant="primary"
-            size="sm"
-            style={{ paddingHorizontal: 20 }}
-            onPress={handleViewInsights}
-            disabled={!hasInsights}
-          >
-            View Insights
-          </Button>
-        </View>
+              {/* Action buttons */}
+              <View style={styles.commitmentActions}>
+                <TouchableOpacity style={[styles.actionButton, styles.notDoneButton, { backgroundColor: '#F2F2F2' }]}>
+                  <Text style={[styles.actionButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={1}>
+                    Not done
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionButton, styles.doneButton, { backgroundColor: '#000000' }]}>
+                  <Text style={[styles.actionButtonText, { color: 'rgba(255, 255, 255, 0.91)' }]} numberOfLines={1}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-        {/* Account Section */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
+            {/* Compass Cards Grid */}
+            <View style={styles.compassCardsGrid}>
+              {/* Main Focus Card */}
+              <TouchableOpacity 
+                style={[styles.compassCard, { 
+                  backgroundColor: '#FFFFFF'
+                }]}
+                onPress={handleViewInsights}
+                disabled={!hasInsights}
+              >
+                <View style={styles.compassCardHeader}>
+                  <View style={styles.compassCardTitleContainer}>
+                    <Text style={[styles.compassCardTitle, { color: '#2563EB' }]}>Main Focus</Text>
+                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                      {formatLastUpdated(insights?.mainFocus?.updatedAt)}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                  {insights?.mainFocus?.headline || 'Generate insights by journaling and coaching'}
+                </Text>
+              </TouchableOpacity>
 
-        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
-          <Text style={[styles.settingTitle, { color: colors.text }]}>Account Information</Text>
-          <Text style={[styles.settingDescription, { color: '#999' }]}>
-            View your account information
-          </Text>
-          <View style={styles.userProfile}>
+              {/* Key Blockers Card */}
+              <TouchableOpacity 
+                style={[styles.compassCard, { 
+                  backgroundColor: '#FFFFFF'
+                }]}
+                onPress={handleViewInsights}
+                disabled={!hasInsights}
+              >
+                <View style={styles.compassCardHeader}>
+                  <View style={styles.compassCardTitleContainer}>
+                    <Text style={[styles.compassCardTitle, { color: '#EA580C' }]}>Key Blockers</Text>
+                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                      {formatLastUpdated(insights?.keyBlockers?.updatedAt)}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                  {insights?.keyBlockers?.headline || 'Generate insights by journaling and coaching'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Your Plan Card */}
+              <TouchableOpacity 
+                style={[styles.compassCard, { 
+                  backgroundColor: '#FFFFFF'
+                }]}
+                onPress={handleViewInsights}
+                disabled={!hasInsights}
+              >
+                <View style={styles.compassCardHeader}>
+                  <View style={styles.compassCardTitleContainer}>
+                    <Text style={[styles.compassCardTitle, { color: '#16A34A' }]}>Your Plan</Text>
+                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                      {formatLastUpdated(insights?.plan?.updatedAt)}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                  {insights?.plan?.headline || 'Generate insights by journaling and coaching'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Your Stats Card */}
+              <TouchableOpacity 
+                style={[styles.compassCard, styles.compassCardViewAll, { 
+                  backgroundColor: '#FFFFFF'
+                }]}
+                onPress={() => {
+                  // Navigate to stats or analytics screen
+                  console.log('Navigate to stats screen');
+                }}
+              >
+                <View style={styles.compassCardHeader}>
+                  <View style={styles.compassCardTitleContainer}>
+                    <Text style={[styles.compassCardTitle, { color: '#262626' }]}>Your stats</Text>
+                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                      Today
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.statsContent}>
+                  <Text style={[styles.statsText, { color: 'rgba(0, 0, 0, 0.90)' }]}>
+                    {todayStats.minutes} minutes{' '}
+                    <Text style={[styles.statsSubtext, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                      invested in yourself.
+                    </Text>
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Account Section */}
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
+
+            <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>Account Information</Text>
+              <Text style={[styles.settingDescription, { color: '#999' }]}>
+                View your account information
+              </Text>
+              <View style={styles.userProfile}>
             <Image source={{ uri: user?.imageUrl }} style={[styles.userImage, { borderColor: colors.text }]} />
             <View>
               <Text style={[styles.settingLabel, { color: colors.text }]}>
@@ -544,12 +734,12 @@ export default function SettingsScreen() {
           >
             Manage Account
           </Button>
-        </View>
+            </View>
 
         {/* Subscription Section */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Subscription</Text>
+        {!shouldShowSkeleton && <Text style={[styles.sectionTitle, { color: colors.text }]}>Subscription</Text>}
 
-        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
+        {!shouldShowSkeleton && <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.subscriptionHeader}>
             <View style={styles.subscriptionTitleRow}>
               <Crown size={24} color={isPro ? '#FFD700' : colors.icon} />
@@ -652,12 +842,12 @@ export default function SettingsScreen() {
               </Text>
             </View>
           )}
-        </View>
+        </View>}
 
         {/* Notifications Section */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Notifications</Text>
+        {!shouldShowSkeleton && <Text style={[styles.sectionTitle, { color: colors.text }]}>Notifications</Text>}
 
-        <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
+        {!shouldShowSkeleton && <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>Push Notifications</Text>
           </View>
@@ -686,7 +876,7 @@ export default function SettingsScreen() {
               </Text>
             </TouchableOpacity>
           )}
-        </View>
+        </View>}
 
         {/* App Settings */}
         {/* <Text style={[styles.sectionTitle, { color: colors.text }]}>App Settings</Text>
@@ -738,7 +928,7 @@ export default function SettingsScreen() {
         </View> */}
 
         {/* AI Features */}
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>AI Features</Text>
+        {!shouldShowSkeleton && <Text style={[styles.sectionTitle, { color: colors.text }]}>AI Features</Text>}
 
         {/* Push Notifications for AI */}
         <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
@@ -875,12 +1065,14 @@ export default function SettingsScreen() {
             Sign Out
           </Button>
         </View>
-        <Text style={[styles.appInfo, { color: colors.text }]}>
-          Reflecta.
-        </Text>
-        <Text style={[styles.versionInfo, { color: colors.text }]}>
-          Version {Application.nativeApplicationVersion}
-        </Text>
+            <Text style={[styles.appInfo, { color: colors.text }]}>
+              Reflecta.
+            </Text>
+            <Text style={[styles.versionInfo, { color: colors.text }]}>
+              Version {Application.nativeApplicationVersion}
+            </Text>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -894,17 +1086,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 30,
     paddingBottom: 15,
+    alignItems: 'flex-start',
   },
-  backButton: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 5,
-  },
-  backText: {
-    fontSize: 16,
-    fontWeight: '400',
+  userName: {
+    fontSize: 20,
+    fontWeight: '600',
+    lineHeight: 24,
   },
   content: {
     flex: 1,
@@ -1034,23 +1221,155 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.5,
   },
-  compassImageContainer: {
-    marginTop: -20,
-    alignItems: 'center',
-  },
-  compassSection: {
-    alignItems: 'center',
-    marginBottom: 30,
-    marginTop: -80,
-  },
-  compassTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-    marginBottom: 5,
-  },
-  compassTimestamp: {
-    fontSize: 16,
+  activeCommitmentCard: {
+    alignSelf: 'stretch',
+    height: 171,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 20,
+    marginTop: 10,
+  },
+  compassCardsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+    paddingHorizontal: 5,
+  },
+  compassCard: {
+    width: '48%',
+    height: 171,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  compassCardViewAll: {
+    // Special styling for the "View All" card if needed
+  },
+  // Active Commitment Card Styles
+  commitmentHeader: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  commitmentTitleContainer: {
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    flex: 1,
+  },
+  commitmentTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  commitmentDescription: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  editButton: {
+    padding: 8,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  commitmentActions: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 32,
+  },
+  notDoneButton: {
+    // Background color set dynamically
+  },
+  doneButton: {
+    // Background color set dynamically
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  compassCardHeader: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    gap: 15,
+  },
+  compassCardTitleContainer: {
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  compassCardTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  compassCardTime: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  compassCardContent: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 20,
+    textAlign: 'left',
+    alignSelf: 'flex-start',
+    marginTop: 'auto',
+  },
+  statsContent: {
+    alignSelf: 'stretch',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  statsText: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 20,
+  },
+  statsSubtext: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 20,
   },
   subscriptionHeader: {
     marginBottom: 20,

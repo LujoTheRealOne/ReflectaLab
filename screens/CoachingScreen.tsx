@@ -7,6 +7,7 @@ import { ArrowLeft, Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-nativ
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,7 +21,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'Coaching'>;
+type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
 // Spinning animation component
 const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
@@ -1425,57 +1426,135 @@ export default function CoachingScreen() {
           )}
         </View>
 
+        {/* Suggestion Buttons - only show when input is empty */}
+        {chatInput.trim().length === 0 && (
+          <View style={styles.suggestionContainer}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.suggestionScrollContent}
+              style={styles.suggestionScrollView}
+              nestedScrollEnabled={true}
+              directionalLockEnabled={true}
+              alwaysBounceVertical={false}
+              bounces={false}
+            >
+              <TouchableOpacity 
+                style={styles.suggestionButton}
+                onPress={() => setChatInput('Start Custom Meditation')}
+              >
+                <Text style={styles.suggestionButtonText}>Start Custom{'\n'}Meditation</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.suggestionButton}
+                onPress={() => setChatInput('Ask me hard questions')}
+              >
+                <Text style={styles.suggestionButtonText}>Ask me hard{'\n'}questions</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.suggestionButton}
+                onPress={() => setChatInput('Help me find my goal')}
+              >
+                <Text style={styles.suggestionButtonText}>Help me find{'\n'}my goal</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.suggestionButton}
+                onPress={() => setChatInput('Work through uncertainty')}
+              >
+                <Text style={styles.suggestionButtonText}>Work through{'\n'}uncertainty</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
+
         {/* Input */}
-        <View style={styles.chatInputContainer}>
+        <View style={[styles.chatInputContainer, { 
+          marginBottom: 80, // Better spacing above navbar to match design
+          paddingBottom: Math.max(insets.bottom, 0)
+        }]}>
           <View style={[
             styles.chatInputWrapper,
             {
-              backgroundColor: colors.background,
-              borderTopWidth: 1,
-              borderLeftWidth: 1,
-              borderRightWidth: 1,
-              borderColor: `${colors.tint}12`,
-              paddingBottom: Math.max(insets.bottom, 20),
-              flexDirection: isRecording ? 'column' : 'row',
+              backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+              borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
             }
           ]}>
-            {/* Full-width TextInput with text constrained to left side */}
-            {isTranscribing ? (
-              <View style={[styles.chatInput, styles.transcribingInputContainer]}>
+            {!isRecording && !isTranscribing ? (
+              /* Main Input Container - matches HTML structure */
+              <View style={styles.mainInputContainer}>
+                <TextInput
+                  ref={textInputRef}
+                  style={[
+                    styles.chatInput,
+                    { color: colors.text }
+                  ]}
+                  value={chatInput}
+                  onChangeText={setChatInput}
+                  onFocus={() => setIsChatInputFocused(true)}
+                  onBlur={() => setIsChatInputFocused(false)}
+                  placeholder="Write how you think..."
+                  placeholderTextColor={colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.50)'}
+                  multiline
+                  maxLength={500}
+                  returnKeyType='default'
+                  onSubmitEditing={handleSendMessage}
+                  cursorColor={colors.tint}
+                />
+                
+                {/* Button Container - Voice + Send buttons side by side */}
+                <View style={styles.buttonContainer}>
+                  <TouchableOpacity
+                    style={[styles.voiceButton, { 
+                      backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                    }]}
+                    onPress={handleMicrophonePress}
+                  >
+                    <Text style={[styles.voiceButtonText, { 
+                      color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 
+                    }]}>
+                      Voice
+                    </Text>
+                    <IconSymbol
+                      name="waveform"
+                      size={12}
+                      color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                    />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.sendButtonRound, { 
+                      backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: 3,
+                    }]}
+                    onPress={chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress}
+                  >
+                    <Mic
+                      size={18}
+                      color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
+                      strokeWidth={1.5}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : isTranscribing ? (
+              <View style={styles.transcribingContainer}>
                 <SpinningAnimation colorScheme={colorScheme} />
               </View>
-            ) : !isRecording ? (
-              <TextInput
-                ref={textInputRef}
-                style={[
-                  styles.chatInput,
-                  { color: colors.text }
-                ]}
-                value={chatInput}
-                onChangeText={setChatInput}
-                onFocus={() => setIsChatInputFocused(true)}
-                onBlur={() => setIsChatInputFocused(false)}
-                placeholder="Share what's on your mind..."
-                placeholderTextColor={`${colors.text}66`}
-                multiline
-                maxLength={500}
-                returnKeyType='default'
-                onSubmitEditing={handleSendMessage}
-                cursorColor={colors.tint}
-              />
-            ) : null}
-
-            {/* Recording state */}
-            {isRecording && !isTranscribing && (
-              <View style={styles.recordingContainer}>
+            ) : (
+              /* Recording state */
+              <View style={styles.recordingStateContainer}>
                 <TouchableOpacity
                   style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
                   onPress={handleRecordingCancel}
                 >
-                  <X
-                    size={20}
-                    color={colors.text}
-                  />
+                  <X size={20} color={colors.text} />
                 </TouchableOpacity>
                 
                 <View style={styles.recordingCenterSection}>
@@ -1488,61 +1567,9 @@ export default function CoachingScreen() {
                     style={[styles.recordingButton, { backgroundColor: colors.text }]}
                     onPress={handleRecordingConfirm}
                   >
-                    <Check
-                      size={20}
-                      color={colors.background}
-                    />
+                    <Check size={20} color={colors.background} />
                   </TouchableOpacity>
                 </View>
-              </View>
-            )}
-
-            {/* Absolutely positioned buttons overlay */}
-            {!isRecording && (
-              <View style={styles.buttonOverlay}>
-                {/* Empty input - show microphone only */}
-                {chatInput.trim().length === 0 && !isTranscribing && (
-                  <TouchableOpacity
-                    style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                    onPress={handleMicrophonePress}
-                  >
-                    <Mic
-                      size={20}
-                      color={colors.background}
-                    />
-                  </TouchableOpacity>
-                )}
-
-                {/* Text entered - show both microphone and send buttons */}
-                {(chatInput.trim().length > 0 || isTranscribing) && (
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity
-                      style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                      onPress={handleMicrophonePress}
-                      disabled={isTranscribing}
-                    >
-                      <Mic
-                        size={20}
-                        color={colors.background}
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.sendButton, 
-                        { 
-                          backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
-                        }
-                      ]}
-                      onPress={handleSendMessage}
-                      disabled={isTranscribing}
-                    >
-                      <ArrowUp
-                        size={20}
-                        color={colors.background}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
               </View>
             )}
           </View>
@@ -1627,41 +1654,119 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   chatInputContainer: {
-    paddingHorizontal: 0,
+    paddingHorizontal: 20,
     paddingBottom: 0,
     paddingTop: 0,
     maxHeight: 180,
   },
   chatInputWrapper: {
-    position: 'relative',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    maxHeight: 160,
-  },
-  buttonOverlay: {
-    position: 'absolute',
-    right: 20,
-    bottom: 30,
+    alignSelf: 'center',
+    width: 362,
+    height: 90,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderTopWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0,
+    borderLeftWidth: 0.5,
+    borderColor: '#00000012',
+    padding: 8,
+    gap: 10,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
-    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    overflow: 'visible',
+    opacity: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+          shadowOpacity: 0.4,
+      shadowRadius: 10,
+    elevation: 15,
+  },
+  mainInputContainer: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    gap: 4,
+    width: '100%',
   },
   chatInput: {
-    width: '100%',
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '400',
-    lineHeight: 22,
-    maxHeight: 100,
-    paddingVertical: 8,
-    paddingHorizontal: 0,
-    paddingRight: 90, // Space for buttons to prevent text overlap
+    lineHeight: 24,
+    height: 24,
+    paddingVertical: 0,
+    paddingHorizontal: 4,
     backgroundColor: 'transparent',
+    textAlignVertical: 'top',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  voiceButton: {
+    height: 32,
+    paddingHorizontal: 8,
+    borderRadius: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  voiceButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  voiceButtonIcon: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sendButtonRound: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButtonIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  microphoneButtonRound: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transcribingContainer: {
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  recordingStateContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 24,
   },
   sendButton: {
     width: 34,
@@ -1693,13 +1798,6 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  recordingContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    paddingTop: 8,
-  },
   recordingCenterSection: {
     flex: 1,
     alignItems: 'flex-start',
@@ -1724,12 +1822,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 2,
     elevation: 2,
-  },
-  transcribingInputContainer: {
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingLeft: 4,
   },
   loadingSpinner: {
     alignItems: 'center',
@@ -1809,5 +1901,34 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     zIndex: 1000,
+  },
+  suggestionContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  suggestionScrollView: {
+    flexGrow: 0,
+  },
+  suggestionScrollContent: {
+    paddingHorizontal: 0,
+    gap: 8,
+    alignItems: 'center',
+  },
+  suggestionButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F2F2F2',
+    borderRadius: 12,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  suggestionButtonText: {
+    color: 'rgba(0, 0, 0, 0.60)',
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    textAlign: 'center',
   },
 }); 

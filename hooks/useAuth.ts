@@ -1,5 +1,7 @@
 import { signInWithClerkToken, signOutFromFirebase, onFirebaseAuthStateChanged, getCurrentFirebaseUser } from '@/lib/clerk-firebase-auth';
 import { syncService } from '@/services/syncService';
+import { settingsCache } from '@/services/settingsCache';
+import { authCache } from '@/services/authCache';
 import { useAuth as useClerkAuth, useOAuth, useUser } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useState, useEffect, useRef } from 'react';
@@ -42,10 +44,17 @@ export function useAuth() {
   
   const { trackSignUp, trackSignIn, trackSignOut, trackFirstTimeAppOpened } = useAnalytics();
 
-  // Listen to Firebase auth state changes
+  // Listen to Firebase auth state changes (optimized to prevent spam)
   useEffect(() => {
+    let lastUserId: string | null = null;
+    
     const unsubscribe = onFirebaseAuthStateChanged((user) => {
-      console.log('🔥 Firebase auth state changed:', { uid: user?.uid, hasUser: !!user });
+      // Only log if user actually changed (not just re-fired)
+      if (user?.uid !== lastUserId) {
+        console.log('🔥 Firebase auth state changed:', { uid: user?.uid, hasUser: !!user });
+        lastUserId = user?.uid || null;
+      }
+      
       setFirebaseUser(user);
       setIsFirebaseReady(true);
       
@@ -146,7 +155,7 @@ export function useAuth() {
     };
   }, [isSignedIn, user, firebaseUser, getToken, authAttempts, isSigningOut]);
 
-  // Initialize user document in Firestore when Firebase user is available
+  // Initialize user document in Firestore when Firebase user is available (offline-first)
   useEffect(() => {
     const initializeUserDocument = async () => {
       // Skip user account loading during sign out
@@ -156,6 +165,74 @@ export function useAuth() {
       }
       
       if (!firebaseUser?.uid) return;
+
+      // =====================
+      // OFFLINE-FIRST: Check cache first
+      // =====================
+      try {
+        const cachedAuth = await authCache.getCachedAuth();
+        
+        if (cachedAuth && authCache.isUserMatching(firebaseUser.uid)) {
+          console.log('⚡ Using cached auth data for instant load');
+          
+          // Set state from cache immediately (with proper UserAccount type)
+          const fullUserAccount: UserAccount = {
+            ...cachedAuth.userAccount,
+            firstName: cachedAuth.userAccount.firstName || '',
+            onboardingData: cachedAuth.userAccount.onboardingData || {
+              onboardingCompleted: false,
+              onboardingCompletedAt: 0,
+              whatDoYouDoInLife: [],
+              selfReflectionPracticesTried: [],
+              stressInLife: 0.5,
+              clarityInLife: 0.5,
+            },
+            createdAt: cachedAuth.userAccount.createdAt || new Date(),
+            updatedAt: new Date(),
+            coachingConfig: {
+              challengeDegree: 'moderate',
+              harshToneDegree: 'supportive',
+              coachingMessageFrequency: 'daily',
+              enableCoachingMessages: true,
+              lastCoachingMessageSentAt: 0,
+              coachingMessageTimePreference: 'morning',
+            },
+            mobilePushNotifications: {
+              enabled: false,
+              expoPushTokens: [],
+              lastNotificationSentAt: 0,
+            },
+            userTimezone: 'America/New_York',
+          };
+          
+          setUserAccount(fullUserAccount);
+          setUserAccountLoading(false);
+          setNeedsOnboarding(!cachedAuth.userAccount.onboardingData?.onboardingCompleted);
+          
+          // Skip duplicate analytics tracking
+          if (lastTrackedUserIdRef.current !== firebaseUser.uid) {
+            lastTrackedUserIdRef.current = firebaseUser.uid;
+            console.log('⏭️ Using cached auth - skipping analytics tracking');
+          }
+          
+          // Disable background refresh for instant loading - cache is sufficient
+          // setTimeout(async () => {
+          //   console.log('🔄 Background auth refresh for accuracy...');
+          //   await performFullAuthInit();
+          // }, 2000);
+          
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error loading auth cache:', error);
+      }
+
+      // No valid cache, proceed with full initialization
+      await performFullAuthInit();
+    };
+
+    const performFullAuthInit = async () => {
+      if (!firebaseUser?.uid) return; // Safety check
 
       // Cleanup any existing timeout
       if (userAccountTimeoutRef.current) {
@@ -175,7 +252,7 @@ export function useAuth() {
       try {
         // Race between user account loading and timeout
         const account = await Promise.race([
-          FirestoreService.getUserAccount(firebaseUser.uid),
+          FirestoreService.getUserAccount(firebaseUser!.uid),
           timeoutPromise
         ]);
         
@@ -222,7 +299,7 @@ export function useAuth() {
             console.log('🎉 New user detected - tracking sign up and first time app opened (session-once)');
             trackSignUp({
               method: 'google', // TODO: Detect actual method
-              userId: firebaseUser.uid,
+              userId: firebaseUser!.uid,
               userEmail: user?.emailAddresses?.[0]?.emailAddress,
               userName: user?.fullName || account.firstName,
               isNewUser: true,
@@ -232,7 +309,7 @@ export function useAuth() {
             
             // Also track first time app opened
             trackFirstTimeAppOpened({
-              userId: firebaseUser.uid,
+              userId: firebaseUser!.uid,
               userEmail: user?.emailAddresses?.[0]?.emailAddress,
               userName: user?.fullName || account.firstName,
               method: 'google', // TODO: Detect actual method
@@ -242,7 +319,7 @@ export function useAuth() {
             console.log('🔐 Returning user detected - tracking sign in (session-once)');
             trackSignIn({
               method: 'google', // TODO: Detect actual method
-              userId: firebaseUser.uid,
+              userId: firebaseUser!.uid,
               userEmail: user?.emailAddresses?.[0]?.emailAddress,
               userName: user?.fullName || account.firstName,
               isNewUser: false,
@@ -251,6 +328,27 @@ export function useAuth() {
           }
         } else {
           console.log('⏭️ User analytics already tracked for this session, skipping duplicate tracking');
+        }
+
+        // =====================
+        // CACHE AUTH DATA for offline-first experience (only when needed)
+        // =====================
+        try {
+          const existingCache = await authCache.getCachedAuth();
+          const shouldUpdateCache = !existingCache || 
+            !authCache.isUserMatching(firebaseUser.uid) ||
+            !authCache.isCacheValid(existingCache);
+            
+          if (shouldUpdateCache) {
+            const cacheData = authCache.createCacheData(firebaseUser!, user, account);
+            await authCache.setCachedAuth(cacheData);
+            console.log('💾 Cached auth data for user:', firebaseUser.uid);
+          } else {
+            console.log('⏭️ Auth cache is fresh, skipping cache update');
+          }
+        } catch (cacheError) {
+          console.error('❌ Failed to cache auth data:', cacheError);
+          // Don't fail the whole flow for cache errors
         }
         
       } catch (error) {
@@ -267,13 +365,13 @@ export function useAuth() {
         console.error('❌ Failed to initialize user document:', {
           error: errorMessage,
           isTimeout: isTimeoutError,
-          userId: firebaseUser.uid
+          userId: firebaseUser!.uid
         });
         
         // Create fallback user account with proper error handling
         try {
           const fallbackAccount: UserAccount = {
-            uid: firebaseUser.uid,
+            uid: firebaseUser!.uid,
             firstName: '',
             onboardingData: {
               onboardingCompleted: false,
@@ -307,14 +405,14 @@ export function useAuth() {
           console.log('⚠️ Using fallback user account:', {
             reason: errorMessage,
             isTimeout: isTimeoutError,
-            userId: firebaseUser.uid
+            userId: firebaseUser!.uid
           });
           
           // Track as new user since we had to create fallback account
           console.log('🆕 Fallback account created - tracking as new user sign up and first time app opened');
           trackSignUp({
             method: 'google', // TODO: Detect actual method
-            userId: firebaseUser.uid,
+            userId: firebaseUser!.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
             userName: user?.fullName || undefined,
             isNewUser: true,
@@ -324,7 +422,7 @@ export function useAuth() {
           
           // Also track first time app opened
           trackFirstTimeAppOpened({
-            userId: firebaseUser.uid,
+            userId: firebaseUser!.uid,
             userEmail: user?.emailAddresses?.[0]?.emailAddress,
             userName: user?.fullName || undefined,
             method: 'google', // TODO: Detect actual method
@@ -432,10 +530,14 @@ export function useAuth() {
       await signOutFromFirebase();
       console.log('🚪 Firebase sign out completed');
       
-      // Clear sync cache for signed out user
+      // Clear all caches for signed out user
       if (firebaseUser?.uid) {
         console.log('🧹 Clearing sync cache for user:', firebaseUser.uid);
         await syncService.clearUserData(firebaseUser.uid);
+        console.log('🧹 Clearing settings cache for user:', firebaseUser.uid);
+        await settingsCache.clearCache(firebaseUser.uid);
+        console.log('🧹 Clearing auth cache for user:', firebaseUser.uid);
+        await authCache.clearCache();
       }
       
       console.log('✅ Sign out completed successfully');

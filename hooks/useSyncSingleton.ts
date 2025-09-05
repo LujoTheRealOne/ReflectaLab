@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+// import { AppState, AppStateStatus } from 'react-native'; // Disabled for instant loading
 import { useAuth } from '@/hooks/useAuth';
 import { syncService, CachedEntry, SyncState } from '@/services/syncService';
 
@@ -76,12 +76,12 @@ async function initializeSyncForUser(userId: string) {
   updateGlobalState({ isLoading: true, error: null });
 
   try {
-    // Load initial entries (cached + background sync)
+    // Load initial entries from cache only - no background sync
     const initialEntries = await syncService.initialSync(userId);
     updateGlobalState({ entries: initialEntries });
 
-    // Start real-time sync
-    syncService.startRealTimeSync(userId);
+    // Real-time sync disabled for instant loading - only manual refresh will sync
+    // syncService.startRealTimeSync(userId);
 
     // Load sync status
     const currentSyncStatus = await syncService.getSyncState(userId);
@@ -132,28 +132,28 @@ async function updateEntriesFromCache() {
   }
 }
 
-// Setup app state listener (only once)
-let appStateListenerSetup = false;
-function setupAppStateListener() {
-  if (appStateListenerSetup) return;
+// Disable app state listener to prevent auto-sync on app resume
+// let appStateListenerSetup = false;
+// function setupAppStateListener() {
+//   if (appStateListenerSetup) return;
   
-  const handleAppStateChange = (nextAppState: AppStateStatus) => {
-    if (!currentUserId) return;
+//   const handleAppStateChange = (nextAppState: AppStateStatus) => {
+//     if (!currentUserId) return;
 
-    console.log('📱 App state changed to:', nextAppState);
+//     console.log('📱 App state changed to:', nextAppState);
 
-    if (nextAppState === 'active') {
-      console.log('📱 App became active, refreshing sync');
-      initializeSyncForUser(currentUserId);
-    } else if (nextAppState === 'background') {
-      console.log('📱 App went to background, stopping real-time sync');
-      syncService.stopRealTimeSync();
-    }
-  };
+//     if (nextAppState === 'active') {
+//       console.log('📱 App became active, refreshing sync');
+//       initializeSyncForUser(currentUserId);
+//     } else if (nextAppState === 'background') {
+//       console.log('📱 App went to background, stopping real-time sync');
+//       syncService.stopRealTimeSync();
+//     }
+//   };
 
-  AppState.addEventListener('change', handleAppStateChange);
-  appStateListenerSetup = true;
-}
+//   AppState.addEventListener('change', handleAppStateChange);
+//   appStateListenerSetup = true;
+// }
 
 export function useSyncSingleton(): UseSyncReturn {
   const { firebaseUser } = useAuth();
@@ -166,10 +166,10 @@ export function useSyncSingleton(): UseSyncReturn {
     return () => globalListeners.delete(listener);
   }, []);
 
-  // Setup app state listener
-  useEffect(() => {
-    setupAppStateListener();
-  }, []);
+  // Disable app state listener to prevent auto-sync
+  // useEffect(() => {
+  //   setupAppStateListener();
+  // }, []);
 
   // Initialize sync when user changes
   useEffect(() => {
@@ -180,22 +180,24 @@ export function useSyncSingleton(): UseSyncReturn {
     }
   }, [firebaseUser?.uid]);
 
-  // Update entries when sync completes
-  useEffect(() => {
-    if (!globalSyncStatus.syncInProgress && currentUserId) {
-      updateEntriesFromCache();
-    }
-  }, [globalSyncStatus.syncInProgress]);
+  // Remove automatic cache updates - only manual refresh or user actions will trigger updates
+  // useEffect(() => {
+  //   if (!globalSyncStatus.syncInProgress && currentUserId) {
+  //     updateEntriesFromCache();
+  //   }
+  // }, [globalSyncStatus.syncInProgress]);
 
   // Public methods
   const refreshEntries = useCallback(async () => {
     if (!firebaseUser?.uid) return;
 
-    console.log('🔄 Manual refresh requested');
+    console.log('🔄 Manual refresh requested - performing background sync');
     updateGlobalState({ error: null });
 
     try {
-      const refreshedEntries = await syncService.initialSync(firebaseUser.uid);
+      // Manual refresh should actually sync with server
+      await syncService.performBackgroundSync(firebaseUser.uid);
+      const refreshedEntries = await syncService.getCachedEntries(firebaseUser.uid);
       updateGlobalState({ entries: refreshedEntries });
     } catch (err) {
       console.error('❌ Manual refresh failed:', err);

@@ -1,18 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import NoteCard from '@/components/NoteCard';
-import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import Skeleton from '@/components/skeleton/Skeleton';
+import NoteCardSkeleton from '@/components/skeleton/NoteCardSkeleton';
+import { useSyncSingleton } from '@/hooks/useSyncSingleton';
 
 type JournalEntry = {
   id: string;
   title?: string;
   content?: string;
-  timestamp: any; // Firestore timestamp
+  timestamp: any; // Firestore timestamp or ISO string
   uid: string;
 };
 
@@ -21,46 +21,22 @@ export default function NotesScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { firebaseUser, isFirebaseReady } = useAuth();
+  const { entries: cachedEntries, isLoading, refreshEntries } = useSyncSingleton();
+  const [isNavigating, setIsNavigating] = useState(false);
 
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  // Map cached entries to local shape with mock timestamp compat
+  const entries = useMemo<JournalEntry[]>(() => {
+    return cachedEntries.map((e) => ({
+      id: e.id,
+      title: e.title,
+      content: e.content,
+      timestamp: e.timestamp, // ISO string or Firestore timestamp
+      uid: e.uid,
+    }));
+  }, [cachedEntries]);
 
-  const fetchEntries = useCallback(async () => {
-    if (!firebaseUser) {
-      setEntries([]);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const entriesQuery = query(
-        collection(db, 'journal_entries'),
-        where('uid', '==', firebaseUser.uid),
-        orderBy('timestamp', 'desc')
-      );
-
-      const snapshot = await getDocs(entriesQuery);
-      const list: JournalEntry[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as Omit<JournalEntry, 'id'>;
-        list.push({ id: docSnap.id, ...(data as any) });
-      });
-      setEntries(list);
-    } catch (e) {
-      console.error('Failed to fetch journal entries for Notes:', e);
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [firebaseUser]);
-
-  useEffect(() => {
-    if (isFirebaseReady) {
-      fetchEntries();
-    }
-  }, [isFirebaseReady, fetchEntries]);
+  // Only show skeleton on true cold load (no cache data yet)
+  const shouldShowSkeleton = isLoading && cachedEntries.length === 0;
 
   const formatDate = useCallback((ts: any) => {
     if (!ts) return '';
@@ -125,6 +101,13 @@ export default function NotesScreen() {
     paddingBottom: Math.max(insets.bottom, 12),
   }), [insets.bottom]);
 
+  // Reset navigation state when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      setIsNavigating(false);
+    }, [])
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
       <View style={[styles.topSpacer, { height: insets.top + 12 }]} />
@@ -139,7 +122,14 @@ export default function NotesScreen() {
             }
           ]}
           onPress={() => {
-            (navigation as any).navigate('Home');
+            if (isNavigating) return; // Prevent multiple navigation calls
+            
+            setIsNavigating(true);
+            // Navigate to Home screen with createNew flag
+            (navigation as any).navigate('Home', { createNew: true });
+            
+            // Reset navigation flag after a short delay
+            setTimeout(() => setIsNavigating(false), 500);
           }}
         >
           <Text style={[
@@ -155,13 +145,37 @@ export default function NotesScreen() {
         style={styles.scrollArea}
         contentContainerStyle={contentContainerStyle}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false} // Don't show loading spinner since we want instant UI
+            onRefresh={refreshEntries}
+            tintColor={colors.text}
+          />
+        }
       >
-        {!loading && entries.length === 0 && (
+        {shouldShowSkeleton && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Skeleton style={{ width: 90, height: 12, borderRadius: 6 }} />
+            </View>
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <NoteCardSkeleton key={`s1-${idx}`} />
+            ))}
+            <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+              <Skeleton style={{ width: 110, height: 12, borderRadius: 6 }} />
+            </View>
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <NoteCardSkeleton key={`s2-${idx}`} />
+            ))}
+          </>
+        )}
+
+        {!shouldShowSkeleton && entries.length === 0 && (
           <Text style={{ color: colors.text, opacity: 0.6 }}>No entries yet.</Text>
         )}
 
         {/* This week section */}
-        {groupedEntries.thisWeek.length > 0 && (
+        {!shouldShowSkeleton && groupedEntries.thisWeek.length > 0 && (
           <>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionHeaderText, { color: 'rgba(0,0,0,0.4)' }]}>
@@ -181,7 +195,7 @@ export default function NotesScreen() {
         )}
 
         {/* Last 7 days section */}
-        {groupedEntries.last7Days.length > 0 && (
+        {!shouldShowSkeleton && groupedEntries.last7Days.length > 0 && (
           <>
             <View style={[styles.sectionHeader, { marginTop: groupedEntries.thisWeek.length > 0 ? 20 : 0 }]}>
               <Text style={[styles.sectionHeaderText, { color: 'rgba(0,0,0,0.4)' }]}>

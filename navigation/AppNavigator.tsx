@@ -12,13 +12,13 @@ import CoachingScreen from '@/screens/CoachingScreen';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
-import BottomNavBar from '@/components/BottomNavBar';
+import SwipeableScreens from '@/components/SwipeableScreens';
 
 
 // Define the app stack param list
 export type AppStackParamList = {
+  SwipeableScreens: undefined; // Main swipeable container
   Home: undefined;
-  SettingsScreen: undefined;
   Info: undefined;
   JournalEdit: { entryId: string };
   CompassStory: { 
@@ -30,8 +30,6 @@ export type AppStackParamList = {
       rawData: string;
     };
   };
-  CoachingScreen: undefined;
-  NotesScreen: undefined;
 };
 
 const Stack = createStackNavigator<AppStackParamList>();
@@ -67,14 +65,14 @@ export default function AppNavigator() {
     };
   }, []);
   
-  // Determine if navbar should be visible (hide on Home screen)
-  const shouldShowNavBar = currentRoute !== 'Home' && !isKeyboardVisible;
+  // Determine if navbar should be visible (hide on Home screen and SwipeableScreens since it has its own navbar)
+  const shouldShowNavBar = currentRoute !== 'Home' && currentRoute !== 'SwipeableScreens' && !isKeyboardVisible;
 
   return (
     <View style={{ flex: 1 }}>
       {/* Stack Navigator with all screens */}
     <Stack.Navigator 
-      initialRouteName="NotesScreen"
+      initialRouteName="SwipeableScreens"
       screenOptions={{
         headerShown: false,
       }}
@@ -91,9 +89,42 @@ export default function AppNavigator() {
         },
       }}
     >
+      {/* Main Swipeable Screens Container */}
+      <Stack.Screen
+        name="SwipeableScreens"
+        options={{
+          gestureEnabled: false,
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 200 } },
+            close: { animation: 'timing', config: { duration: 200 } },
+          },
+          cardStyleInterpolator: ({ current, layouts }) => ({
+            cardStyle: {
+              transform: [
+                {
+                  translateX: current.progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-layouts.screen.width, 0],
+                  }),
+                },
+              ],
+            },
+          }),
+        }}
+      >
+        {() => <SwipeableScreens />}
+      </Stack.Screen>
+
+      {/* Journal Entry Screen */}
       <Stack.Screen
         name="Home"
         options={{
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+          transitionSpec: {
+            open: { animation: 'timing', config: { duration: 250 } },
+            close: { animation: 'timing', config: { duration: 250 } },
+          },
           cardStyleInterpolator: ({ current, layouts }) => {
             return {
               cardStyle: {
@@ -113,24 +144,7 @@ export default function AppNavigator() {
         {() => <HomeScreen />}
       </Stack.Screen>
       
-      <Stack.Screen
-        name="SettingsScreen"
-        options={{
-          gestureEnabled: false,
-          transitionSpec: {
-            open: { animation: 'timing', config: { duration: 0 } },
-            close: { animation: 'timing', config: { duration: 0 } },
-          },
-          cardStyleInterpolator: ({ current }) => ({
-            cardStyle: {
-              opacity: current.progress,
-            },
-          }),
-        }}
-      >
-        {() => <SettingsScreen />}
-      </Stack.Screen>
-      
+      {/* Info and other secondary screens */}
       <Stack.Screen
         name="Info"
         options={{
@@ -149,46 +163,9 @@ export default function AppNavigator() {
       >
         {() => <CompassStoryScreen />}
       </Stack.Screen>
-      
-      <Stack.Screen
-        name="CoachingScreen"
-        options={{
-          gestureEnabled: false,
-          transitionSpec: {
-            open: { animation: 'timing', config: { duration: 0 } },
-            close: { animation: 'timing', config: { duration: 0 } },
-          },
-          cardStyleInterpolator: ({ current }) => ({
-            cardStyle: {
-              opacity: current.progress,
-            },
-          }),
-        }}
-      >
-        {() => <CoachingScreen />}
-      </Stack.Screen>
-      
-      <Stack.Screen
-        name="NotesScreen"
-        options={{
-          gestureEnabled: false,
-          transitionSpec: {
-            open: { animation: 'timing', config: { duration: 0 } },
-            close: { animation: 'timing', config: { duration: 0 } },
-          },
-          cardStyleInterpolator: ({ current }) => ({
-            cardStyle: {
-              opacity: current.progress,
-            },
-          }),
-        }}
-      >
-        {() => <NotesScreen />}
-      </Stack.Screen>
     </Stack.Navigator>
     
-    {/* Global BottomNavBar - persistent across all screens (except Home) */}
-    <BottomNavBar isVisible={shouldShowNavBar} />
+    {/* Note: BottomNavBar is now inside SwipeableScreens component */}
     </View>
   );
 } 

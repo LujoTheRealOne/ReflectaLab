@@ -8,7 +8,7 @@ import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { getCoachingMessage } from '@/lib/firestore';
 import { BackendCoachingMessage } from '@/types/coachingMessage';
 import { db } from '@/lib/firebase';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
@@ -93,10 +93,6 @@ export default function HomeContent() {
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
 
-  // Get today's date as fallback
-  const today = new Date();
-  const fallbackFormattedDate = today.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'long' });
-  const fallbackTime = today.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   const [entry, setEntry] = useState('');
   const [editorLoaded, setEditorLoaded] = useState(false);
@@ -205,16 +201,6 @@ export default function HomeContent() {
     setCurrentEntryId(latestEntry?.id || null);
   }, [latestEntry, setCurrentEntryId]);
 
-  // Calculate display values based on latest entry or fallback to today
-  const displayDate = (latestEntry && !isNewEntry)
-    ? (latestEntry.timestamp?.toDate ? latestEntry.timestamp.toDate() : new Date(latestEntry.timestamp))
-    : today;
-
-  const weekday = displayDate.toLocaleDateString('en-US', { weekday: 'short' });
-  const day = displayDate.toLocaleDateString('en-US', { day: 'numeric' });
-  const month = displayDate.toLocaleDateString('en-US', { month: 'long' });
-  const year = displayDate.getFullYear();
-  const formattedDate = `${weekday}, ${month} ${day}`;
 
   // Fetch the latest journal entry
   const fetchLatestEntry = useCallback(async () => {
@@ -484,6 +470,13 @@ export default function HomeContent() {
     };
   }, []);
 
+  // Reset navigation state when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      setIsNavigating(false);
+    }, [])
+  );
+
   // Fetch coaching session data - stable callback like web app
   const fetchCoachingSession = useCallback(async (sessionId: string) => {
     if (!sessionId || !firebaseUser) {
@@ -688,15 +681,27 @@ export default function HomeContent() {
   });
 
   // Add horizontal swipe gesture for Notes navigation
+  const [isNavigating, setIsNavigating] = useState(false);
+  
   const navigateToNotes = useCallback(() => {
-    // Replace for instant switch without animation
-    (navigation as any).replace('NotesScreen');
-  }, [navigation]);
+    if (isNavigating) return; // Prevent multiple navigation calls
+    
+    setIsNavigating(true);
+    // Navigate back to SwipeableScreens (which contains NotesScreen)
+    (navigation as any).navigate('SwipeableScreens');
+    
+    // Reset navigation flag after a short delay
+    setTimeout(() => setIsNavigating(false), 500);
+  }, [navigation, isNavigating]);
 
   const panGesture = Gesture.Pan()
     .onUpdate((event) => {
       // Track horizontal swipe to the right (positive translationX)
-      if (event.translationX > 100 && Math.abs(event.velocityX) > 500) {
+      // More restrictive conditions to prevent accidental navigation
+      if (event.translationX > 150 && 
+          Math.abs(event.velocityX) > 800 && 
+          Math.abs(event.translationY) < 100 && // Ensure it's mostly horizontal
+          !isNavigating) {
         runOnJS(navigateToNotes)();
       }
     });
@@ -773,51 +778,35 @@ export default function HomeContent() {
         <PanGestureHandler onGestureEvent={gestureHandler}>
           <Animated.View style={[styles.mainContent, animatedStyle, curvedEdgesStyle]}>
           <Animated.View style={[styles.safeArea, { backgroundColor: colors.background }, curvedEdgesStyle]}>
-            <SafeAreaView style={[styles.safeAreaInner, { marginTop: useSafeAreaInsets().top }]}>
-              {/* Header */}
-              {/* <View style={styles.header}>
-                <TouchableOpacity onPress={() => {
-                  (navigation as any).push('Notes');
-                }}>
-                  <AlignLeft size={28} color={colors.text} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => {
-                  (navigation as any).navigate('SettingsScreen');
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}>
-                  <Image source={{ uri: useAuth().user?.imageUrl }} style={{ width: 32, height: 32, borderRadius: 100, borderWidth: 1.5, borderColor: colors.text }} />
-                </TouchableOpacity>
-              </View> */}
+               {/* Minimal Header - Full width at top */}
+               <View style={[styles.minimalHeader, { 
+                 backgroundColor: colors.background,
+                 paddingTop: useSafeAreaInsets().top + 10,
+               }]}>
+                 <TouchableOpacity 
+                   onPress={() => {
+                     if (isNavigating) return;
+                     setIsNavigating(true);
+                     (navigation as any).navigate('SwipeableScreens');
+                     setTimeout(() => setIsNavigating(false), 500);
+                   }}
+                   style={styles.backButton}
+                 >
+                   <AlignLeft size={24} color={colors.text} style={{ opacity: 0.5 }} />
+                 </TouchableOpacity>
+                 
+                 <View style={styles.headerCenter}>
+                   <Text style={[styles.headerTitle, { color: colors.text }]}>Note</Text>
+                 </View>
+                 
+                 <View style={styles.headerRight}>
+                   {getSaveStatusIcon()}
+                 </View>
+               </View>
 
-              {/* Content */}
-              <View style={styles.content}>
-                {/* Year and Date */}
-                <View style={{ paddingTop: 20 }}>
-                  <Text style={[styles.yearText, { color: colors.text }]}>
-                    {year}
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text
-                        style={[styles.dateText, { color: colors.text }]}
-                      >
-                        {weekday} <Text style={{ color: colors.text, opacity: 0.4 }}>{month} {day}</Text>
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          createNewEntry();
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                        style={{ paddingVertical: 8, paddingHorizontal: 4 }}
-                      >
-                        <Plus size={20} color={colors.text} style={{ opacity: 0.6 }} />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={{ marginTop: 10, marginRight: 5, alignItems: 'flex-end' }}>
-                      {getSaveStatusIcon()}
-                    </View>
-                  </View>
-                </View>
+               {/* Content */}
+               <SafeAreaView style={styles.safeAreaInner}>
+               <View style={styles.content}>
 
                 {/* Coaching Session Card - Show when current entry has linked session */}
                 {(coachingSessionData || loadingCoachingSession) && (
@@ -855,17 +844,17 @@ export default function HomeContent() {
                   onActiveFormatsChange={setActiveFormats}
                 />
                   </EditorErrorBoundary>
-                </View>
-              </View>
-              {/* <TouchableOpacity
-                style={{ position: 'absolute', bottom: 50, right: 20, paddingHorizontal: 15, paddingVertical: 15, backgroundColor: colors.text, borderRadius: 24 }}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <AudioLines size={24} color={colors.background} />
-              </TouchableOpacity> */}
-            </SafeAreaView>
+                                 </View>
+               </View>
+               </SafeAreaView>
+               {/* <TouchableOpacity
+                 style={{ position: 'absolute', bottom: 50, right: 20, paddingHorizontal: 15, paddingVertical: 15, backgroundColor: colors.text, borderRadius: 24 }}
+                 onPress={() => {
+                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                 }}
+               >
+                 <AudioLines size={24} color={colors.background} />
+               </TouchableOpacity> */}
 
             {/* Floating Microphone Button */}
             <Animated.View 
@@ -953,34 +942,43 @@ const styles = StyleSheet.create({
   safeAreaInner: {
     flex: 1,
   },
-  header: {
+  minimalHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 31,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.07)',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  backButton: {
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    gap: 2,
+    width: 44, // Fixed width for consistent spacing
+  },
+  headerCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerRight: {
+    width: 44, // Same width as back button for balance
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '500',
+    lineHeight: 24,
+    color: 'rgba(0, 0, 0, 0.60)',
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
     width: '100%',
     maxWidth: '100%',
-  },
-  yearText: {
-    fontSize: 12,
-    fontWeight: '600',
-    opacity: 0.6,
-    marginBottom: -5,
-  },
-  dateText: {
-    fontSize: 28,
-    fontWeight: '500',
-    paddingVertical: 10,
-  },
-  timeText: {
-    fontSize: 16,
-    fontWeight: '400',
-    paddingVertical: 10,
   },
   journalInput: {
     minHeight: 100,

@@ -125,11 +125,9 @@ class SyncService {
     console.log('🔄 Starting initial sync for user:', userId);
     
     try {
-      // Start with cached entries for immediate UI
+      // Return cached entries immediately - no background sync unless requested
       const cachedEntries = await this.getCachedEntries(userId);
-      
-      // Sync in background without blocking UI
-      this.performBackgroundSync(userId);
+      console.log('✅ Initial sync completed instantly from cache');
       
       return cachedEntries;
     } catch (error) {
@@ -138,7 +136,7 @@ class SyncService {
     }
   }
 
-  private async performBackgroundSync(userId: string): Promise<void> {
+  async performBackgroundSync(userId: string): Promise<void> {
     if (this.syncInProgress) {
       console.log('⏭️ Sync already in progress, skipping');
       return;

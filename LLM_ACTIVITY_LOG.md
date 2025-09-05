@@ -7,6 +7,40 @@ This file records all important changes and implementations made by the LLM assi
 
 ## 2025-01-27
 
+- **Replaced Compass Section with 2x2 Cards Grid in Settings**: Transformed the compass display from a single large image and button to an interactive card-based interface:
+  * **New Card Layout**: Replaced the large compass preview image with a 2x2 grid of insight cards:
+    - **Main Focus Card**: Shows the main focus headline with blue accent color (#2563EB)
+    - **Key Blockers Card**: Displays key blockers headline with orange accent color (#EA580C)  
+    - **Your Plan Card**: Shows plan headline with green accent color (#16A34A)
+    - **View All Card**: General card for accessing complete compass story with app tint color
+  * **Card Design**: Each card follows the provided design specification:
+    - 171px height with 16px padding and 24px border radius
+    - Light background (#F9F9F9 light, #1A1A1A dark) with subtle border and shadow
+    - Header section with colored title and timestamp
+    - Content section showing the insight headline or fallback text
+    - Proper dark theme support for all text colors and borders
+  * **Interactive Functionality**: All cards navigate to CompassStory screen when tapped:
+    - Uses existing `handleViewInsights()` function for navigation
+    - Maintains Pro subscription gating and paywall presentation
+    - Cards are disabled when no insights are available (`!hasInsights`)
+  * **Data Integration**: Cards display real insight data from useInsights hook:
+    - Shows actual headlines from `insights.mainFocus.headline`, `insights.keyBlockers.headline`, `insights.plan.headline`
+    - Displays individual timestamps using existing `formatLastUpdated()` function
+    - Falls back to "No insights yet" when data is unavailable
+  * **Responsive Layout**: Grid uses flexbox with proper spacing:
+    - 2x2 grid layout with 12px gap between cards
+    - Each card takes ~48% width with flex: 1 for equal sizing
+    - Maintains proper spacing and alignment across different screen sizes
+  * **Theme Compatibility**: Full dark theme support throughout:
+    - Dynamic background colors for light/dark modes
+    - Proper text color adaptation for titles, timestamps, and content
+    - Border colors adjust appropriately (#D9D9D9 light, #333 dark)
+  * **Improved User Experience**: More engaging and informative compass overview:
+    - Users can see all three insight types at a glance
+    - Individual timestamps show when each insight was last updated
+    - Cleaner, more modern card-based interface
+    - Maintains all existing functionality while improving visual presentation
+
 - Added Notes screen and navigation wiring:
   * Created `screens/NotesScreen.tsx` implementing the provided layout (header "Notes", grouped sections, and note cards) with light/dark theme compatibility.
   * Registered `Notes` route in `navigation/AppNavigator.tsx` with iOS-style slide transition.

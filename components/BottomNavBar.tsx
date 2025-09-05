@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { View, TouchableOpacity, StyleSheet, useColorScheme } from 'react-native';
+import React, { useMemo, useCallback } from 'react';
+import { View, TouchableOpacity, StyleSheet, useColorScheme, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, NavigationProp, CommonActions } from '@react-navigation/native';
+import { useNavigation, useRoute, useNavigationState, NavigationProp } from '@react-navigation/native';
+import { navigateToAppScreen } from '@/navigation/RootNavigation';
 import { Colors } from '@/constants/Colors';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
@@ -11,11 +12,14 @@ import * as Haptics from 'expo-haptics';
 // Import the correct navigation types
 import type { AppStackParamList } from '@/navigation/AppNavigator';
 
+// Extended type to include swipeable screen names
+type SwipeableScreenNames = 'NotesScreen' | 'CoachingScreen' | 'SettingsScreen';
+
 // Tab configuration
 export type TabConfig = {
   id: string;
   iconName: string;
-  routeName: keyof AppStackParamList;
+  routeName: keyof AppStackParamList | SwipeableScreenNames;
   requiresPro?: boolean;
 };
 
@@ -23,6 +27,8 @@ export type TabConfig = {
 interface BottomNavBarProps {
   isVisible?: boolean;
   tabs?: TabConfig[];
+  onNavigation?: (screenName: string) => void; // For swipe system integration
+  activeTab?: string; // For external active tab control
 }
 
 // Default tab configuration
@@ -47,7 +53,9 @@ const DEFAULT_TABS: TabConfig[] = [
 
 export default function BottomNavBar({ 
   isVisible = true, 
-  tabs = DEFAULT_TABS 
+  tabs = DEFAULT_TABS,
+  onNavigation,
+  activeTab: externalActiveTab
 }: BottomNavBarProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -59,12 +67,13 @@ export default function BottomNavBar({
   const { firebaseUser } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
+  // Subscribe to navigation state to react instantly on transitions
+  const navState = useNavigationState((s) => s);
+
   // Helper to get the deepest active route name (handles nested navigators)
-  const getDeepActiveRouteName = (): string => {
+  const getDeepActiveRouteName = (state: any): string => {
     try {
-      const state: any = navigation.getState();
       let currentState: any = state;
-      // If we're at root (Auth/App), drill into 'App' state
       while (currentState && currentState.routes && currentState.index != null) {
         const currentRoute = currentState.routes[currentState.index];
         if (currentRoute?.state) {
@@ -81,7 +90,13 @@ export default function BottomNavBar({
 
   // Memoize active tab calculation for performance
   const activeTabId = useMemo(() => {
-    const routeName = getDeepActiveRouteName();
+    // If external active tab is provided (for swipe system), use it
+    if (externalActiveTab) {
+      return externalActiveTab;
+    }
+
+    // Otherwise, use navigation state detection
+    const routeName = getDeepActiveRouteName(navState);
     
     // Map route names to tab IDs (these are AppNavigator route names)
     const routeToTabMap: Record<string, string> = {
@@ -93,78 +108,71 @@ export default function BottomNavBar({
       'Info': 'profile',       // Info screen (settings related)
     };
 
-    return routeToTabMap[routeName] || 'notes'; // Default to notes since it's the initial screen
-  }, [route.name, navigation]);
+    const tabId = routeToTabMap[routeName] || 'notes';
+    
+    // Debug: Log active tab changes for development (temporarily disabled for performance)
+    // console.log(`🎯 NavBar: Route "${routeName}" → Tab "${tabId}"`);
+    
+    return tabId;
+  }, [navState, externalActiveTab]);
 
-  // Handle tab press
-  const handleTabPress = async (tab: TabConfig) => {
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // Handle tab press (optimized for instant navigation & nested stacks)
+  const handleTabPress = useCallback(async (tab: TabConfig) => {
+    // Prevent multiple taps on the already active tab
+    if (activeTabId === tab.id) {
+      return;
+    }
 
-    // Debug logging removed for performance
+    // Haptic feedback (non-blocking)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-    // Special handling for chat button - go to coaching directly in nested App
+    // Resolve target screen name
+    const targetScreen = tab.routeName;
+
+    // Pro gate for coaching tab
     if (tab.id === 'chat') {
-      // Check Pro requirement for coaching
-      if (!initialized) return; // Wait for RevenueCat init
-      
+      if (!initialized) return;
       if (!isPro) {
         const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-        if (!unlocked) return; // Don't navigate if paywall was cancelled
+        if (!unlocked) return;
       }
+    }
 
-      // Navigate directly to Coaching screen (nested under App)
-      navigation.dispatch(
-        CommonActions.navigate({
-          // Root has routes: Auth, App. Target App, then nested screen
-          name: 'App' as any,
-          params: { screen: 'CoachingScreen' },
-        })
-      );
+    // If we're already on the target route, do nothing
+    const currentDeepRoute = getDeepActiveRouteName(navState);
+    if (currentDeepRoute === targetScreen) {
       return;
     }
 
-    // Check Pro requirement for other tabs if needed
-    if (tab.requiresPro && !isPro) {
-      if (!initialized) return; // Wait for RevenueCat init
-      
-      const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-      if (!unlocked) return; // Don't navigate if paywall was cancelled
+    // If onNavigation callback is provided (swipe system), use it for swipeable screens
+    if (onNavigation) {
+      onNavigation(targetScreen as string);
+    } else {
+      // Navigate via root navigator since BottomNavBar is outside App stack
+      // We need to target the App stack specifically
+      navigateToAppScreen(targetScreen as string);
     }
-
-    // For Notes navigation, use instant navigate like other tabs
-    if (tab.routeName === 'NotesScreen') {
-      navigation.dispatch(
-        CommonActions.navigate({
-          name: 'App' as any,
-          params: { screen: 'NotesScreen' },
-        })
-      );
-      return;
-    }
-
-    // Navigate to the tab's route in nested App navigator
-    navigation.dispatch(
-      CommonActions.navigate({
-        name: 'App' as any,
-        params: { screen: tab.routeName },
-      })
-    );
-  };
+  }, [activeTabId, initialized, isPro, navState, navigation, presentPaywallIfNeeded, currentOffering]);
 
   // Get icon color based on active state
   const getIconColor = (tabId: string): string => {
     const isActive = activeTabId === tabId;
     
     if (isActive) {
-      // Active state - use full text color for better visibility
-      return colors.text;
+      // Active state - use strong color for clear indication
+      return colorScheme === 'dark' ? '#FFFFFF' : '#000000';
     } else {
-      // Inactive state - use reduced opacity for clear visual hierarchy
+      // Inactive state - use muted color for better contrast
       return colorScheme === 'dark' 
-        ? 'rgba(255, 255, 255, 0.25)' // Slightly more visible in dark mode
-        : 'rgba(0, 0, 0, 0.25)';       // Slightly more visible in light mode
+        ? 'rgba(255, 255, 255, 0.4)' // More visible in dark mode
+        : 'rgba(0, 0, 0, 0.4)';       // More visible in light mode
     }
+  };
+
+  // Get icon scale based on active state (subtle animation)
+  const getIconScale = (tabId: string): number => {
+    const isActive = activeTabId === tabId;
+    return isActive ? 1.1 : 1.0; // Slightly larger when active
   };
 
   // Don't render if not visible
@@ -188,12 +196,15 @@ export default function BottomNavBar({
             style={styles.tabButton}
             onPress={() => handleTabPress(tab)}
             activeOpacity={0.6}
+            disabled={activeTabId === tab.id} // Prevent tapping current tab
           >
-            <IconSymbol
-              name={tab.iconName as any}
-              size={24}
-              color={getIconColor(tab.id)}
-            />
+            <View style={{ transform: [{ scale: getIconScale(tab.id) }] }}>
+              <IconSymbol
+                name={tab.iconName as any}
+                size={26}
+                color={getIconColor(tab.id)}
+              />
+            </View>
           </TouchableOpacity>
         ))}
       </View>

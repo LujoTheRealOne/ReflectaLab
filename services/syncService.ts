@@ -35,6 +35,7 @@ class SyncService {
   private syncListeners: Array<(status: SyncState) => void> = [];
   private realTimeUnsubscribe: (() => void) | null = null;
   private lastCacheLogCount: number = 0;
+  private cacheUpdateListeners: Array<(userId: string, entries: CachedEntry[]) => void> = [];
 
   // =====================
   // CACHE MANAGEMENT
@@ -60,11 +61,54 @@ class SyncService {
 
   async setCachedEntries(userId: string, entries: CachedEntry[]): Promise<void> {
     try {
-      await AsyncStorage.setItem(`${STORAGE_KEYS.ENTRIES}_${userId}`, JSON.stringify(entries));
-      console.log(`💾 Cached ${entries.length} entries for user ${userId}`);
+      // Deduplicate entries by ID to prevent duplicate keys in UI
+      const uniqueEntries = entries.reduce((acc, entry) => {
+        const existingIndex = acc.findIndex(e => e.id === entry.id);
+        if (existingIndex >= 0) {
+          // Keep the entry with most recent timestamp or better sync status
+          const existing = acc[existingIndex];
+          const entryTime = new Date(entry.timestamp).getTime();
+          const existingTime = new Date(existing.timestamp).getTime();
+          
+          if (entryTime > existingTime || entry._syncStatus === 'synced') {
+            acc[existingIndex] = entry;
+          }
+        } else {
+          acc.push(entry);
+        }
+        return acc;
+      }, [] as CachedEntry[]);
+      
+      const sortedEntries = uniqueEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      await AsyncStorage.setItem(`${STORAGE_KEYS.ENTRIES}_${userId}`, JSON.stringify(sortedEntries));
+      
+      // Only log on significant changes to reduce noise
+      if (!this.lastCacheLogCount || Math.abs(sortedEntries.length - this.lastCacheLogCount) > 0) {
+        console.log(`💾 Cached ${sortedEntries.length} unique entries for user ${userId}`);
+        this.lastCacheLogCount = sortedEntries.length;
+      }
+      
+      // Notify cache update listeners
+      this.cacheUpdateListeners.forEach(listener => {
+        try {
+          listener(userId, sortedEntries);
+        } catch (error) {
+          console.error('❌ Cache update listener error:', error);
+        }
+      });
     } catch (error) {
       console.error('❌ Error caching entries:', error);
     }
+  }
+
+  onCacheUpdate(listener: (userId: string, entries: CachedEntry[]) => void): () => void {
+    this.cacheUpdateListeners.push(listener);
+    return () => {
+      const index = this.cacheUpdateListeners.indexOf(listener);
+      if (index >= 0) {
+        this.cacheUpdateListeners.splice(index, 1);
+      }
+    };
   }
 
   async getSyncState(userId: string): Promise<SyncState> {
@@ -179,6 +223,105 @@ class SyncService {
       });
     } finally {
       this.syncInProgress = false;
+    }
+  }
+
+  // =====================
+  // OFFLINE-FIRST SYNC
+  // =====================
+
+  async syncSingleEntryToBackend(userId: string, entryId: string): Promise<void> {
+    try {
+      console.log(`🔄 Syncing entry ${entryId} to backend...`);
+      
+      // Get entry from cache
+      const cachedEntries = await this.getCachedEntries(userId);
+      const entry = cachedEntries.find(e => e.id === entryId);
+      
+      if (!entry) {
+        throw new Error(`Entry ${entryId} not found in cache`);
+      }
+
+      // Import Firebase functions dynamically
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+      
+      // Upload to Firestore
+      const entryRef = doc(db, 'journal_entries', entryId);
+      await setDoc(entryRef, {
+        id: entryId,
+        uid: userId,
+        title: entry.title || '',
+        content: entry.content,
+        timestamp: serverTimestamp(),
+        linkedCoachingSessionId: entry.linkedCoachingSessionId || null,
+        linkedCoachingMessageId: entry.linkedCoachingMessageId || null,
+        lastUpdated: serverTimestamp(),
+      });
+
+      // Update sync status in cache
+      const updatedEntries = cachedEntries.map(e => 
+        e.id === entryId 
+          ? { ...e, _syncStatus: 'synced' as const, _lastSyncAttempt: new Date().toISOString() }
+          : e
+      );
+      
+      await this.setCachedEntries(userId, updatedEntries);
+      console.log(`✅ Entry ${entryId} synced to backend successfully`);
+      
+    } catch (error) {
+      console.error(`❌ Failed to sync entry ${entryId} to backend:`, error);
+      
+      // Mark as failed in cache
+      const cachedEntries = await this.getCachedEntries(userId);
+      const updatedEntries = cachedEntries.map(e => 
+        e.id === entryId 
+          ? { ...e, _syncStatus: 'pending' as const, _lastSyncAttempt: new Date().toISOString() }
+          : e
+      );
+      await this.setCachedEntries(userId, updatedEntries);
+      
+      throw error;
+    }
+  }
+
+  async forceUploadAllCachedEntries(userId: string): Promise<void> {
+    try {
+      console.log('📤 FORCE UPLOAD: Starting upload of offline entries to backend...');
+      
+      const cachedEntries = await this.getCachedEntries(userId);
+      const offlineEntries = cachedEntries.filter(e => e._syncStatus === 'local-only' || e._syncStatus === 'pending');
+      
+      if (offlineEntries.length === 0) {
+        console.log('✅ No offline entries found, all synced');
+        return;
+      }
+
+      console.log(`📤 Found ${offlineEntries.length} offline entries, uploading...`);
+      
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Upload entries one by one to avoid overwhelming the backend
+      for (const entry of offlineEntries) {
+        try {
+          await this.syncSingleEntryToBackend(userId, entry.id);
+          successCount++;
+          console.log(`✅ ${successCount}/${offlineEntries.length} offline entries uploaded`);
+          
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 150));
+          
+        } catch (error) {
+          failCount++;
+          console.error(`❌ Failed to upload offline entry ${entry.id}:`, error);
+        }
+      }
+      
+      console.log(`📤 FORCE UPLOAD COMPLETED: ${successCount} success, ${failCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ FORCE UPLOAD FAILED:', error);
+      throw error;
     }
   }
 
@@ -303,27 +446,45 @@ class SyncService {
   // OPTIMISTIC UPDATES
   // =====================
 
-  async addLocalEntry(userId: string, entry: Omit<CachedEntry, 'id' | '_syncStatus'>): Promise<string> {
-    const entryId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  async addLocalEntry(userId: string, entry: (Omit<CachedEntry, '_syncStatus'> & { _syncStatus?: CachedEntry['_syncStatus'] }) | Omit<CachedEntry, 'id' | '_syncStatus'>): Promise<string> {
+    // If entry has an id, use it (for synced entries), otherwise generate one (for new entries)
+    const entryId = 'id' in entry ? entry.id : `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const syncStatus = ('_syncStatus' in entry && entry._syncStatus) ? entry._syncStatus : 'local-only';
+    
     const localEntry: CachedEntry = {
       ...entry,
       id: entryId,
-      _syncStatus: 'local-only',
+      _syncStatus: syncStatus,
     };
 
-    console.log('📝 Adding local entry:', entryId);
+    console.log('📝 Adding local entry:', entryId, 'status:', syncStatus);
 
-    // Add to cache immediately
+    // Add to cache immediately (check for duplicates)
     const cachedEntries = await this.getCachedEntries(userId);
-    const updatedEntries = [localEntry, ...cachedEntries];
+    const existingIndex = cachedEntries.findIndex(e => e.id === entryId);
+    
+    let updatedEntries: CachedEntry[];
+    if (existingIndex >= 0) {
+      // Update existing entry instead of creating duplicate
+      updatedEntries = [...cachedEntries];
+      updatedEntries[existingIndex] = localEntry;
+      console.log('📝 Updated existing cached entry:', entryId);
+    } else {
+      // Add new entry
+      updatedEntries = [localEntry, ...cachedEntries];
+      console.log('🆕 Added new entry to cache');
+    }
+    
     await this.setCachedEntries(userId, updatedEntries);
 
-    // Queue for sync
-    const syncState = await this.getSyncState(userId);
-    await this.setSyncState(userId, {
-      ...syncState,
-      pendingUploads: [...syncState.pendingUploads, entryId],
-    });
+    // Queue for sync only if it's a local-only entry
+    if (syncStatus === 'local-only') {
+      const syncState = await this.getSyncState(userId);
+      await this.setSyncState(userId, {
+        ...syncState,
+        pendingUploads: [...syncState.pendingUploads, entryId],
+      });
+    }
 
     return entryId;
   }
@@ -332,18 +493,22 @@ class SyncService {
     console.log('✏️ Updating local entry:', entryId);
 
     const cachedEntries = await this.getCachedEntries(userId);
-    const updatedEntries = cachedEntries.map(entry => {
-      if (entry.id === entryId) {
-        return {
-          ...entry,
-          ...updates,
-          _syncStatus: entry._syncStatus === 'synced' ? 'pending' : entry._syncStatus,
-        };
-      }
-      return entry;
-    });
+    const entryIndex = cachedEntries.findIndex(e => e.id === entryId);
+    
+    if (entryIndex === -1) {
+      console.warn(`⚠️ Entry ${entryId} not found in cache for update`);
+      return;
+    }
+    
+    const updatedEntries = [...cachedEntries];
+    updatedEntries[entryIndex] = {
+      ...updatedEntries[entryIndex],
+      ...updates,
+      _syncStatus: updatedEntries[entryIndex]._syncStatus === 'synced' ? 'pending' : updatedEntries[entryIndex]._syncStatus,
+    };
 
     await this.setCachedEntries(userId, updatedEntries);
+    console.log('📝 Updated existing entry in cache');
 
     // Queue for sync if not already pending
     const syncState = await this.getSyncState(userId);

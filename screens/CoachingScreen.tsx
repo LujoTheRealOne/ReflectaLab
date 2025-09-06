@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { ArrowLeft, Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -267,6 +267,11 @@ export default function CoachingScreen() {
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [inputHeight, setInputHeight] = useState(24); // Initial height for minimum 1 line
+  const [containerHeight, setContainerHeight] = useState(90); // Dynamic container height
+  const [isInputExpanded, setIsInputExpanded] = useState(false); // Expand durumu
+  const [currentLineCount, setCurrentLineCount] = useState(1); // Current line count
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
   const [completionStats, setCompletionStats] = useState({
@@ -324,6 +329,15 @@ export default function CoachingScreen() {
   const HEADER_HEIGHT = 120;
   const INPUT_HEIGHT = 160;
   const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header
+  
+  // Dynamic input constants
+  const LINE_HEIGHT = 24;
+  const MIN_LINES = 1;
+  const MAX_LINES = 10;
+  const EXPANDED_MAX_LINES = 40; // Expand edilmiş durumda maksimum satır
+  const INPUT_PADDING_VERTICAL = 8;
+  const CONTAINER_BASE_HEIGHT = 90; // Minimum container yüksekliği
+  const CONTAINER_PADDING = 40; // Container'daki padding toplamı (8+20+12)
 
   // Dynamic content height calculation
   const dynamicContentHeight = useMemo(() => {
@@ -331,7 +345,7 @@ export default function CoachingScreen() {
     
     messages.forEach((message, index) => {
       const contentLength = message.content.length;
-      const lines = Math.max(1, Math.ceil(contentLength / 40));
+      const lines = Math.max(1, Math.ceil(contentLength / 44));
       let messageHeight = lines * 22 + 32;
       
       if (message.role === 'assistant') {
@@ -356,21 +370,30 @@ export default function CoachingScreen() {
     return totalHeight;
   }, [messages, isLoading, shouldShowLoadingIndicator]);
 
-  // 2. Simplify dynamicBottomPadding - only two states:
+  // 2. Dynamic bottom padding - account for live input container height so last lines stay visible
   const dynamicBottomPadding = useMemo(() => {
-    const screenHeight = 700; 
-    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
-    
-    // If user sent a message and waiting for AI response -> Positioning padding
+    // Base padding when idle
+    const basePadding = 50;
+
+    // Klavye açıksa ekstra alan ekle
+    const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
+
+    // Extra space for the growing input container to prevent overlap
+    const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40; // small cushion
+
+    // If the AI is responding or user just sent a message, add more for positioning
     const lastMessage = messages[messages.length - 1];
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (isUserWaitingForAI) {
-      return availableHeight + 100; // Sufficient space for precise positioning
-    } else {
-      return 50; // Minimal padding - just bottom space
+
+    if (keyboardHeight > 0) {
+      // Klavye açıkken - daha fazla alan ver
+      return keyboardExtraSpace;
+    } else if (isUserWaitingForAI) {
+      return basePadding + extraForInput + 120;
     }
-  }, [messages, isLoading]);
+
+    return basePadding + extraForInput;
+  }, [messages, isLoading, containerHeight, keyboardHeight]);
 
   // New state for content height tracking
   const [contentHeight, setContentHeight] = useState(0);
@@ -920,6 +943,148 @@ export default function CoachingScreen() {
     };
   }, []);
 
+  // Klavye yüksekliğini izle
+  useEffect(() => {
+    const keyboardWillShow = (event: any) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    };
+
+    const keyboardWillHide = () => {
+      setKeyboardHeight(0);
+    };
+
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      keyboardWillShow
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      keyboardWillHide
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, []);
+
+  // Text change handlers for dynamic input
+  const handleTextChange = (text: string) => {
+    setChatInput(text);
+    
+    // Daha hassas hesaplama - kelime bazlı satır atlama
+    const containerWidth = 362; // chatInputWrapper width
+    const containerPadding = 16; // 8px left + 8px right padding
+    const textInputPadding = 8; // 4px left + 4px right padding
+    
+    // İlk önce satır sayısını tahmini hesapla
+    const estimatedLines = Math.max(1, text.split('\n').length);
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Daha erken multi-line algılama
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Expand butonu için alan
+    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
+    
+    // Font boyutuna göre karakter genişliği (fontSize: 15, fontWeight: 400)
+    // Daha conservative hesaplama - kelimeler için fazladan margin
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Multi-line'da daha az karakter
+    const charsPerLine = baseCharsPerLine;
+    
+    // Satır hesaplama - kelime kırılması dahil
+    const textLines = text.split('\n');
+    let totalLines = 0;
+    
+    textLines.forEach(line => {
+      if (line.length === 0) {
+        totalLines += 1; // Boş satır
+      } else {
+        // Kelime bazlı hesaplama - uzun kelimelerin satır atlama riski için
+        const words = line.split(' ');
+        let currentLineLength = 0;
+        let linesForThisTextLine = 1;
+        
+        words.forEach((word, index) => {
+          const wordLength = word.length;
+          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
+          
+          // Eğer bu kelime mevcut satıra sığmayacaksa, yeni satır
+          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
+            linesForThisTextLine++;
+            currentLineLength = wordLength;
+          } else {
+            currentLineLength += spaceNeeded + wordLength;
+          }
+        });
+        
+        totalLines += linesForThisTextLine;
+      }
+    });
+    
+    // Satır sayısını kaydet
+    setCurrentLineCount(totalLines);
+    
+    // Min/Max sınırları - expand durumuna göre
+    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
+    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
+    
+    // Yükseklik hesaplama
+    const newInputHeight = actualLines * LINE_HEIGHT;
+    
+    // Container yüksekliği - gerçek layout'a göre optimize
+    const topPadding = 12; // TextInput üst padding artırıldı
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send buton yüksekliği
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
+
+  const handleContentSizeChange = (event: any) => {
+    const { height } = event.nativeEvent.contentSize;
+    
+    // Min/Max yükseklikleri hesapla
+    const minHeight = MIN_LINES * LINE_HEIGHT; // 24px
+    const maxHeight = MAX_LINES * LINE_HEIGHT; // 240px
+    
+    // Gerçek content yüksekliğini kullan ama LINE_HEIGHT'a yuvarla
+    const rawHeight = Math.max(minHeight, Math.min(maxHeight, height));
+    
+    // En yakın LINE_HEIGHT katına yuvarla (24px'in katları)
+    const roundedLines = Math.round(rawHeight / LINE_HEIGHT);
+    const newInputHeight = Math.max(MIN_LINES, Math.min(MAX_LINES, roundedLines)) * LINE_HEIGHT;
+    
+    // Container yüksekliği - handleTextChange ile aynı hesaplama
+    const topPadding = 12; // TextInput üst padding artırıldı
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send buton yüksekliği
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
+
+  // Ensure last lines remain visible when input grows to a new line - DISABLED to prevent auto-scroll
+  useEffect(() => {
+    // Disabled: This was causing unwanted auto-scroll when typing
+    // Only scroll if user explicitly wants it, not automatically on input height change
+    return;
+  }, [inputHeight, containerHeight]);
+
+  // Expand toggle function
+  const handleExpandToggle = () => {
+    setIsInputExpanded(!isInputExpanded);
+    
+    // Mevcut text'e göre yeniden hesapla
+    setTimeout(() => {
+      handleTextChange(chatInput);
+    }, 0);
+  };
+
   // 8. Set flag correctly in handleSendMessage:
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
@@ -946,6 +1111,12 @@ export default function CoachingScreen() {
 
     const messageContent = chatInput.trim();
     setChatInput('');
+    
+    // Input yüksekliğini ve expand durumunu sıfırla
+    setInputHeight(LINE_HEIGHT);
+    setContainerHeight(CONTAINER_BASE_HEIGHT);
+    setIsInputExpanded(false);
+    setCurrentLineCount(1);
     
     // Set positioning flag
     hasUserScrolled.current = false;
@@ -1064,12 +1235,12 @@ export default function CoachingScreen() {
       }
     }
     
-    // Scroll to bottom button - only when AI response is complete
+    // Scroll to bottom button - show when content is scrollable and not at bottom
     const hasMessages = messages.length > 0;
     const lastMessage = hasMessages ? messages[messages.length - 1] : null;
     const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
     
-    if (isAIResponseComplete && targetScrollPosition.current === null) {
+    if (isAIResponseComplete) {
       const contentHeight = contentSize.height;
       const screenHeight = layoutMeasurement.height;
       const distanceFromBottom = contentHeight - screenHeight - scrollY;
@@ -1251,13 +1422,9 @@ export default function CoachingScreen() {
       >
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <ArrowLeft size={24} color={colors.text} />
-          </TouchableOpacity>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
-            Coaching
+            Coach
           </Text>
-          <View style={{ width: 24 }} />
         </View>
 
         {/* Messages */}
@@ -1287,7 +1454,7 @@ export default function CoachingScreen() {
               setScrollViewHeight(height);
             }}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
@@ -1416,7 +1583,9 @@ export default function CoachingScreen() {
                 styles.scrollToBottomButton,
                 {
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
-                  borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5',
+                  bottom: keyboardHeight > 0 
+                    ? keyboardHeight + containerHeight - 300  // Keyboard + input height + margin
+                    : 280 + containerHeight - 90, // Normal position + input growth
                 }
               ]}
               onPress={handleScrollToBottom}
@@ -1427,7 +1596,7 @@ export default function CoachingScreen() {
         </View>
 
         {/* Suggestion Buttons - only show when input is empty */}
-        {chatInput.trim().length === 0 && (
+        {chatInput.trim().length === 0 && keyboardHeight === 0 && (
           <View style={styles.suggestionContainer}>
             <ScrollView 
               horizontal 
@@ -1472,27 +1641,54 @@ export default function CoachingScreen() {
 
         {/* Input */}
         <View style={[styles.chatInputContainer, { 
-          marginBottom: 80, // Better spacing above navbar to match design
+          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 80, // If keyboard open: slightly overlapping, otherwise 80px above navbar
           paddingBottom: Math.max(insets.bottom, 0)
-        }]}>
-          <View style={[
-            styles.chatInputWrapper,
-            {
-              backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-              borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-            }
-          ]}>
+        }]} pointerEvents="box-none">
+          <View
+            pointerEvents="auto"
+            style={[
+              styles.chatInputWrapper,
+              {
+                backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
+                height: containerHeight // Dinamik yükseklik
+              }
+            ]}
+          >
+            {/* Expand Button - sadece 1 satırdan fazlayken görünür */}
+            {currentLineCount > 1 && (
+              <TouchableOpacity
+                style={[styles.expandButton, {
+                  backgroundColor: colorScheme === 'dark' ? '#404040' : '#F0F0F0',
+                }]}
+                onPress={handleExpandToggle}
+              >
+                <IconSymbol
+                  name={isInputExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"}
+                  size={14}
+                  color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                />
+              </TouchableOpacity>
+            )}
+            
             {!isRecording && !isTranscribing ? (
-              /* Main Input Container - matches HTML structure */
+              /* Main Input Container - vertical layout */
               <View style={styles.mainInputContainer}>
+                {/* TextInput at the top */}
                 <TextInput
                   ref={textInputRef}
                   style={[
                     styles.chatInput,
-                    { color: colors.text }
+                    { 
+                      color: colors.text,
+                      height: inputHeight, // Dinamik yükseklik
+                      width: currentLineCount > 1 ? '92%' : '100%', // Expand butonu için alan bırak (~28px az)
+                      paddingRight: currentLineCount > 1 ? 32 : 4, // Expand butonu için sağ padding
+                    }
                   ]}
                   value={chatInput}
-                  onChangeText={setChatInput}
+                  onChangeText={handleTextChange} // Ana controller
+                  onContentSizeChange={undefined} // Devre dışı - sadece handleTextChange kullan
                   onFocus={() => setIsChatInputFocused(true)}
                   onBlur={() => setIsChatInputFocused(false)}
                   placeholder="Write how you think..."
@@ -1502,27 +1698,44 @@ export default function CoachingScreen() {
                   returnKeyType='default'
                   onSubmitEditing={handleSendMessage}
                   cursorColor={colors.tint}
+                  scrollEnabled={inputHeight >= (isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES) * LINE_HEIGHT} // Maksimum yükseklikte scroll aktif
+                  textBreakStrategy="balanced" // Kelime kırma stratejisi
                 />
                 
-                {/* Button Container - Voice + Send buttons side by side */}
+                {/* Button Container at the bottom - Voice + Send buttons side by side */}
                 <View style={styles.buttonContainer}>
-                  <TouchableOpacity
-                    style={[styles.voiceButton, { 
-                      backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
-                    }]}
-                    onPress={handleMicrophonePress}
-                  >
-                    <Text style={[styles.voiceButtonText, { 
-                      color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 
-                    }]}>
-                      Voice
-                    </Text>
-                    <IconSymbol
-                      name="waveform"
-                      size={12}
-                      color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
-                    />
-                  </TouchableOpacity>
+                  {chatInput.trim().length > 0 ? (
+                    <TouchableOpacity
+                      style={[styles.microphoneButtonRound, { 
+                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                      }]}
+                      onPress={handleMicrophonePress}
+                    >
+                      <Mic
+                        size={18}
+                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                        strokeWidth={1.5}
+                      />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.voiceButton, { 
+                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                      }]}
+                      onPress={handleMicrophonePress}
+                    >
+                      <Text style={[styles.voiceButtonText, { 
+                        color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 
+                      }]}>
+                        Voice
+                      </Text>
+                      <IconSymbol
+                        name="waveform"
+                        size={12}
+                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                      />
+                    </TouchableOpacity>
+                  )}
                   
                   <TouchableOpacity
                     style={[styles.sendButtonRound, { 
@@ -1535,11 +1748,19 @@ export default function CoachingScreen() {
                     }]}
                     onPress={chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress}
                   >
-                    <Mic
-                      size={18}
-                      color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
-                      strokeWidth={1.5}
-                    />
+                    {chatInput.trim().length > 0 ? (
+                      <ArrowUp
+                        size={18}
+                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
+                        strokeWidth={1.5}
+                      />
+                    ) : (
+                      <Mic
+                        size={18}
+                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
+                        strokeWidth={1.5}
+                      />
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1587,13 +1808,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderBottomWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
@@ -1602,7 +1821,7 @@ const styles = StyleSheet.create({
   chatHeaderText: {
     fontSize: 16,
     fontWeight: '600',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   messagesContainer: {
     flex: 1,
@@ -1657,12 +1876,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 0,
     paddingTop: 0,
-    maxHeight: 180,
+    position: 'absolute',
+    bottom: 0, // Navbar'dan 40px yukarıda
+    left: 0,
+    right: 0,
+    justifyContent: 'flex-end', // İçeriği alt kısma hizala (yukarı genişleme için)
+    zIndex: 1000, // Base z-index
   },
   chatInputWrapper: {
     alignSelf: 'center',
     width: 362,
-    height: 90,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     borderTopWidth: 0.5,
@@ -1673,7 +1896,7 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 10,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end', // Butonları alt kısma hizala
     justifyContent: 'flex-start',
     overflow: 'visible',
     opacity: 1,
@@ -1682,27 +1905,25 @@ const styles = StyleSheet.create({
       width: 0,
       height: 0,
     },
-          shadowOpacity: 0.4,
-      shadowRadius: 10,
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
     elevation: 15,
   },
   mainInputContainer: {
     flex: 1,
     paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 20,
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    gap: 4,
+    paddingTop: 12, // Üst padding artırıldı
+    paddingBottom: 8,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
     width: '100%',
   },
   chatInput: {
-    flex: 1,
     fontSize: 15,
     fontWeight: '400',
     lineHeight: 24,
-    height: 24,
+    minHeight: 24, // Minimum yükseklik
     paddingVertical: 0,
     paddingHorizontal: 4,
     backgroundColor: 'transparent',
@@ -1711,8 +1932,9 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 6,
-    flexShrink: 0,
+    paddingTop: 8,
   },
   voiceButton: {
     height: 32,
@@ -1728,9 +1950,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
-  voiceButtonIcon: {
-    fontSize: 12,
-    fontWeight: '600',
+  microphoneButtonRound: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendButtonRound: {
     width: 32,
@@ -1740,13 +1965,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendButtonIcon: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  microphoneButtonRound: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1884,27 +2102,31 @@ const styles = StyleSheet.create({
   },
   scrollToBottomButton: {
     position: 'absolute',
-    bottom: 20,
     right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 0, // Border kaldır, sadece ok
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 1,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    zIndex: 1000,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 999, // Input'tan düşük z-index
   },
   suggestionContainer: {
+    position: 'absolute',
+    bottom: 210, // Input'un üstünde
+    left: 0,
+    right: 0,
     paddingHorizontal: 20,
     paddingBottom: 12,
+    zIndex: 1001, // Input'tan daha yüksek
   },
   suggestionScrollView: {
     flexGrow: 0,
@@ -1930,5 +2152,24 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 16,
     textAlign: 'center',
+  },
+  expandButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 10,
   },
 }); 

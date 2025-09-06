@@ -100,12 +100,14 @@ export default function BottomNavBar({
     
     // Map route names to tab IDs (these are AppNavigator route names)
     const routeToTabMap: Record<string, string> = {
-      'Home': 'chat',          // Home navigator (includes HomeContent)
-      'NotesScreen': 'notes',      // Notes screen
-      'CoachingScreen': 'chat',    // Coaching screen  
-      'SettingsScreen': 'profile', // Settings screen
-      'CompassStory': 'chat',   // Compass story (part of coaching flow)
-      'Info': 'profile',       // Info screen (settings related)
+      'SwipeableScreens': 'notes',
+      'NotesList': 'notes',
+      'NewNote': 'notes',
+      'NotesScreen': 'notes',
+      'CoachingScreen': 'chat',
+      'SettingsScreen': 'profile',
+      'CompassStory': 'chat',
+      'Info': 'profile',
     };
 
     const tabId = routeToTabMap[routeName] || 'notes';

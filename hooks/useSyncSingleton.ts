@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-// import { AppState, AppStateStatus } from 'react-native'; // Disabled for instant loading
+import { AppState, AppStateStatus } from 'react-native'; // Re-enabled for backend sync
 import { useAuth } from '@/hooks/useAuth';
 import { syncService, CachedEntry, SyncState } from '@/services/syncService';
 
@@ -76,21 +76,40 @@ async function initializeSyncForUser(userId: string) {
   updateGlobalState({ isLoading: true, error: null });
 
   try {
-    // Load initial entries from cache only - no background sync
+    // Load initial entries from cache and start background sync
     const initialEntries = await syncService.initialSync(userId);
     updateGlobalState({ entries: initialEntries });
 
-    // Real-time sync disabled for instant loading - only manual refresh will sync
+    // FORCE UPLOAD: Upload only offline entries to backend on app start
+    console.log('📤 FORCE UPLOAD STARTED: Uploading offline entries to backend...');
+    try {
+      const startTime = Date.now();
+      await syncService.forceUploadAllCachedEntries(userId);
+      const endTime = Date.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(2);
+      console.log(`✅ FORCE UPLOAD COMPLETED: Offline entries uploaded in ${duration} seconds`);
+    } catch (error) {
+      console.error('❌ FORCE UPLOAD FAILED:', error);
+      // Don't throw - app should still work even if upload fails
+    }
+
+    // Disable real-time sync to prevent loops - will use manual refresh only
+    console.log('🔄 Real-time sync disabled to prevent loops...');
     // syncService.startRealTimeSync(userId);
 
-    // Load sync status
+    // Load sync status (force syncInProgress to false)
     const currentSyncStatus = await syncService.getSyncState(userId);
-    updateGlobalState({ syncStatus: currentSyncStatus });
-
-    // Setup sync status listener
-    syncService.addSyncListener((status) => {
-      updateGlobalState({ syncStatus: status });
+    updateGlobalState({ 
+      syncStatus: { 
+        ...currentSyncStatus, 
+        syncInProgress: false 
+      } 
     });
+
+    // Disable sync status listener to prevent continuous updates
+    // syncService.addSyncListener((status) => {
+    //   updateGlobalState({ syncStatus: status });
+    // });
 
     isInitialized = true;
     console.log('✅ Sync initialized with', initialEntries.length, 'entries');
@@ -132,28 +151,35 @@ async function updateEntriesFromCache() {
   }
 }
 
-// Disable app state listener to prevent auto-sync on app resume
-// let appStateListenerSetup = false;
-// function setupAppStateListener() {
-//   if (appStateListenerSetup) return;
+// Enable app state listener for backend sync on app resume
+let appStateListenerSetup = false;
+function setupAppStateListener() {
+  if (appStateListenerSetup) return;
   
-//   const handleAppStateChange = (nextAppState: AppStateStatus) => {
-//     if (!currentUserId) return;
+  const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    if (!currentUserId) return;
 
-//     console.log('📱 App state changed to:', nextAppState);
+    console.log('📱 App state changed to:', nextAppState);
 
-//     if (nextAppState === 'active') {
-//       console.log('📱 App became active, refreshing sync');
-//       initializeSyncForUser(currentUserId);
-//     } else if (nextAppState === 'background') {
-//       console.log('📱 App went to background, stopping real-time sync');
-//       syncService.stopRealTimeSync();
-//     }
-//   };
+    if (nextAppState === 'active') {
+      console.log('📱 App became active, refreshing sync with backend');
+      initializeSyncForUser(currentUserId);
+    } else if (nextAppState === 'background') {
+      console.log('📱 App went to background, performing final sync');
+      // Perform one final sync before going to background
+      syncService.performBackgroundSync(currentUserId).then(() => {
+        console.log('📱 Background sync completed');
+        syncService.stopRealTimeSync();
+      }).catch(error => {
+        console.error('📱 Background sync failed:', error);
+        syncService.stopRealTimeSync();
+      });
+    }
+  };
 
-//   AppState.addEventListener('change', handleAppStateChange);
-//   appStateListenerSetup = true;
-// }
+  AppState.addEventListener('change', handleAppStateChange);
+  appStateListenerSetup = true;
+}
 
 export function useSyncSingleton(): UseSyncReturn {
   const { firebaseUser } = useAuth();
@@ -166,10 +192,24 @@ export function useSyncSingleton(): UseSyncReturn {
     return () => globalListeners.delete(listener);
   }, []);
 
-  // Disable app state listener to prevent auto-sync
-  // useEffect(() => {
-  //   setupAppStateListener();
-  // }, []);
+  // Enable app state listener for backend sync
+  useEffect(() => {
+    setupAppStateListener();
+  }, []);
+
+  // Listen for cache updates to automatically refresh UI
+  useEffect(() => {
+    if (!firebaseUser?.uid) return;
+    
+    const unsubscribe = syncService.onCacheUpdate((userId, entries) => {
+      if (userId === firebaseUser.uid) {
+        console.log('🔄 Cache updated, refreshing UI with', entries.length, 'entries');
+        updateGlobalState({ entries });
+      }
+    });
+    
+    return unsubscribe;
+  }, [firebaseUser?.uid]);
 
   // Initialize sync when user changes
   useEffect(() => {
@@ -180,9 +220,10 @@ export function useSyncSingleton(): UseSyncReturn {
     }
   }, [firebaseUser?.uid]);
 
-  // Remove automatic cache updates - only manual refresh or user actions will trigger updates
+  // Disable automatic cache updates to reduce loops - only manual refresh
   // useEffect(() => {
   //   if (!globalSyncStatus.syncInProgress && currentUserId) {
+  //     console.log('🔄 Sync completed, updating cache from backend...');
   //     updateEntriesFromCache();
   //   }
   // }, [globalSyncStatus.syncInProgress]);
@@ -191,14 +232,18 @@ export function useSyncSingleton(): UseSyncReturn {
   const refreshEntries = useCallback(async () => {
     if (!firebaseUser?.uid) return;
 
-    console.log('🔄 Manual refresh requested - performing background sync');
+    console.log('🔄 Manual refresh requested - performing full backend sync');
     updateGlobalState({ error: null });
 
     try {
-      // Manual refresh should actually sync with server
+      // Force a full sync with server
       await syncService.performBackgroundSync(firebaseUser.uid);
+      
+      // Get updated entries from cache
       const refreshedEntries = await syncService.getCachedEntries(firebaseUser.uid);
       updateGlobalState({ entries: refreshedEntries });
+      
+      console.log('✅ Manual refresh completed with', refreshedEntries.length, 'entries');
     } catch (err) {
       console.error('❌ Manual refresh failed:', err);
       updateGlobalState({ error: err instanceof Error ? err.message : 'Refresh failed' });
@@ -210,14 +255,39 @@ export function useSyncSingleton(): UseSyncReturn {
       throw new Error('No authenticated user');
     }
 
-    console.log('➕ Adding new entry');
+    console.log('➕ Adding new entry (direct Firestore + cache)');
     
     try {
-      const entryId = await syncService.addLocalEntry(firebaseUser.uid, entry);
+      // Import Firebase functions
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      const Crypto = await import('expo-crypto');
       
-      // Refresh entries to show the new entry immediately
-      const updatedEntries = await syncService.getCachedEntries(firebaseUser.uid);
-      updateGlobalState({ entries: updatedEntries });
+      // Generate entry ID
+      const entryId = Crypto.randomUUID();
+      
+      // Save directly to Firestore (like old system)
+      const entryRef = doc(db, 'journal_entries', entryId);
+      await setDoc(entryRef, {
+        uid: firebaseUser.uid,
+        content: entry.content,
+        timestamp: serverTimestamp(),
+        title: entry.title || '',
+        linkedCoachingSessionId: entry.linkedCoachingSessionId || null,
+        linkedCoachingMessageId: entry.linkedCoachingMessageId || null,
+        lastUpdated: serverTimestamp(),
+      });
+      
+      console.log('✅ Entry saved to Firestore:', entryId);
+      
+      // Also add to cache for offline access and refresh UI
+      await syncService.addLocalEntry(firebaseUser.uid, {
+        ...entry,
+        id: entryId,
+        _syncStatus: 'synced'
+      } as any);
+      
+      console.log('✅ Entry added to cache (auto UI refresh via listener)');
       
       return entryId;
     } catch (err) {
@@ -232,14 +302,32 @@ export function useSyncSingleton(): UseSyncReturn {
       throw new Error('No authenticated user');
     }
 
-    console.log('✏️ Updating entry:', entryId);
+    console.log('✏️ Updating entry (direct Firestore + cache):', entryId);
     
     try {
-      await syncService.updateLocalEntry(firebaseUser.uid, entryId, updates);
+      // Import Firebase functions
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
       
-      // Refresh entries to show the updated entry immediately
-      const updatedEntries = await syncService.getCachedEntries(firebaseUser.uid);
-      updateGlobalState({ entries: updatedEntries });
+      // Update directly in Firestore (like old system)
+      const entryRef = doc(db, 'journal_entries', entryId);
+      await updateDoc(entryRef, {
+        content: updates.content,
+        lastUpdated: serverTimestamp(),
+        ...(updates.title !== undefined && { title: updates.title }),
+        ...(updates.linkedCoachingSessionId !== undefined && { linkedCoachingSessionId: updates.linkedCoachingSessionId }),
+        ...(updates.linkedCoachingMessageId !== undefined && { linkedCoachingMessageId: updates.linkedCoachingMessageId }),
+      });
+      
+      console.log('✅ Entry updated in Firestore:', entryId);
+      
+      // Also update cache for offline access and refresh UI
+      await syncService.updateLocalEntry(firebaseUser.uid, entryId, {
+        ...updates,
+        _syncStatus: 'synced'
+      });
+      
+      console.log('✅ Entry updated in cache (auto UI refresh via listener)');
     } catch (err) {
       console.error('❌ Update entry failed:', err);
       updateGlobalState({ error: err instanceof Error ? err.message : 'Update entry failed' });

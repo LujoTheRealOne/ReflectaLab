@@ -1,8 +1,8 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { View, StyleSheet, useColorScheme, FlatList, Dimensions } from 'react-native';
+import { View, StyleSheet, useColorScheme, FlatList, Dimensions, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import NotesScreen from '@/screens/NotesScreen';
+import NotesNavigator from '@/navigation/NotesNavigator';
 import CoachingScreen from '@/screens/CoachingScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
 import BottomNavBar from '@/components/BottomNavBar';
@@ -12,7 +12,7 @@ const screenWidth = Dimensions.get('window').width;
 
 // Screen data for FlatList
 const screens = [
-  { id: '0', component: NotesScreen, key: 'notes' },
+  { id: '0', component: NotesNavigator, key: 'notes' },
   { id: '1', component: CoachingScreen, key: 'coaching' },
   { id: '2', component: SettingsScreen, key: 'settings' },
 ];
@@ -28,6 +28,8 @@ export default function SwipeableScreens() {
   const onMomentumScrollEnd = useCallback((event: any) => {
     const page = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
     setCurrentPage(page);
+    // Ekran değişince klavyeyi kapat
+    Keyboard.dismiss();
   }, []);
 
   // Handle navigation from bottom navbar
@@ -49,6 +51,8 @@ export default function SwipeableScreens() {
     
     flatListRef.current?.scrollToIndex({ index: targetPage, animated: true });
     setCurrentPage(targetPage);
+    // Navbar ile ekran değişince klavyeyi kapat
+    Keyboard.dismiss();
   }, []);
 
   // Get current active tab for navbar
@@ -89,6 +93,8 @@ export default function SwipeableScreens() {
         })}
         initialScrollIndex={0}
         removeClippedSubviews={false}
+        keyboardShouldPersistTaps="always" // Touch event'leri her zaman geçir
+        keyboardDismissMode="interactive" // Interactive keyboard dismiss
         style={styles.flatList}
       />
 

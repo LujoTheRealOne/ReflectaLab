@@ -95,8 +95,28 @@ export default function AppNavigator() {
         options={{
           gestureEnabled: false,
           transitionSpec: {
-            open: { animation: 'timing', config: { duration: 200 } },
-            close: { animation: 'timing', config: { duration: 200 } },
+            open: { 
+              animation: 'spring', 
+              config: { 
+                stiffness: 1000,
+                damping: 500,
+                mass: 3,
+                overshootClamping: true,
+                restDisplacementThreshold: 0.01,
+                restSpeedThreshold: 0.01,
+              } 
+            },
+            close: { 
+              animation: 'spring', 
+              config: { 
+                stiffness: 1000,
+                damping: 500,
+                mass: 3,
+                overshootClamping: true,
+                restDisplacementThreshold: 0.01,
+                restSpeedThreshold: 0.01,
+              } 
+            },
           },
           cardStyleInterpolator: ({ current, layouts }) => ({
             cardStyle: {
@@ -105,9 +125,15 @@ export default function AppNavigator() {
                   translateX: current.progress.interpolate({
                     inputRange: [0, 1],
                     outputRange: [-layouts.screen.width, 0],
+                    extrapolate: 'clamp',
                   }),
                 },
               ],
+              opacity: current.progress.interpolate({
+                inputRange: [0, 0.5, 1],
+                outputRange: [0, 0.8, 1],
+                extrapolate: 'clamp',
+              }),
             },
           }),
         }}
@@ -122,8 +148,28 @@ export default function AppNavigator() {
           gestureEnabled: true,
           gestureDirection: 'horizontal',
           transitionSpec: {
-            open: { animation: 'timing', config: { duration: 250 } },
-            close: { animation: 'timing', config: { duration: 250 } },
+            open: { 
+              animation: 'spring', 
+              config: { 
+                stiffness: 1000,
+                damping: 500,
+                mass: 3,
+                overshootClamping: true,
+                restDisplacementThreshold: 0.01,
+                restSpeedThreshold: 0.01,
+              } 
+            },
+            close: { 
+              animation: 'spring', 
+              config: { 
+                stiffness: 1000,
+                damping: 500,
+                mass: 3,
+                overshootClamping: true,
+                restDisplacementThreshold: 0.01,
+                restSpeedThreshold: 0.01,
+              } 
+            },
           },
           cardStyleInterpolator: ({ current, layouts }) => {
             return {
@@ -133,9 +179,15 @@ export default function AppNavigator() {
                     translateX: current.progress.interpolate({
                       inputRange: [0, 1],
                       outputRange: [layouts.screen.width, 0],
+                      extrapolate: 'clamp',
                     }),
                   },
                 ],
+                opacity: current.progress.interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0, 0.8, 1],
+                  extrapolate: 'clamp',
+                }),
               },
             };
           },

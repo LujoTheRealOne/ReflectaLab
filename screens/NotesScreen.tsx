@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import NoteCard from '@/components/NoteCard';
 import Skeleton from '@/components/skeleton/Skeleton';
@@ -22,7 +22,7 @@ export default function NotesScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { entries: cachedEntries, isLoading, refreshEntries } = useSyncSingleton();
-  const [isNavigating, setIsNavigating] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Map cached entries to local shape with mock timestamp compat
   const entries = useMemo<JournalEntry[]>(() => {
@@ -101,12 +101,19 @@ export default function NotesScreen() {
     paddingBottom: Math.max(insets.bottom, 12),
   }), [insets.bottom]);
 
-  // Reset navigation state when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      setIsNavigating(false);
-    }, [])
-  );
+  // Handle manual refresh with backend sync
+  const handleRefresh = useCallback(async () => {
+    console.log('🔄 Manual refresh triggered from NotesScreen');
+    setIsRefreshing(true);
+    try {
+      await refreshEntries();
+      console.log('✅ NotesScreen refresh completed');
+    } catch (error) {
+      console.error('❌ NotesScreen refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refreshEntries]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
@@ -122,14 +129,7 @@ export default function NotesScreen() {
             }
           ]}
           onPress={() => {
-            if (isNavigating) return; // Prevent multiple navigation calls
-            
-            setIsNavigating(true);
-            // Navigate to Home screen with createNew flag
-            (navigation as any).navigate('Home', { createNew: true });
-            
-            // Reset navigation flag after a short delay
-            setTimeout(() => setIsNavigating(false), 500);
+            (navigation as any).navigate('NewNote', { createNew: true });
           }}
         >
           <Text style={[
@@ -147,9 +147,10 @@ export default function NotesScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={false} // Don't show loading spinner since we want instant UI
-            onRefresh={refreshEntries}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             tintColor={colors.text}
+            title="Pull to refresh"
           />
         }
       >

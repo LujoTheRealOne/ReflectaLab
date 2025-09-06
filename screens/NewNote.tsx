@@ -5,9 +5,9 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
-import { getCoachingMessage } from '@/lib/firestore';
-import { BackendCoachingMessage } from '@/types/coachingMessage';
+import { useSyncSingleton } from '@/hooks/useSyncSingleton';
 import { db } from '@/lib/firebase';
+import { syncService } from '@/services/syncService';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useCurrentEntry } from '@/navigation/HomeScreen';
 import * as Haptics from 'expo-haptics';
@@ -25,11 +25,9 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { AlignLeft, ArrowDown, Check, Mic, Square, MessageCircle, Settings2, Plus, Loader2, FileText } from 'lucide-react-native';
+import { ChevronLeft, ArrowDown, Check, Mic, Square, Plus, Loader2, FileText } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
-import CoachingSessionCard from '@/components/CoachingSessionCard';
-import CoachingMessageCard from '@/components/CoachingMessageCard';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SafeAreaView,
@@ -70,18 +68,6 @@ interface JournalEntry {
   linkedCoachingMessageId?: string; // id of the coaching message that this entry is linked to
 }
 
-interface CoachingSession {
-  id: string;
-  sessionType: 'default-session' | 'initial-life-deep-dive';
-  messages: Array<{
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: Date;
-  }>;
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 export default function HomeContent() {
   const navigation = useNavigation();
@@ -92,6 +78,7 @@ export default function HomeContent() {
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
+  const { addEntry: addToCache, updateEntry: updateInCache } = useSyncSingleton();
 
 
   const [entry, setEntry] = useState('');
@@ -108,17 +95,14 @@ export default function HomeContent() {
   
 
 
-  // Coaching session state
-  const [coachingSessionData, setCoachingSessionData] = useState<CoachingSession | null>(null);
-  const [loadingCoachingSession, setLoadingCoachingSession] = useState(false);
-  
-  // Coaching message state
-  const [coachingMessageData, setCoachingMessageData] = useState<BackendCoachingMessage | null>(null);
-  const [loadingCoachingMessage, setLoadingCoachingMessage] = useState(false);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const editorRef = useRef<EditorRef>(null);
+  const isPersistedRef = useRef<boolean>(false); // Has this entry been created in DB/cache?
+  const isSavingRef = useRef<boolean>(false); // Prevent overlapping saves
+  const currentEntryIdRef = useRef<string | null>(null); // Stable ID for this session
+  const skipExitSaveRef = useRef<boolean>(false); // Prevent cleanup save after manual save
 
   // Audio transcription hook
   const {
@@ -148,28 +132,40 @@ export default function HomeContent() {
     },
   });
 
-  // Create a new entry
+  // Create a new entry session - always generates fresh ID
   const createNewEntry = useCallback(() => {
     if (!firebaseUser) return;
 
+    const entryId = Crypto.randomUUID();
+    console.log('🆕 Starting NEW entry session with ID:', entryId);
+    
     const now = new Date();
     const newEntry: JournalEntry = {
-      id: Crypto.randomUUID(),
+      id: entryId,
       uid: firebaseUser.uid,
       content: '',
       timestamp: now,
       title: ''
     };
 
-    // Update state to show new entry
+    // Force complete reset of all state
     setLatestEntry(newEntry);
     setEntry('');
     setOriginalContent('');
     lastSavedContentRef.current = '';
     setSaveStatus('saved');
     setIsNewEntry(true);
-
-    console.log('New entry created:', newEntry.id);
+    
+    // Clear any pending saves
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    // Reset persistence flags and assign stable ID
+    isPersistedRef.current = false;
+    isSavingRef.current = false;
+    currentEntryIdRef.current = entryId;
+    
+    console.log('✅ Fresh entry session started:', entryId);
   }, [firebaseUser]);
 
   // Handle selected entry from drawer navigation
@@ -184,6 +180,11 @@ export default function HomeContent() {
       lastSavedContentRef.current = selectedEntry.content || '';
       setSaveStatus('saved');
       setIsNewEntry(false);
+      
+      // Set stable ID for this existing entry session
+      currentEntryIdRef.current = selectedEntry.id;
+      isPersistedRef.current = true; // Mark as already persisted
+      console.log('📖 Loaded existing entry session with ID:', selectedEntry.id);
 
       // Clear the route params to prevent re-loading on re-renders
       navigation.setParams({ selectedEntry: undefined } as any);
@@ -195,6 +196,23 @@ export default function HomeContent() {
       navigation.setParams({ createNew: undefined } as any);
     }
   }, [route.params, navigation, createNewEntry]);
+
+  // Handle createNew param on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      const createNew = (route.params as any)?.createNew;
+      console.log('🎯 Screen focused, createNew:', createNew);
+      
+      if (createNew) {
+        console.log('🚀 FORCE creating new entry from focus...');
+        // Force immediate new entry creation
+        createNewEntry();
+        
+        // Clear the route params immediately
+        navigation.setParams({ createNew: undefined } as any);
+      }
+    }, [route.params, navigation, createNewEntry])
+  );
 
   // Update current entry ID in context whenever latestEntry changes
   useEffect(() => {
@@ -254,29 +272,54 @@ export default function HomeContent() {
     }
   }, [firebaseUser]);
 
-  // Save entry to database
+  // Save entry to database and update cache
   const saveEntry = useCallback(async (content: string) => {
     if (!firebaseUser) return;
 
     try {
+      if (isSavingRef.current) {
+        // Skip if a save is already in progress; next content change will schedule another
+        return;
+      }
+      isSavingRef.current = true;
       setSaveStatus('saving');
 
-      if (latestEntry && !isNewEntry) {
+      // Use the stable entry ID set during session start - never generate new IDs
+      const stableEntryId = currentEntryIdRef.current || latestEntry?.id;
+      
+      if (!stableEntryId) {
+        console.error('❌ No stable entry ID found - this should not happen');
+        return;
+      }
+      
+      console.log('💾 Saving with stable entry ID:', stableEntryId);
+
+      if (isPersistedRef.current || (latestEntry && !isNewEntry)) {
         // Update existing entry
-        const entryRef = doc(db, 'journal_entries', latestEntry.id);
+        const entryRef = doc(db, 'journal_entries', stableEntryId);
         await updateDoc(entryRef, {
           content,
           lastUpdated: serverTimestamp()
         });
 
+        // Update in cache for real-time Notes list update
+        await updateInCache(stableEntryId, {
+          content,
+          timestamp: (latestEntry?.timestamp?.toDate ? latestEntry?.timestamp.toDate() : latestEntry?.timestamp) || new Date(),
+          title: latestEntry?.title || ''
+        });
+
         // Track journal entry update (for all entries, regardless of size)
         trackEntryUpdated({
-          entry_id: latestEntry.id,
+          entry_id: stableEntryId,
           content_length: content.length,
         });
+        
+        console.log('📝 Updated existing entry in cache');
       } else {
         // Create new entry in database using the pre-generated ID
-        const entryId = latestEntry?.id || Crypto.randomUUID();
+        const entryId = stableEntryId;
+        const now = new Date();
         const newEntry = {
           uid: firebaseUser.uid,
           content,
@@ -286,6 +329,16 @@ export default function HomeContent() {
 
         const docRef = doc(db, 'journal_entries', entryId);
         await setDoc(docRef, newEntry);
+
+        // Add to local cache only (no extra Firestore write)
+        await syncService.addLocalEntry(firebaseUser.uid, {
+          id: entryId,
+          uid: firebaseUser.uid,
+          content,
+          timestamp: now.toISOString(),
+          title: '',
+          _syncStatus: 'synced',
+        } as any);
 
         // Track journal entry creation (for all entries, regardless of size)
         trackEntryCreated({
@@ -297,10 +350,14 @@ export default function HomeContent() {
           id: entryId,
           uid: firebaseUser.uid,
           content,
-          timestamp: new Date(),
+          timestamp: now,
           title: ''
         });
         setIsNewEntry(false);
+        isPersistedRef.current = true;
+        currentEntryIdRef.current = entryId;
+        
+        console.log('🆕 Added new entry to cache');
       }
 
       lastSavedContentRef.current = content;
@@ -308,10 +365,12 @@ export default function HomeContent() {
     } catch (error) {
       console.error('Error saving entry:', error);
       setSaveStatus('unsaved');
+    } finally {
+      isSavingRef.current = false;
     }
-  }, [firebaseUser, latestEntry, isNewEntry]);
+  }, [firebaseUser, latestEntry, isNewEntry, addToCache, updateInCache, trackEntryUpdated, trackEntryCreated]);
 
-  // Handle content changes with debounced save
+  // Handle content changes with smart debounced auto-save
   const handleContentChange = useCallback((newContent: string) => {
     setEntry(newContent);
 
@@ -320,8 +379,11 @@ export default function HomeContent() {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Check if content has actually changed
-    if (newContent === lastSavedContentRef.current) {
+    // Check if content has actually changed significantly
+    const trimmedNew = newContent.trim();
+    const trimmedLast = lastSavedContentRef.current.trim();
+    
+    if (trimmedNew === trimmedLast) {
       setSaveStatus('saved');
       return;
     }
@@ -329,10 +391,19 @@ export default function HomeContent() {
     // Set status to unsaved immediately
     setSaveStatus('unsaved');
 
-    // Set new timeout for auto-save
+    // Smart delay based on content length difference
+    const contentDiff = Math.abs(trimmedNew.length - trimmedLast.length);
+    const isSignificantChange = contentDiff >= 10; // At least 10 characters changed
+    
+    // Longer delay for small changes, shorter for significant changes (increased to reduce noise)
+    const delay = isSignificantChange ? 5000 : 12000;
+
     saveTimeoutRef.current = setTimeout(() => {
-      saveEntry(newContent);
-    }, 2000); // 2 seconds delay
+      if (trimmedNew && trimmedNew !== lastSavedContentRef.current.trim()) {
+        console.log('⏰ Smart auto-saving during session...');
+        saveEntry(newContent);
+      }
+    }, delay);
   }, [saveEntry]);
 
   // Track journal entries when save status changes to 'saved' (debounced)
@@ -425,12 +496,23 @@ export default function HomeContent() {
     };
   }, []);
 
-  // Fetch latest entry when Firebase is ready
+  // Initialize with empty state - no automatic fetching
   useEffect(() => {
     if (isFirebaseReady) {
-      fetchLatestEntry();
+      const selectedEntry = (route.params as any)?.selectedEntry;
+      const createNew = (route.params as any)?.createNew;
+      
+      console.log('🔥 Firebase ready, params:', { selectedEntry: !!selectedEntry, createNew });
+      
+      // Only handle specific navigation params, never auto-fetch
+      if (!selectedEntry && !createNew) {
+        console.log('🆕 No params - starting fresh session');
+        createNewEntry(); // Always start with new entry if no specific params
+      } else {
+        console.log('⏭️ Handling specific params');
+      }
     }
-  }, [fetchLatestEntry, isFirebaseReady]);
+  }, [isFirebaseReady, route.params, createNewEntry]);
 
   // Initialize microphone button position
   useEffect(() => {
@@ -470,123 +552,42 @@ export default function HomeContent() {
     };
   }, []);
 
-  // Reset navigation state when screen comes into focus
+  // Force save on exit (final save when leaving the screen)
   useFocusEffect(
     useCallback(() => {
       setIsNavigating(false);
-    }, [])
-  );
-
-  // Fetch coaching session data - stable callback like web app
-  const fetchCoachingSession = useCallback(async (sessionId: string) => {
-    if (!sessionId || !firebaseUser) {
-      console.log('⏭️ Skipping coaching session fetch - no sessionId or firebaseUser');
-      return;
-    }
-
-    setLoadingCoachingSession(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error('No auth token');
-
-      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/sessions?sessionId=${encodeURIComponent(sessionId)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.warn('Coaching session not found:', sessionId);
-          setCoachingSessionData(null);
+      
+      // Return cleanup function that runs when screen loses focus
+      return () => {
+        // Skip if a manual save just happened (e.g., back/nav)
+        if (skipExitSaveRef.current) {
+          skipExitSaveRef.current = false;
           return;
         }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+        
+        // Clear any pending auto-save to avoid conflicts
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+        
+        // Force save if there's any content at all
+        const currentContent = entry.trim();
+        
+        if (currentContent && currentContent.length >= 1) {
+          console.log('💾 FINAL SAVE - Entry content:', currentContent.substring(0, 50) + '...');
+          // Force immediate save without debouncing
+          saveEntry(entry).then(() => {
+            console.log('✅ Final save completed before exit');
+          }).catch((error) => {
+            console.error('❌ Final save failed:', error);
+          });
+        } else {
+          console.log('⏭️ No content to save on exit');
+        }
+      };
+    }, [entry, saveEntry])
+  );
 
-      const result = await response.json();
-      if (result.success && result.session) {
-        setCoachingSessionData({
-          ...result.session,
-          createdAt: new Date(result.session.createdAt),
-          updatedAt: new Date(result.session.updatedAt),
-          messages: result.session.messages.map((msg: any) => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          }))
-        });
-      } else {
-        setCoachingSessionData(null);
-      }
-    } catch (error) {
-      console.error('Error fetching coaching session:', error);
-      setCoachingSessionData(null);
-    } finally {
-      setLoadingCoachingSession(false);
-    }
-  }, [getToken, firebaseUser]); // Include firebaseUser dependency
-
-  // Fetch coaching message data - similar to web app
-  const fetchCoachingMessage = useCallback(async (messageId: string) => {
-    if (!messageId) return;
-
-    setLoadingCoachingMessage(true);
-    try {
-      // Use local firestore function
-      const coachingMessage = await getCoachingMessage(messageId);
-      if (coachingMessage) {
-        setCoachingMessageData(coachingMessage);
-      } else {
-        console.warn('Coaching message not found:', messageId);
-        setCoachingMessageData(null);
-      }
-    } catch (error) {
-      console.error('Error fetching coaching message:', error);
-      setCoachingMessageData(null);
-    } finally {
-      setLoadingCoachingMessage(false);
-    }
-  }, []);
-
-  // Handle opening coaching session
-  const handleOpenCoachingSession = useCallback(async () => {
-    if (coachingSessionData?.id) {
-      if (!initialized) return; // Wait for RevenueCat init
-      
-      if (!isPro) {
-        const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
-        console.log('🎤 Coaching session access Pro check:', unlocked ? 'unlocked' : 'cancelled');
-        if (!unlocked) return; // Don't navigate if paywall was cancelled
-      }
-      
-      (navigation as any).navigate('Coaching', {
-        sessionId: coachingSessionData.id,
-        sessionType: coachingSessionData.sessionType
-      });
-    }
-  }, [navigation, coachingSessionData, initialized, isPro, presentPaywallIfNeeded, currentOffering]);
-
-  // Check for linked coaching content when current entry changes - exactly like web app
-  useEffect(() => {
-    const linkedSessionId = latestEntry?.linkedCoachingSessionId;
-    const linkedMessageId = latestEntry?.linkedCoachingMessageId;
-
-    // Handle coaching session linking
-    if (linkedSessionId && linkedSessionId !== coachingSessionData?.id) {
-      // Only fetch if we don't already have this session data
-      fetchCoachingSession(linkedSessionId);
-    } else if (!linkedSessionId) {
-      setCoachingSessionData(null);
-    }
-    
-    // Handle coaching message linking
-    if (linkedMessageId && linkedMessageId !== coachingMessageData?.id) {
-      // Only fetch if we don't already have this message data
-      fetchCoachingMessage(linkedMessageId);
-    } else if (!linkedMessageId) {
-      setCoachingMessageData(null);
-    }
-  }, [latestEntry?.linkedCoachingSessionId, latestEntry?.linkedCoachingMessageId, fetchCoachingSession, fetchCoachingMessage, coachingSessionData?.id, coachingMessageData?.id]);
 
   // Get save status icon
   const getSaveStatusIcon = () => {
@@ -683,16 +684,33 @@ export default function HomeContent() {
   // Add horizontal swipe gesture for Notes navigation
   const [isNavigating, setIsNavigating] = useState(false);
   
-  const navigateToNotes = useCallback(() => {
+  const navigateToNotes = useCallback(async () => {
     if (isNavigating) return; // Prevent multiple navigation calls
     
     setIsNavigating(true);
-    // Navigate back to SwipeableScreens (which contains NotesScreen)
-    (navigation as any).navigate('SwipeableScreens');
+    
+    // Force save before navigation
+    const currentContent = entry.trim();
+    if (currentContent && currentContent.length >= 1) {
+      // Clear any pending auto-save and mark to skip cleanup save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      skipExitSaveRef.current = true;
+      try {
+        await saveEntry(entry);
+        console.log('✅ Pre-navigation save completed');
+      } catch (error) {
+        console.error('❌ Pre-navigation save failed:', error);
+      }
+    }
+    
+    // Pop back to SwipeableScreens (which contains NotesScreen)
+    (navigation as any).goBack();
     
     // Reset navigation flag after a short delay
     setTimeout(() => setIsNavigating(false), 500);
-  }, [navigation, isNavigating]);
+  }, [navigation, isNavigating, entry, saveEntry]);
 
   const panGesture = Gesture.Pan()
     .onUpdate((event) => {
@@ -784,15 +802,32 @@ export default function HomeContent() {
                  paddingTop: useSafeAreaInsets().top + 10,
                }]}>
                  <TouchableOpacity 
-                   onPress={() => {
+                   onPress={async () => {
                      if (isNavigating) return;
                      setIsNavigating(true);
-                     (navigation as any).navigate('SwipeableScreens');
+                     
+                     // Force save before back navigation
+                     const currentContent = entry.trim();
+                     if (currentContent && currentContent.length >= 1) {
+                       // Clear any pending auto-save and mark to skip cleanup save
+                       if (saveTimeoutRef.current) {
+                         clearTimeout(saveTimeoutRef.current);
+                       }
+                       skipExitSaveRef.current = true;
+                       try {
+                         await saveEntry(entry);
+                         console.log('✅ Back button save completed');
+                       } catch (error) {
+                         console.error('❌ Back button save failed:', error);
+                       }
+                     }
+                     
+                     (navigation as any).goBack();
                      setTimeout(() => setIsNavigating(false), 500);
                    }}
                    style={styles.backButton}
                  >
-                   <AlignLeft size={24} color={colors.text} style={{ opacity: 0.5 }} />
+                   <ChevronLeft size={24} color={colors.text} style={{ opacity: 0.5 }} />
                  </TouchableOpacity>
                  
                  <View style={styles.headerCenter}>
@@ -807,44 +842,23 @@ export default function HomeContent() {
                {/* Content */}
                <SafeAreaView style={styles.safeAreaInner}>
                <View style={styles.content}>
-
-                {/* Coaching Session Card - Show when current entry has linked session */}
-                {(coachingSessionData || loadingCoachingSession) && (
-                  <CoachingSessionCard
-                    title={coachingSessionData?.sessionType === 'initial-life-deep-dive' ? 'Life Deep Dive Session' : 'Goal breakout session'}
-                    messageCount={coachingSessionData?.messages?.length || 0}
-                    sessionType={coachingSessionData?.sessionType === 'initial-life-deep-dive' ? 'Initial Life Deep Dive' : 'Coach chat'}
-                    onOpenConversation={handleOpenCoachingSession}
-                    loading={loadingCoachingSession}
-                  />
-                )}
-                
-                {/* Coaching Message Card - Show when current entry has linked coaching message */}
-                {(coachingMessageData || loadingCoachingMessage) && (
-                  <CoachingMessageCard
-                    pushText={coachingMessageData?.pushNotificationText}
-                    fullMessage={coachingMessageData?.messageContent}
-                    messageType={coachingMessageData?.messageType}
-                    loading={loadingCoachingMessage}
-                  />
-                )}
-
-                {/* Thoughts Section */}
+                 {/* Thoughts Section */}
                 <View style={{ flex: 1, marginBottom: isKeyboardVisible ? 200 : 20, paddingBottom: 40, width: '100%', overflow: 'hidden' }}>
                   <EditorErrorBoundary>
-                                    <Editor
-                  ref={editorRef}
-                  content={entry}
-                  onUpdate={handleContentChange}
-                  isLoaded={setEditorLoaded}
-                  getAuthToken={getToken}
-                  apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
-                  keyboardHeight={keyboardHeight}
-                  isKeyboardVisible={isKeyboardVisible}
-                  onActiveFormatsChange={setActiveFormats}
-                />
+                    <Editor
+                      key={`editor-${latestEntry?.id || 'new'}`} // Force re-render for new entries
+                      ref={editorRef}
+                      content={entry}
+                      onUpdate={handleContentChange}
+                      isLoaded={setEditorLoaded}
+                      getAuthToken={getToken}
+                      apiBaseUrl={process.env.EXPO_PUBLIC_API_URL}
+                      keyboardHeight={keyboardHeight}
+                      isKeyboardVisible={isKeyboardVisible}
+                      onActiveFormatsChange={setActiveFormats}
+                    />
                   </EditorErrorBoundary>
-                                 </View>
+                </View>
                </View>
                </SafeAreaView>
                {/* <TouchableOpacity
@@ -944,7 +958,7 @@ const styles = StyleSheet.create({
   },
   minimalHeader: {
     paddingHorizontal: 20,
-    paddingBottom: 31,
+    paddingBottom: 16,
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(0, 0, 0, 0.07)',
     flexDirection: 'row',
@@ -977,6 +991,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 20,
     width: '100%',
     maxWidth: '100%',
   },

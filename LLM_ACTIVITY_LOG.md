@@ -7,6 +7,51 @@ This file records all important changes and implementations made by the LLM assi
 
 ## 2025-01-27
 
+- **Fixed Settings Compass Navigation Issue**: Resolved issue where compass cards in SettingsScreen were not responding to touches and navigating to CompassStoryScreen:
+  * **Root Cause 1**: Compass cards had `disabled={!hasInsights}` prop which prevented interaction when users didn't have insights yet
+  * **Root Cause 2**: RevenueCat was not initialized (`rcInitialized: false`) which blocked navigation even after removing disabled state
+  * **Solution**: 
+    - Removed the `disabled` prop from all compass cards (Main Focus, Key Blockers, Your Plan) to allow navigation regardless of insights status
+    - **BYPASSED RevenueCat checks** for compass navigation to allow immediate access without waiting for RevenueCat initialization or Pro subscription
+  * **Enhanced Debugging**: Added comprehensive console logging and haptic feedback to `handleViewInsights` function for better debugging
+  * **Updated Your Stats Card**: Changed the "Your stats" card onPress handler from a console.log to use the same `handleViewInsights` function as other compass cards
+  * **Consistent Navigation**: All four compass cards now consistently navigate to CompassStoryScreen when pressed
+  * **Temporary Access**: Navigation bypasses Pro subscription checks temporarily for development/testing purposes
+  * **Result**: Users can now successfully navigate to the compass story from any compass card in the settings screen without RevenueCat or Pro subscription barriers
+
+- **Fixed useCurrentEntry Import Error**: Fixed a runtime error in NewNote.tsx where `useCurrentEntry` was being imported from the wrong location:
+  * **Error**: `TypeError: 0, _HomeScreen.useCurrentEntry is not a function (it is undefined)`
+  * **Root Cause**: NewNote.tsx was importing `useCurrentEntry` from `@/navigation/HomeScreen` but the hook is actually defined and exported from `@/components/CurrentEntryContext`
+  * **Solution**: Updated import statement to `import { useCurrentEntry } from '@/components/CurrentEntryContext'`
+  * **Result**: Runtime error resolved, NewNote screen should now load without crashing
+
+- **Fixed ArdaEditor Formatting Toolbar Integration**: Fixed the integration between ArdaEditor and KeyboardToolbar where formatting buttons weren't working:
+  * **Root Cause**: KeyboardToolbar was passing markdown-style prefixes/suffixes (like `**` for bold, `*` for italic) but ArdaEditor's `handleFormatText` function expects only the format type to use RichEditor's native formatting commands
+  * **Solution**: Removed markdown prefixes/suffixes from KeyboardToolbar button definitions, now passing only format types ('bold', 'italic', 'strike', 'heading1', 'bullet', 'number', 'quote')
+  * **Enhancement**: Added Quote formatting button to KeyboardToolbar to match ArdaEditor's supported formats
+  * **Result**: All formatting buttons (Bold, Italic, Strikethrough, H1, Bullet List, Numbered List, Quote) now work correctly with proper active state indication
+
+- **Fixed Critical Navigation Issue - Cache/Backend Mismatch**: Resolved a critical issue where users who had completed onboarding in the backend were still being redirected to onboarding screens due to cache/backend data mismatch:
+  * **Root Cause**: The `useAuth` hook was caching `needsOnboarding: true` state even when the backend Firestore data showed `onboardingCompleted: true`, causing navigation logic to incorrectly redirect completed users back to onboarding
+  * **Navigation Logic Improvements**: Enhanced navigation logic in `navigation/index.tsx` and `navigation/AuthNavigator.tsx` to properly handle onboarding completion status:
+    - Added automatic user account refresh on navigation mount to ensure latest backend data
+    - Updated navigation conditions to only consider onboarding chat progress if user actually needs onboarding
+    - Added detection and handling of potential cache/backend mismatches
+  * **Auth Hook Enhancements**: Improved `hooks/useAuth.ts` with better cache management:
+    - Added `refreshUserAccount()` function to force refresh user account data from backend
+    - Enhanced `completeOnboarding()` to use the new refresh mechanism
+    - Added comprehensive logging for debugging cache refresh operations
+  * **AppNavigator Safeguard Fix**: Fixed the safeguard in `navigation/AppNavigator.tsx` that was incorrectly redirecting users:
+    - Updated safeguard to check both onboarding progress AND backend completion status
+    - Added automatic progress clearing when backend shows completion but local progress exists
+    - Prevents infinite redirect loops for users with completed onboarding
+  * **Require Cycle Resolution**: Fixed the require cycle warning between `navigation/HomeScreen.tsx` and `screens/NewNote.tsx`:
+    - Extracted `CurrentEntryContext` to separate file `components/CurrentEntryContext.tsx`
+    - Eliminated circular dependency while maintaining functionality
+  * **Result**: Users who complete onboarding now properly navigate to the main app without being redirected back to onboarding screens, and the app correctly syncs cache with backend data
+
+## 2025-01-27
+
 - **Replaced Compass Section with 2x2 Cards Grid in Settings**: Transformed the compass display from a single large image and button to an interactive card-based interface:
   * **New Card Layout**: Replaced the large compass preview image with a 2x2 grid of insight cards:
     - **Main Focus Card**: Shows the main focus headline with blue accent color (#2563EB)

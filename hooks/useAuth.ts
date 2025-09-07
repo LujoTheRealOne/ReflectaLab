@@ -9,6 +9,7 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { useAnalytics } from './useAnalytics';
+import { useNetworkConnectivity } from './useNetworkConnectivity';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -18,12 +19,30 @@ export function useAuth() {
   const { user } = useUser();
   const { startOAuthFlow: startGoogleOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
   const { startOAuthFlow: startAppleOAuthFlow } = useOAuth({ strategy: 'oauth_apple' });
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
   const [isLoading, setIsLoading] = useState(false);
   const [shouldShowGetStarted, setShouldShowGetStarted] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
-  const [needsOnboarding, setNeedsOnboarding] = useState(true); // Default to true for safety
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null); // Start as null until we know from backend
+  
+  // Helper function to clear progress when onboarding is completed
+  const clearProgressIfCompleted = useCallback(async (account: UserAccount, needsOnboardingValue: boolean) => {
+    if (!needsOnboardingValue && account.onboardingData?.onboardingCompleted === true) {
+      console.log('🧹 Backend shows onboarding completed - clearing local progress');
+      try {
+        const AsyncStorage = await import('@react-native-async-storage/async-storage');
+        await AsyncStorage.default.removeItem('@onboarding_progress');
+        console.log('✅ Successfully cleared onboarding progress from AsyncStorage');
+        
+        // Small delay to ensure AsyncStorage operation completes
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (error) {
+        console.error('❌ Failed to clear onboarding progress:', error);
+      }
+    }
+  }, []);
   
   // Enhanced authentication state
   const [authError, setAuthError] = useState<string | null>(null);
@@ -155,7 +174,7 @@ export function useAuth() {
     };
   }, [isSignedIn, user, firebaseUser, getToken, authAttempts, isSigningOut]);
 
-  // Initialize user document in Firestore when Firebase user is available (offline-first)
+  // Initialize user document in Firestore when Firebase user is available (online/offline aware)
   useEffect(() => {
     const initializeUserDocument = async () => {
       // Skip user account loading during sign out
@@ -166,69 +185,82 @@ export function useAuth() {
       
       if (!firebaseUser?.uid) return;
 
-      // =====================
-      // OFFLINE-FIRST: Check cache first
-      // =====================
-      try {
-        const cachedAuth = await authCache.getCachedAuth();
-        
-        if (cachedAuth && authCache.isUserMatching(firebaseUser.uid)) {
-          console.log('⚡ Using cached auth data for instant load');
-          
-          // Set state from cache immediately (with proper UserAccount type)
-          const fullUserAccount: UserAccount = {
-            ...cachedAuth.userAccount,
-            firstName: cachedAuth.userAccount.firstName || '',
-            onboardingData: cachedAuth.userAccount.onboardingData || {
-              onboardingCompleted: false,
-              onboardingCompletedAt: 0,
-              whatDoYouDoInLife: [],
-              selfReflectionPracticesTried: [],
-              stressInLife: 0.5,
-              clarityInLife: 0.5,
-            },
-            createdAt: cachedAuth.userAccount.createdAt || new Date(),
-            updatedAt: new Date(),
-            coachingConfig: {
-              challengeDegree: 'moderate',
-              harshToneDegree: 'supportive',
-              coachingMessageFrequency: 'daily',
-              enableCoachingMessages: true,
-              lastCoachingMessageSentAt: 0,
-              coachingMessageTimePreference: 'morning',
-            },
-            mobilePushNotifications: {
-              enabled: false,
-              expoPushTokens: [],
-              lastNotificationSentAt: 0,
-            },
-            userTimezone: 'America/New_York',
-          };
-          
-          setUserAccount(fullUserAccount);
-          setUserAccountLoading(false);
-          setNeedsOnboarding(!cachedAuth.userAccount.onboardingData?.onboardingCompleted);
-          
-          // Skip duplicate analytics tracking
-          if (lastTrackedUserIdRef.current !== firebaseUser.uid) {
-            lastTrackedUserIdRef.current = firebaseUser.uid;
-            console.log('⏭️ Using cached auth - skipping analytics tracking');
-          }
-          
-          // Disable background refresh for instant loading - cache is sufficient
-          // setTimeout(async () => {
-          //   console.log('🔄 Background auth refresh for accuracy...');
-          //   await performFullAuthInit();
-          // }, 2000);
-          
-          return;
-        }
-      } catch (error) {
-        console.error('❌ Error loading auth cache:', error);
-      }
+      const isOnline = isConnected === true && isInternetReachable === true;
+      console.log(`🌐 Network status: ${isOnline ? 'ONLINE' : 'OFFLINE'} (connected: ${isConnected}, reachable: ${isInternetReachable})`);
 
-      // No valid cache, proceed with full initialization
-      await performFullAuthInit();
+      if (isOnline) {
+        // =====================
+        // ONLINE: Prioritize backend data
+        // =====================
+        console.log('🌐 Online - fetching fresh data from backend');
+        await performFullAuthInit();
+      } else {
+        // =====================
+        // OFFLINE: Use cached data only
+        // =====================
+        console.log('📱 Offline - using cached data only');
+        try {
+          const cachedAuth = await authCache.getCachedAuth();
+          
+          if (cachedAuth && authCache.isUserMatching(firebaseUser.uid)) {
+            console.log('⚡ Using cached auth data (offline mode)');
+            
+            // Set state from cache immediately (with proper UserAccount type)
+            const fullUserAccount: UserAccount = {
+              ...cachedAuth.userAccount,
+              firstName: cachedAuth.userAccount.firstName || '',
+              onboardingData: cachedAuth.userAccount.onboardingData || {
+                onboardingCompleted: false,
+                onboardingCompletedAt: 0,
+                whatDoYouDoInLife: [],
+                selfReflectionPracticesTried: [],
+                stressInLife: 0.5,
+                clarityInLife: 0.5,
+              },
+              createdAt: cachedAuth.userAccount.createdAt || new Date(),
+              updatedAt: new Date(),
+              coachingConfig: {
+                challengeDegree: 'moderate',
+                harshToneDegree: 'supportive',
+                coachingMessageFrequency: 'daily',
+                enableCoachingMessages: true,
+                lastCoachingMessageSentAt: 0,
+                coachingMessageTimePreference: 'morning',
+              },
+              mobilePushNotifications: {
+                enabled: false,
+                expoPushTokens: [],
+                lastNotificationSentAt: 0,
+              },
+              userTimezone: 'America/New_York',
+            };
+            
+            // Don't set needsOnboarding from cached data - wait for fresh backend data
+            // Cached data might be stale, so we'll keep needsOnboarding as null until backend confirms
+            // Progress clearing will happen when fresh backend data arrives
+            
+            setUserAccount(fullUserAccount);
+            setUserAccountLoading(false);
+            // setNeedsOnboarding(needsOnboardingValue); // Commented out - wait for backend data
+            
+            // Skip duplicate analytics tracking
+            if (lastTrackedUserIdRef.current !== firebaseUser.uid) {
+              lastTrackedUserIdRef.current = firebaseUser.uid;
+              console.log('⏭️ Using cached auth - offline mode');
+            }
+            
+            return;
+          } else {
+            console.log('❌ No valid cache available in offline mode');
+            setUserAccountLoading(false);
+            setAuthError('No cached data available. Please connect to the internet.');
+          }
+        } catch (error) {
+          console.error('❌ Error loading auth cache in offline mode:', error);
+          setUserAccountLoading(false);
+          setAuthError('Failed to load cached data.');
+        }
+      }
     };
 
     const performFullAuthInit = async () => {
@@ -267,10 +299,14 @@ export function useAuth() {
           throw new Error('Invalid user account data received');
         }
         
-        setUserAccount(account);
-        
         // Check if user needs onboarding (with safe access in case of missing data)
         const needsOnboarding = !account.onboardingData || account.onboardingData.onboardingCompleted !== true;
+        
+        // Clear progress if onboarding is completed
+        await clearProgressIfCompleted(account, needsOnboarding);
+        
+        // Set states after clearing progress
+        setUserAccount(account);
         setNeedsOnboarding(needsOnboarding);
         
         // Determine if this is a new user or returning user
@@ -447,7 +483,7 @@ export function useAuth() {
         userAccountTimeoutRef.current = null;
       }
     };
-  }, [firebaseUser?.uid, isSigningOut]);
+  }, [firebaseUser?.uid, isSigningOut, isConnected, isInternetReachable, clearProgressIfCompleted]);
 
   const signInWithGoogle = useCallback(async () => {
     const signInStartTime = Date.now();
@@ -571,7 +607,7 @@ export function useAuth() {
     }
   }, []);
 
-  const completeOnboarding = useCallback(async () => {
+  const refreshUserAccount = useCallback(async () => {
     if (firebaseUser?.uid) {
       try {
         setUserAccountLoading(true);
@@ -582,24 +618,29 @@ export function useAuth() {
         const needsOnboarding = !updatedAccount.onboardingData || updatedAccount.onboardingData.onboardingCompleted !== true;
         setNeedsOnboarding(needsOnboarding);
         
-        console.log('🧭 User account refreshed:', { 
+        console.log('🔄 User account refreshed:', { 
+          uid: firebaseUser.uid,
           onboardingCompleted: updatedAccount.onboardingData?.onboardingCompleted,
-          needsOnboarding
+          needsOnboarding,
+          timestamp: new Date().toISOString()
         });
 
-        // Update user account state with fresh data
-        setUserAccount(updatedAccount);
-        
         return { needsOnboarding, account: updatedAccount };
       } catch (error) {
-        console.error('Failed to update onboarding status:', error);
-        throw error; // Re-throw to handle in the UI
+        console.error('❌ Failed to refresh user account:', error);
+        throw error;
       } finally {
         setUserAccountLoading(false);
       }
     }
     return { needsOnboarding: true, account: null };
   }, [firebaseUser?.uid]);
+
+  const completeOnboarding = useCallback(async () => {
+    const result = await refreshUserAccount();
+    console.log('🧭 Onboarding completion - user account refreshed:', result);
+    return result;
+  }, [refreshUserAccount]);
 
   // Computed auth states for better navigation decisions
   const isFullyAuthenticated = isSignedIn && !!firebaseUser;
@@ -625,7 +666,7 @@ export function useAuth() {
     userAccount,
     
     // Authentication state
-    isSignedIn: isFullyAuthenticated,
+    isSignedIn: isFullyAuthenticated, // This is correct - isFullyAuthenticated is computed from Clerk's isSignedIn
     isLoading,
     isFirebaseReady,
     isAuthReady,
@@ -644,6 +685,7 @@ export function useAuth() {
     signOut: handleSignOut,
     resetGetStartedState,
     completeOnboarding,
+    refreshUserAccount,
     retryAuthentication,
     getToken,
   };

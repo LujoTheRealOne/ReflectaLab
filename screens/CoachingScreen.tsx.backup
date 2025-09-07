@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
@@ -10,12 +10,12 @@ import { AppStackParamList } from '@/navigation/AppNavigator';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
+import { useCoachingSession } from '@/hooks/useCoachingSession';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, MeditationCard } from '@/components/cards';
+import { ActionPlanCard, BlockersCard, FocusCard, MeditationCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -60,100 +60,6 @@ const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) =>
           }
         ]}
       />
-    </View>
-  );
-};
-
-// Modern loading spinner component
-const ModernSpinner = ({ colorScheme, size = 20 }: { colorScheme: ColorSchemeName; size?: number }) => {
-  const spinValue = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    const spinAnimation = Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      })
-    );
-    spinAnimation.start();
-    
-    return () => spinAnimation.stop();
-  }, [spinValue]);
-  
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-  
-  return (
-    <Animated.View
-      style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: 2,
-          borderColor: colorScheme === 'dark' ? '#666666' : '#CCCCCC',
-          borderTopColor: colorScheme === 'dark' ? '#FFFFFF' : '#333333',
-          transform: [{ rotate: spin }],
-        },
-      ]}
-    />
-  );
-};
-
-// Date separator component
-const DateSeparator = ({ date, colorScheme }: { date: Date; colorScheme: ColorSchemeName }) => {
-  const formatDate = (date: Date) => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const isToday = date.toDateString() === today.toDateString();
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-    
-    if (isToday) {
-      return 'Today';
-    } else if (isYesterday) {
-      return 'Yesterday';
-    } else {
-      // Format as "Monday, Jan 15" for recent dates
-      const daysDiff = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysDiff <= 7) {
-        return date.toLocaleDateString('en-US', { weekday: 'long' });
-      } else {
-        // Format as "Monday, Jan 15" for older dates
-        return date.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          month: 'short', 
-          day: 'numeric' 
-        });
-      }
-    }
-  };
-  
-  return (
-    <View style={{
-      alignItems: 'center',
-      marginVertical: 20,
-    }}>
-      <View style={{
-        backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12,
-      }}>
-        <Text style={{
-          fontSize: 12,
-          fontWeight: '500',
-          color: colorScheme === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)',
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-        }}>
-          {formatDate(date)}
-        </Text>
-      </View>
     </View>
   );
 };
@@ -344,279 +250,35 @@ export default function CoachingScreen() {
   } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
-  // Get route parameters for existing session
+  // Get route parameters for breakout session
   const routeSessionId = (route.params as any)?.sessionId;
   const routeSessionType = (route.params as any)?.sessionType;
+  const isBreakoutSession = !!routeSessionId; // If sessionId is provided, it's a breakout session
 
-  // Session ID state - now uses userId as session ID (single session per user)
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  
-  // Use userId as session ID (single session per user)
-  const getSessionId = (): string => {
-    return firebaseUser?.uid || 'anonymous';
-  };
-
-  // Debug mode flag - set to false for production
-  const DEBUG_LOGS = __DEV__ && false; // Disabled for production
-  const debugLog = (message: string, ...args: any[]) => {
-    if (DEBUG_LOGS) {
-      console.log(message, ...args);
+  // Session ID logic: Main session = user.uid, Breakout session = provided sessionId
+  const getSessionId = (): string | null => {
+    if (isBreakoutSession) {
+      return routeSessionId; // Breakout session ID from route
+    } else {
+      return user?.id || null; // Main session = user ID (endless chat)
     }
   };
 
-  // Local storage functions for conversation history
-  const getStorageKey = (userId: string) => `coaching_messages_${userId}`;
+  const currentSessionId = getSessionId();
+  const [loadingExistingSession, setLoadingExistingSession] = useState(false);
+
+  // Use the AI coaching hook for message handling
+  const { messages: localMessages, isLoading, isStreaming, sendMessage, setMessages: setLocalMessages, progress } = useAICoaching();
   
-  const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], userId: string) => {
-    try {
-      const storageKey = getStorageKey(userId);
-      // Keep last 300 messages in cache for better offline experience
-      const messagesToSave = messages.slice(-300);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(messagesToSave));
-      debugLog(`💾 Saved ${messagesToSave.length} messages to storage (last 300)`);
-    } catch (error) {
-      console.error('Error saving messages to storage:', error);
-    }
-  }, []);
-
-  const loadMessagesFromStorage = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
-    try {
-      const storageKey = getStorageKey(userId);
-      debugLog('🔍 Loading from storage key:', storageKey);
-      const storedMessages = await AsyncStorage.getItem(storageKey);
-      debugLog('📦 Raw stored data:', storedMessages ? 'Found data' : 'No data');
-      
-      if (storedMessages) {
-        const parsedMessages: CoachingMessage[] = JSON.parse(storedMessages).map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        }));
-        debugLog(`📱 Loaded ${parsedMessages.length} messages from storage`);
-        return parsedMessages;
-      }
-    } catch (error) {
-      console.error('Error loading messages from storage:', error);
-    }
-    return [];
-  }, []);
-
-  // Debug function to clear storage (for testing)
-  const clearStorageForUser = useCallback(async (userId: string) => {
-    try {
-      const storageKey = getStorageKey(userId);
-      await AsyncStorage.removeItem(storageKey);
-      console.log('🗑️ Cleared local storage for user:', userId);
-    } catch (error) {
-      console.error('Error clearing storage:', error);
-    }
-  }, []);
-
-  // Test function to clear all coaching data (will be defined after setMessages)
-  let clearAllCoachingData: (() => Promise<void>) | null = null;
-
-  // Firestore direct access for coaching sessions
-  const loadMessagesFromFirestore = useCallback(async (userId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
-    try {
-      console.log('🔥 Loading messages from Firestore for user:', userId);
-      
-      // Import Firestore dynamically to avoid SSR issues
-      const { db } = await import('../lib/firebase');
-      const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
-      
-      // Query for the user's default coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session'),
-        orderBy('createdAt', 'desc'),
-        limit(1)
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      if (!sessionSnapshot.empty) {
-        const sessionDoc = sessionSnapshot.docs[0];
-        const sessionData = sessionDoc.data();
-        const messages = sessionData.messages || [];
-        
-        console.log(`🔥 Found coaching session with ${messages.length} messages`);
-        
-        // Convert to our message format
-        const firestoreMessages: CoachingMessage[] = messages.map((msg: any, index: number) => ({
-          id: msg.id || `msg_${index}`,
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content || '',
-          timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
-        }));
-        
-        console.log(`✅ Successfully loaded ${firestoreMessages.length} messages from Firestore`);
-        return { allMessages: firestoreMessages, totalCount: firestoreMessages.length };
-      } else {
-        console.log('🔥 No coaching session found for user');
-        return { allMessages: [], totalCount: 0 };
-      }
-    } catch (error) {
-      console.log('🔥 Firestore loading failed:', error);
-      return { allMessages: [], totalCount: 0 };
-    }
-  }, []);
-
-  const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], userId: string) => {
-    try {
-      console.log('🔥 Saving messages to Firestore for user:', userId);
-      
-      // Import Firestore dynamically
-      const { db } = await import('../lib/firebase');
-      const { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      
-      // Find existing coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session')
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      // Convert messages to Firestore format (save all messages to backend)
-      const firestoreMessages = messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp
-      }));
-      
-      if (!sessionSnapshot.empty) {
-        // Update existing session
-        const sessionDoc = sessionSnapshot.docs[0];
-        await updateDoc(sessionDoc.ref, {
-          messages: firestoreMessages,
-          updatedAt: serverTimestamp()
-        });
-        console.log('🔥 Updated existing coaching session with messages');
-      } else {
-        // Create new session
-        const newSessionRef = doc(collection(db, 'coachingSessions'));
-        await setDoc(newSessionRef, {
-          userId: userId,
-          sessionType: 'default-session',
-          messages: firestoreMessages,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        console.log('🔥 Created new coaching session with messages');
-      }
-      
-      debugLog(`🔥 Successfully saved ${firestoreMessages.length} messages to Firestore`);
-    } catch (error) {
-      console.log('🔥 Firestore save failed:', error);
-    }
-  }, []);
-
-  // Multi-device sync strategy using Firestore
-  const syncMessages = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
-    console.log('🔄 Starting multi-device sync for user:', userId);
-    
-    try {
-      // 1. Try to load from Firestore first
-      console.log('🔄 Step 1: Loading from Firestore...');
-      const firestoreResult = await loadMessagesFromFirestore(userId);
-      console.log(`🔄 Firestore returned ${firestoreResult.totalCount} messages`);
-      
-      if (firestoreResult.totalCount > 0) {
-        // 2. Firestore has messages, set up pagination
-        console.log('🔄 Step 2: Firestore has messages, setting up pagination...');
-        setAllMessages(firestoreResult.allMessages);
-        setHasMoreMessages(firestoreResult.totalCount > 300);
-        setDisplayedMessageCount(Math.min(300, firestoreResult.totalCount));
-        
-        // Get last 300 messages for display (or all if less than 300)
-        const displayMessages = firestoreResult.allMessages.slice(-300);
-        // Save last 300 messages to cache for better offline experience
-        await saveMessagesToStorage(firestoreResult.allMessages, userId);
-        console.log(`✅ Synced ${firestoreResult.totalCount} messages from Firestore (showing last 300)`);
-        console.log(`💾 Cached last 300 messages to local storage`);
-        return displayMessages;
-      } else {
-        // 3. Firestore empty, check local cache (last 300 messages)
-        console.log('🔄 Step 3: Firestore empty, checking local cache...');
-        const localMessages = await loadMessagesFromStorage(userId);
-        console.log(`🔄 Local cache has ${localMessages.length} messages (max 300)`);
-        
-        if (localMessages.length > 0) {
-          // 4. Local has messages, sync to Firestore
-          console.log('🔄 Step 4: Local has messages, syncing to Firestore...');
-          await saveMessagesToFirestore(localMessages, userId);
-          console.log(`✅ Synced ${localMessages.length} messages from local to Firestore`);
-          console.log(`💾 Note: Local cache contains last 300 messages`);
-          return localMessages;
-        } else {
-          console.log('🔄 Both Firestore and local cache are empty');
-        }
-      }
-    } catch (error) {
-      console.error('🔄 Sync failed, falling back to local cache:', error);
-      const fallbackMessages = await loadMessagesFromStorage(userId);
-      console.log(`🔄 Fallback: loaded ${fallbackMessages.length} messages from local cache`);
-      return fallbackMessages;
-    }
-    
-    console.log('🔄 Sync completed with 0 messages');
-    return [];
-  }, [loadMessagesFromFirestore, loadMessagesFromStorage, saveMessagesToStorage, saveMessagesToFirestore]);
-
-  // Use the AI coaching hook
-  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
-  
-  // Test function to clear all coaching data
-  clearAllCoachingData = useCallback(async () => {
-    if (!firebaseUser?.uid) return;
-    
-    try {
-      console.log('🧹 Clearing all coaching data...');
-      
-      // Clear local storage
-      await clearStorageForUser(firebaseUser.uid);
-      
-      // Clear Firestore coaching session
-      const { db } = await import('../lib/firebase');
-      const { collection, query, where, getDocs, deleteDoc } = await import('firebase/firestore');
-      
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', firebaseUser.uid),
-        where('sessionType', '==', 'default-session')
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      for (const doc of sessionSnapshot.docs) {
-        await deleteDoc(doc.ref);
-        console.log('🗑️ Deleted Firestore session:', doc.id);
-      }
-      
-      // Reset messages to welcome message
-      const initialMessage: CoachingMessage = {
-        id: '1',
-        content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
-        role: 'assistant',
-        timestamp: new Date()
-      };
-      setMessages([initialMessage]);
-      
-      console.log('✅ All coaching data cleared successfully');
-    } catch (error) {
-      console.error('❌ Error clearing coaching data:', error);
-    }
-  }, [firebaseUser, clearStorageForUser, user?.firstName, setMessages]);
-
-  // Expose clear function globally for testing (remove in production)
-  if (__DEV__) {
-    (global as any).clearCoachingData = clearAllCoachingData;
-  }
+  // Use the coaching session hook for real-time session data
+  const { 
+    session: loadedSession, 
+    loading: isLoadingSession, 
+    error: sessionError,
+    loadMoreMessages,
+    hasMoreMessages,
+    isLoadingMore
+  } = useCoachingSession(currentSessionId);
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
@@ -632,6 +294,89 @@ export default function CoachingScreen() {
     words: 0,
     keyInsights: 0
   });
+  
+  // Starting state management
+  const [showingStartingState, setShowingStartingState] = useState(false);
+  const [startingStateMessage, setStartingStateMessage] = useState<CoachingMessage | null>(null);
+  
+  // Helper: build a normalization key to dedupe messages between Firestore and local
+  const buildMessageKey = useCallback((message: CoachingMessage): string => {
+    const normalizedContent = message.content
+      .replace(/\s+/g, ' ') // collapse multiple spaces/newlines
+      .trim()
+      .toLowerCase();
+    return `${message.role}|${normalizedContent}`;
+  }, []);
+
+  // Combine Firestore messages with local messages and starting state
+  const allMessages = useMemo(() => {
+    const firestoreMessages = loadedSession?.messages || [];
+    const firestoreKeys = new Set(firestoreMessages.map(buildMessageKey));
+
+    // Only keep optimistic locals that are not yet present in Firestore (by role+normalized content)
+    const optimisticLocals = localMessages.filter((m) => !firestoreKeys.has(buildMessageKey(m)));
+
+    const combinedMessages: CoachingMessage[] = [
+      ...firestoreMessages,
+      ...optimisticLocals,
+      ...(showingStartingState && startingStateMessage ? [startingStateMessage] : [])
+    ];
+
+    // Sort by timestamp (oldest -> newest)
+    const sorted = combinedMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+    // Tail de-duplication to avoid double-render during streaming:
+    // After the last user message, there should be at most one assistant reply.
+    // If multiple assistant messages exist (e.g., Firestore + local placeholder), keep the one with longer content.
+    let lastUserIndex = -1;
+    for (let i = sorted.length - 1; i >= 0; i -= 1) {
+      if (sorted[i].role === 'user') { lastUserIndex = i; break; }
+    }
+
+    const head = sorted.slice(0, lastUserIndex + 1);
+    const tail = sorted.slice(lastUserIndex + 1);
+
+    if (tail.length > 1 && tail.every(m => m.role === 'assistant')) {
+      // During streaming, prefer the shorter (partial) assistant content to avoid jumping to full Firestore text
+      const preferred = tail.reduce((acc, m) => (m.content.length < acc.content.length ? m : acc), tail[0]);
+      return [...head, preferred];
+    }
+
+    return sorted;
+  }, [loadedSession?.messages, localMessages, showingStartingState, startingStateMessage, buildMessageKey]);
+
+  // Clear local messages that are now present in Firestore (content-level dedupe)
+  // But don't clear during streaming to avoid interrupting typewriter effect
+  useEffect(() => {
+    if (loadedSession && localMessages.length > 0 && !isStreaming) {
+      const firestoreKeys = new Set(loadedSession.messages.map(buildMessageKey));
+
+      const remainingLocals = localMessages.filter((m) => !firestoreKeys.has(buildMessageKey(m)));
+      const removedCount = localMessages.length - remainingLocals.length;
+
+      if (removedCount > 0) {
+        console.log(`🧹 Clearing ${removedCount} local messages that are now in Firestore (by content)`);
+        setLocalMessages(remainingLocals);
+      }
+    }
+  }, [loadedSession, localMessages, buildMessageKey, setLocalMessages, isStreaming]);
+
+  // Handle starting state when session loads
+  useEffect(() => {
+    if (loadedSession && !isBreakoutSession) {
+      const sessionMessages = loadedSession.messages;
+      
+      if (sessionMessages.length > 0 && isLastMessageOld(sessionMessages)) {
+        const startingMessage = generateStartingStateMessage(sessionMessages);
+        setStartingStateMessage(startingMessage);
+        setShowingStartingState(true);
+        console.log('📌 Showing starting state message - last message is 2+ hours old');
+      } else {
+        setShowingStartingState(false);
+        setStartingStateMessage(null);
+      }
+    }
+  }, [loadedSession, isBreakoutSession]);
   const [parsedCoachingData, setParsedCoachingData] = useState<{
     components: Array<{ type: string; props: Record<string, string> }>;
     rawData: string;
@@ -642,72 +387,6 @@ export default function CoachingScreen() {
 
   // Track AI response state more reliably
   const [aiResponseStarted, setAiResponseStarted] = useState(false);
-
-  // Pagination state for message loading
-  const [allMessages, setAllMessages] = useState<CoachingMessage[]>([]);
-  const [displayedMessageCount, setDisplayedMessageCount] = useState(300);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
-  const MESSAGES_PER_PAGE = 100;
-  
-  // Throttling for pagination to prevent multiple rapid calls
-  const lastLoadTimeRef = useRef<number>(0);
-  const LOAD_THROTTLE_MS = 1000; // 1 second between loads
-
-  // Load more messages for pagination
-  const loadMoreMessages = useCallback(async () => {
-    if (isLoadingMore || !hasMoreMessages) return;
-    
-    setIsLoadingMore(true);
-    console.log(`🔄 Starting to load ${MESSAGES_PER_PAGE} more messages...`);
-    
-    try {
-      // Add a small delay so user can see the loading indicator
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      const newCount = Math.min(displayedMessageCount + MESSAGES_PER_PAGE, allMessages.length);
-      const messagesToShow = allMessages.slice(-newCount);
-      
-      setMessages(messagesToShow);
-      setDisplayedMessageCount(newCount);
-      setHasMoreMessages(newCount < allMessages.length);
-      
-      console.log(`✅ Loaded ${MESSAGES_PER_PAGE} more messages (${newCount}/${allMessages.length} total)`);
-    } catch (error) {
-      console.error('Error loading more messages:', error);
-    } finally {
-      // Add a small delay before hiding loading indicator
-      setTimeout(() => {
-        setIsLoadingMore(false);
-      }, 200);
-    }
-  }, [isLoadingMore, hasMoreMessages, displayedMessageCount, allMessages, MESSAGES_PER_PAGE, setMessages]);
-
-  // Group messages by date and insert separators
-  const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
-    if (messages.length === 0) return [];
-    
-    const result: Array<CoachingMessage | { type: 'separator'; date: Date; id: string }> = [];
-    let lastDate: string | null = null;
-    
-    messages.forEach((message, index) => {
-      const messageDate = new Date(message.timestamp).toDateString();
-      
-      // Add separator if this is a new day
-      if (messageDate !== lastDate) {
-        result.push({
-          type: 'separator',
-          date: new Date(message.timestamp),
-          id: `separator-${messageDate}-${index}`
-        });
-        lastDate = messageDate;
-      }
-      
-      result.push(message);
-    });
-    
-    return result;
-  }, []);
 
   // Track when AI response actually starts
   useEffect(() => {
@@ -725,8 +404,8 @@ export default function CoachingScreen() {
 
   // Monitor when AI response actually starts
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
+    if (allMessages.length > 0) {
+      const lastMessage = allMessages[allMessages.length - 1];
       const isLastMessageAI = lastMessage?.role === 'assistant';
       
       if (isLastMessageAI && isLoading) {
@@ -737,10 +416,10 @@ export default function CoachingScreen() {
         setAiResponseStarted(false);
       }
     }
-  }, [messages, isLoading, aiResponseStarted]);
+  }, [allMessages, isLoading, aiResponseStarted]);
 
   // Enhanced loading indicator logic
-  const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
+  const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && allMessages.length > 0);
 
   //POWERFUL MESSAGE POSITIONING SYSTEM
 
@@ -762,13 +441,13 @@ export default function CoachingScreen() {
   const dynamicContentHeight = useMemo(() => {
     let totalHeight = 12; // paddingTop
     
-    messages.forEach((message, index) => {
+    allMessages.forEach((message, index) => {
       const contentLength = message.content.length;
       const lines = Math.max(1, Math.ceil(contentLength / 44));
       let messageHeight = lines * 22 + 32;
       
       if (message.role === 'assistant') {
-        const isLastMessage = index === messages.length - 1;
+        const isLastMessage = index === allMessages.length - 1;
         const isCurrentlyStreaming = isLastMessage && isLoading;
         
         if (isCurrentlyStreaming) {
@@ -787,7 +466,7 @@ export default function CoachingScreen() {
     }
     
     return totalHeight;
-  }, [messages, isLoading, shouldShowLoadingIndicator]);
+  }, [allMessages, isLoading, shouldShowLoadingIndicator]);
 
   // 2. Dynamic bottom padding - account for live input container height so last lines stay visible
   const dynamicBottomPadding = useMemo(() => {
@@ -801,7 +480,7 @@ export default function CoachingScreen() {
     const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40; // small cushion
 
     // If the AI is responding or user just sent a message, add more for positioning
-    const lastMessage = messages[messages.length - 1];
+    const lastMessage = allMessages[allMessages.length - 1];
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
     
     if (keyboardHeight > 0) {
@@ -812,7 +491,7 @@ export default function CoachingScreen() {
     }
 
     return basePadding + extraForInput;
-  }, [messages, isLoading, containerHeight, keyboardHeight]);
+  }, [allMessages, isLoading, containerHeight, keyboardHeight]);
 
   // New state for content height tracking
   const [contentHeight, setContentHeight] = useState(0);
@@ -897,21 +576,57 @@ export default function CoachingScreen() {
       }
       
       components.push({ type: componentType, props });
-      
-      // Debug logging for commitment cards (disabled)
-      // if (componentType === 'commitmentDetected') {
-      //   console.log('🎯 Parsed commitmentDetected token:', { props, state: props.state });
-      // }
     }
     
     return components;
   };
 
+  // Starting state logic - check if last message is older than 2 hours
+  const isLastMessageOld = (messages: CoachingMessage[]): boolean => {
+    if (allMessages.length === 0) return true;
+    
+    const lastMessage = allMessages[allMessages.length - 1];
+    const now = new Date();
+    const hoursDiff = (now.getTime() - lastMessage.timestamp.getTime()) / (1000 * 60 * 60);
+    
+    return hoursDiff > 2; // 2+ hours old
+  };
+
+  // Generate starting state message
+  const generateStartingStateMessage = (messages: CoachingMessage[]): CoachingMessage => {
+    // Check if last assistant message has insight cards
+    const lastAssistantMessage = [...messages].reverse().find(msg => msg.role === 'assistant');
+    
+    if (lastAssistantMessage && hasInsightCards(lastAssistantMessage.content)) {
+      // Re-show the last insight card message
+      return {
+        id: `starting-state-${Date.now()}`,
+        role: 'assistant',
+        content: lastAssistantMessage.content,
+        timestamp: new Date()
+      };
+    }
+    
+    // Default welcome back message
+    return {
+      id: `starting-state-${Date.now()}`,
+      role: 'assistant', 
+      content: "Welcome back! I'm here to support you in exploring what's on your mind.\n\nWhat would you like to focus on today?",
+      timestamp: new Date()
+    };
+  };
+
+  // Check if message has insight cards
+  const hasInsightCards = (content: string): boolean => {
+    const cardTypes = ['focus:', 'blockers:', 'meditation:', 'actionplan:'];
+    return cardTypes.some(type => content.includes(`[${type}`));
+  };
+
   // Function to render a coaching card based on type and props
-  const renderCoachingCard = (type: string, props: Record<string, string>, index: number, hostMessageId?: string) => {
+  const renderCoachingCard = (type: string, props: Record<string, string>, index: number) => {
     const baseProps = {
       key: `coaching-card-${type}-${index}`,
-            editable: true, // Enable commitment card interactions
+      editable: false, // Cards in messages should not be editable
     };
 
     switch (type) {
@@ -955,110 +670,6 @@ export default function CoachingScreen() {
             title={props.title}
           />
         );
-      case 'commitmentDetected': {
-        const normalizedState = ((props.state as 'none' | 'accepted' | 'rejected') === 'accepted' && !props.commitmentId)
-          ? 'none'
-          : ((props.state as 'none' | 'accepted' | 'rejected') || 'none');
-        return (
-          <CommitmentCard
-            key={baseProps.key}
-            editable={baseProps.editable}
-            title={props.title || 'Commitment'}
-            description={props.description || ''}
-            type={(props.type as 'one-time' | 'recurring') || 'one-time'}
-            deadline={props.deadline}
-            cadence={props.cadence}
-            state={normalizedState}
-            commitmentId={props.commitmentId}
-            onUpdate={async (data) => {
-              console.log('🎯 CommitmentCard onUpdate called:', data);
-              
-              if (!firebaseUser?.uid) {
-                console.error('❌ No authenticated user for commitment update');
-                return;
-              }
-
-              try {
-                // 1. Update the message content with new state
-                const updatedMessages = messages.map((message) => {
-                  if (message.role !== 'assistant') return message;
-                  if (hostMessageId && message.id !== hostMessageId) return message;
-
-                  const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                  let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                    if (occurrence !== index) { occurrence++; return match; }
-                    occurrence++;
-
-                    const existingProps: Record<string, string> = {};
-                    const propRegex = /(\w+)="([^"]+)"/g;
-                    let propMatch;
-                    while ((propMatch = propRegex.exec(propsString)) !== null) {
-                      const [, k, v] = propMatch;
-                      existingProps[k] = v;
-                    }
-                    existingProps.state = data.state;
-                    if (data.commitmentId) existingProps.commitmentId = data.commitmentId;
-
-                    const newPropsString = Object.entries(existingProps)
-                      .map(([k, v]) => `${k}="${v}"`)
-                      .join(',');
-                    return `[commitmentDetected:${newPropsString}]`;
-                  });
-                  return { ...message, content: updatedContent };
-                });
-
-                // 2. Update messages state
-                setMessages(updatedMessages);
-                
-                // 3. Let outer effect persist updates to avoid duplicate saves
-                
-                // 4. If accepted, create commitment via API
-                if (data.state === 'accepted') {
-                  const token = await getToken();
-                  if (!token) {
-                    console.error('❌ No auth token available');
-                    return;
-                  }
-
-                  console.log('🔥 Creating commitment via API...');
-                  const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/create`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      title: props.title,
-                      description: props.description,
-                      type: props.type,
-                      deadline: props.deadline,
-                      cadence: props.cadence,
-                      coachingSessionId: firebaseUser.uid,
-                      messageId: hostMessageId || `msg_${Date.now()}`
-                    }),
-                  });
-
-                  if (response.ok) {
-                    const result = await response.json();
-                    console.log('✅ Commitment created successfully:', result);
-                  } else {
-                    const errorText = await response.text();
-                    console.error('❌ Failed to create commitment:', {
-                      status: response.status,
-                      error: errorText
-                    });
-                  }
-                }
-                
-                console.log('✅ Commitment update completed successfully');
-              } catch (error) {
-                console.error('❌ Failed to update commitment:', error);
-              }
-            }}
-          />
-        );
-      }
       case 'checkin':
         // Check-in cards are handled by the scheduling popup system
         return null;
@@ -1100,9 +711,6 @@ export default function CoachingScreen() {
     const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
     cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
     
-    // Remove triple backticks from LLM responses
-    cleanContent = cleanContent.replace(/```/g, '').trim();
-    
     // Clean up extra whitespace/newlines that might be left
     cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple newlines with double newlines
     cleanContent = cleanContent.trim();
@@ -1138,6 +746,8 @@ export default function CoachingScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
+  // Guard against duplicate loads for the same session
+  const loadedSessionIdRef = useRef<string | null>(null);
   const paywallShownRef = useRef<boolean>(false);
   const accessCheckedRef = useRef<boolean>(false);
   
@@ -1178,13 +788,13 @@ export default function CoachingScreen() {
 
   // Track session completion when user leaves the screen (only once)
   const sessionCompletedRef = useRef(false);
-  const messagesRef = useRef(messages);
+  const messagesRef = useRef(allMessages);
   const sessionStartRef = useRef(sessionStartTime);
   
   // Keep refs updated
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+    messagesRef.current = allMessages;
+  }, [allMessages]);
   
   useFocusEffect(
     useCallback(() => {
@@ -1193,21 +803,21 @@ export default function CoachingScreen() {
       
       // Cleanup function that runs when leaving the screen
       return () => {
-        if (sessionId && !sessionCompletedRef.current) {
+        if (currentSessionId && !sessionCompletedRef.current) {
           sessionCompletedRef.current = true; // Prevent multiple calls
           
           const sessionMinutes = Math.max(Math.floor((Date.now() - sessionStartRef.current.getTime()) / (1000 * 60)), 1);
           const messageCount = messagesRef.current.length;
-          const totalWords = messagesRef.current.reduce((total, msg) => {
+          const totalWords = messagesRef.current.reduce((total: number, msg: CoachingMessage) => {
             if (msg.role === 'user') {
-              return total + msg.content.split(/\s+/).filter(word => word.length > 0).length;
+              return total + msg.content.split(/\s+/).filter((word: string) => word.length > 0).length;
             }
             return total;
           }, 0);
 
           // Log coaching session completion (only once)
           console.log('✅ [COACHING] Regular coaching session completed (user left screen)', {
-            sessionId: sessionId,
+            sessionId: currentSessionId,
             duration: sessionMinutes,
             messageCount: messageCount,
             wordsWritten: totalWords
@@ -1215,7 +825,7 @@ export default function CoachingScreen() {
 
           // Track coaching session completion
           trackCoachingSessionCompleted({
-            session_id: sessionId,
+            session_id: currentSessionId,
             duration_minutes: sessionMinutes,
             message_count: messageCount,
             words_written: totalWords,
@@ -1224,69 +834,23 @@ export default function CoachingScreen() {
           });
         }
       };
-    }, [sessionId])
+    }, [currentSessionId])
   );
 
-  // Set sessionId when firebaseUser is available
+  // Show initial welcome message for new main sessions
   useEffect(() => {
-    if (firebaseUser?.uid) {
-      setSessionId(firebaseUser.uid);
-    }
-  }, [firebaseUser?.uid]);
-
-  // Load conversation history from local storage or show welcome message
-  const [isInitialized, setIsInitialized] = useState(false);
-  
-  useEffect(() => {
-    if (!firebaseUser || isInitialized) return;
-    
-    const initializeChat = async () => {
-      debugLog('🔄 Initializing chat with multi-device sync for user:', firebaseUser.uid);
-      
-      // Multi-device sync: Backend first, then local cache
-      const syncedMessages = await syncMessages(firebaseUser.uid);
-      
-      if (syncedMessages.length > 0) {
-        // Load last 30 messages from synced data
-        const recentMessages = syncedMessages.slice(-30);
-        setMessages(recentMessages);
-        console.log(`✅ Loaded ${recentMessages.length} messages`);
-      } else {
-        // No messages found anywhere, show welcome message
-        debugLog('📝 No messages found, showing welcome message');
+    if (!isBreakoutSession && !isLoadingSession && !loadedSession && allMessages.length === 0) {
+      setTimeout(() => {
         const initialMessage: CoachingMessage = {
           id: '1',
           content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
           role: 'assistant',
           timestamp: new Date()
         };
-        setMessages([initialMessage]);
-        debugLog('✅ Initialized coaching session with welcome message');
-      }
-      
-      setIsInitialized(true);
-    };
-    
-    initializeChat();
-  }, [firebaseUser, isInitialized, setMessages, user?.firstName, syncMessages]);
-
-  // Save messages to both local storage and Firestore whenever messages change
-  useEffect(() => {
-    if (firebaseUser?.uid && messages.length > 0) {
-      // Don't save just the welcome message
-      if (messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant') {
-        return;
-      }
-      
-      // Save to local storage (last 300 messages - rich cache)
-      saveMessagesToStorage(messages, firebaseUser.uid);
-      
-      // Save to Firestore (all messages - full backup)
-      saveMessagesToFirestore(messages, firebaseUser.uid);
+        setLocalMessages([initialMessage]);
+      }, 1000);
     }
-  }, [messages, firebaseUser?.uid, saveMessagesToStorage, saveMessagesToFirestore]);
-
-  
+  }, [isBreakoutSession, isLoadingSession, loadedSession, allMessages.length, user?.firstName]);
 
   // Auto-scroll to position new messages below header
   const scrollToNewMessageRef = useRef(false);
@@ -1299,19 +863,20 @@ export default function CoachingScreen() {
   
   // Track if user has manually scrolled
   const hasUserScrolled = useRef<boolean>(false);
-  // One-time initial auto-scroll flag
-  const didInitialAutoScroll = useRef<boolean>(false);
+  
+  // Track if we've done initial scroll to latest message
+  const hasInitialScrolled = useRef<boolean>(false);
   
     // 3. Completely rewrite scrollToShowLastMessage:
   const scrollToShowLastMessage = useCallback(() => {
-    if (!scrollViewRef.current || messages.length === 0) return;
+    if (!scrollViewRef.current || allMessages.length === 0) return;
     
-    const lastMessage = messages[messages.length - 1];
+    const lastMessage = allMessages[allMessages.length - 1];
     
     // Only position user messages
     if (lastMessage.role !== 'user') return;
     
-    debugLog('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
+    console.log('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
     
     // Target position: MESSAGE_TARGET_OFFSET pixels below header
     const targetFromTop = MESSAGE_TARGET_OFFSET;
@@ -1328,7 +893,7 @@ export default function CoachingScreen() {
             // Target scroll position = message Y position - target position
             const targetScrollY = Math.max(0, msgY - targetFromTop);
             
-            debugLog('📐 Measurement:', {
+            console.log('📐 Measurement:', {
               messageY: msgY,
               targetFromTop,
               targetScrollY
@@ -1344,17 +909,17 @@ export default function CoachingScreen() {
             targetScrollPosition.current = targetScrollY;
             hasUserScrolled.current = false;
             
-            debugLog('✅ User message positioned at scroll:', targetScrollY);
+            console.log('✅ User message positioned at scroll:', targetScrollY);
           },
           () => {
-            debugLog('❌ Measurement failed, using estimation');
+            console.log('❌ Measurement failed, using estimation');
             
             // Fallback: estimate message position
             let estimatedY = 12; // paddingTop
             
             // Sum up height of all previous messages
-            for (let i = 0; i < messages.length - 1; i++) {
-              const msg = messages[i];
+            for (let i = 0; i < allMessages.length - 1; i++) {
+              const msg = allMessages[i];
               const lines = Math.max(1, Math.ceil(msg.content.length / 40));
               const msgHeight = lines * 22 + 48; // text + padding
               estimatedY += msgHeight + 16; // marginBottom
@@ -1374,7 +939,7 @@ export default function CoachingScreen() {
         );
       }, 150); // Wait for layout to stabilize
     }
-  }, [messages]);
+  }, [allMessages]);
   
   // 4. Simplify useEffect:
   useEffect(() => {
@@ -1385,7 +950,7 @@ export default function CoachingScreen() {
         scrollToNewMessageRef.current = false;
       }, 100);
     }
-  }, [messages.length, scrollToShowLastMessage]);
+  }, [allMessages.length, scrollToShowLastMessage]);
 
   // 5. Remove position maintenance during AI response - too complex
   // Instead, adjust position once when AI response starts:
@@ -1405,13 +970,82 @@ export default function CoachingScreen() {
     }
   }, [isLoading]);
 
+  // Scroll to bottom function
+  const handleScrollToBottom = useCallback(() => {
+    if (allMessages.length > 0) {
+      const lastMessage = allMessages[allMessages.length - 1];
+      const lastMessageRef = messageRefs.current[lastMessage.id];
+      
+      if (lastMessageRef) {
+        lastMessageRef.measureLayout(
+          scrollViewRef.current as any,
+          (x, y, width, height) => {
+            // Check if it's a long AI response
+            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
+            
+            if (isLongResponse) {
+              // For long responses: scroll to the very end of the message
+              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            } else {
+              // For short responses: scroll to show the message with minimal space below
+              const targetY = Math.max(0, y - 20); // Small offset
+              scrollViewRef.current?.scrollTo({
+                y: targetY,
+                animated: true
+              });
+            }
+          },
+          () => {
+            // Fallback: scroll to a position that shows the last message
+            const estimatedPosition = Math.max(0, (allMessages.length - 1) * 80 - 30);
+            scrollViewRef.current?.scrollTo({
+              y: estimatedPosition,
+              animated: true
+            });
+          }
+        );
+      } else {
+        // Fallback: scroll to a position that shows the last message
+        const estimatedPosition = Math.max(0, (allMessages.length - 1) * 80 - 30);
+        scrollViewRef.current?.scrollTo({
+          y: estimatedPosition,
+          animated: true
+        });
+      }
+    } else {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [allMessages]);
+
+  // Auto-scroll to bottom when session loads for the first time
+  useEffect(() => {
+    if (loadedSession && allMessages.length > 0 && !hasInitialScrolled.current && !isLoadingSession) {
+      console.log('🎯 Auto-triggering scroll to bottom on session load');
+      
+      setTimeout(() => {
+        handleScrollToBottom();
+        hasInitialScrolled.current = true;
+        console.log('✅ Auto scroll to bottom completed');
+      }, 500); // Delay to ensure layout and message refs are ready
+    }
+  }, [loadedSession, allMessages.length, isLoadingSession, handleScrollToBottom]);
+
+  // Reset initial scroll flag when session changes
+  useEffect(() => {
+    hasInitialScrolled.current = false;
+  }, [currentSessionId]);
+
   // 6. Clear when progress reaches 100%:
   useEffect(() => {
     if (progress === 100) {
       setTimeout(() => {
         targetScrollPosition.current = null;
         hasUserScrolled.current = false;
-        debugLog('🧹 Positioning cleared after AI response');
+        console.log('🧹 Positioning cleared after AI response');
       }, 1000);
     }
   }, [progress]);
@@ -1422,7 +1056,7 @@ export default function CoachingScreen() {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
       // Find the final AI message
-      const lastAIMessage = [...messages].reverse().find(msg => msg.role === 'assistant');
+      const lastAIMessage = [...allMessages].reverse().find(msg => msg.role === 'assistant');
       
       if (lastAIMessage) {
         // Calculate session statistics
@@ -1431,7 +1065,7 @@ export default function CoachingScreen() {
         const sessionMinutes = Math.round(sessionDurationMs / 60000);
         
         // Count words from user messages
-        const userMessages = messages.filter(msg => msg.role === 'user');
+        const userMessages = allMessages.filter(msg => msg.role === 'user');
         const totalWords = userMessages.reduce((count, msg) => {
           return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
         }, 0);
@@ -1453,7 +1087,7 @@ export default function CoachingScreen() {
         setShowCompletionForMessage(lastAIMessage.id);
       }
     }
-  }, [progress, showCompletionForMessage, messages, sessionStartTime]);
+  }, [progress, showCompletionForMessage, allMessages, sessionStartTime]);
 
   // Keep screen awake while recording
   useEffect(() => {
@@ -1614,36 +1248,14 @@ export default function CoachingScreen() {
     }, 0);
   };
 
-  // 8. Set flag correctly in handleSendMessage:
+  // Send message using current session ID
   const handleSendMessage = async () => {
-    if (chatInput.trim().length === 0) return;
-
-    // Use userId as session ID (single session per user)
-    const currentSessionId = getSessionId();
-    
-    if (!sessionId) {
-      setSessionId(currentSessionId);
-      
-      // Log coaching session start
-      console.log('🎯 [COACHING] Starting single user coaching session...', {
-        sessionId: currentSessionId,
-        userId: firebaseUser?.uid,
-        sessionType: 'single-user-session',
-        trigger: 'manual'
-      });
-      
-      // Track coaching session started
-      trackCoachingSessionStarted({
-        session_id: currentSessionId,
-        session_type: 'regular',
-        trigger: 'manual',
-      });
-    }
+    if (chatInput.trim().length === 0 || !currentSessionId) return;
 
     const messageContent = chatInput.trim();
     setChatInput('');
     
-    // Input yüksekliğini ve expand durumunu sıfırla
+    // Reset input height and expand state
     setInputHeight(LINE_HEIGHT);
     setContainerHeight(CONTAINER_BASE_HEIGHT);
     setIsInputExpanded(false);
@@ -1653,10 +1265,32 @@ export default function CoachingScreen() {
     hasUserScrolled.current = false;
     scrollToNewMessageRef.current = true; // This flag will trigger positioning
 
-    debugLog('📤 Sending message, positioning will be triggered');
+    console.log(`📤 Sending message to session: ${currentSessionId} (${isBreakoutSession ? 'breakout' : 'main'})`);
+
+    // If showing starting state, persist it and clear the state
+    if (showingStartingState && startingStateMessage) {
+      setShowingStartingState(false);
+      setStartingStateMessage(null);
+      console.log('📌 Persisting starting state message due to user response');
+    }
+
+    // Track coaching session started for new main sessions
+    if (!isBreakoutSession && allMessages.length === 0) {
+      console.log('🎯 [COACHING] Starting main coaching session...', {
+        sessionId: currentSessionId,
+        sessionType: 'main-session',
+        trigger: 'manual'
+      });
+      
+      trackCoachingSessionStarted({
+        session_id: currentSessionId,
+        session_type: 'regular',
+        trigger: 'manual',
+      });
+    }
 
     await sendMessage(messageContent, currentSessionId, {
-        sessionType: 'default-session'
+      sessionType: 'default-session'
     });
   };
 
@@ -1699,73 +1333,8 @@ export default function CoachingScreen() {
     }
   };
 
-  const handleScrollToBottom = (animated: boolean = true) => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      const lastMessageRef = messageRefs.current[lastMessage.id];
-      
-      if (lastMessageRef) {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (x, y, width, height) => {
-            // Check if it's a long AI response
-            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
-            
-            if (isLongResponse) {
-              // For long responses: scroll to the very end of the message
-              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated
-              });
-            } else {
-              // For short responses: scroll to show the message with minimal space below
-              const targetY = Math.max(0, y - 20); // Small offset
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated
-              });
-            }
-          },
-          () => {
-            // Fallback: scroll to a position that shows the last message
-            const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
-            scrollViewRef.current?.scrollTo({
-              y: estimatedPosition,
-              animated
-            });
-          }
-        );
-      } else {
-        // Fallback: scroll to a position that shows the last message
-        const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
-        scrollViewRef.current?.scrollTo({
-          y: estimatedPosition,
-          animated
-        });
-      }
-    } else {
-    scrollViewRef.current?.scrollToEnd({ animated });
-    }
-  };
 
-  // Initial auto-scroll to bottom once after messages initialize
-  useEffect(() => {
-    if (!isInitialized) return;
-    if (didInitialAutoScroll.current) return;
-    if (!scrollViewRef.current) return;
-    if (messages.length === 0) return;
-
-    // Allow layout to settle, then scroll to last message precisely (no blank overscroll)
-    setTimeout(() => {
-      if (!hasUserScrolled.current && scrollViewRef.current) {
-        handleScrollToBottom(false);
-        didInitialAutoScroll.current = true;
-      }
-    }, 100);
-  }, [isInitialized, messages.length]);
-
-  // 7. Simplify handleScroll with pagination:
+  // 7. Simplify handleScroll:
   const handleScroll = (event: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const scrollY = contentOffset.y;
@@ -1776,27 +1345,15 @@ export default function CoachingScreen() {
       const scrollDifference = Math.abs(scrollY - savedPosition);
       
       if (scrollDifference > 50) { // Larger threshold
-        debugLog('👆 User scrolled manually, clearing positioning');
+        console.log('👆 User scrolled manually, clearing positioning');
         hasUserScrolled.current = true;
         targetScrollPosition.current = null;
       }
     }
     
-    // Pagination: Load more messages when pulling to very top (like pull-to-refresh)
-    const isAtVeryTop = scrollY <= 10; // Must be within 10px of absolute top
-    const isPullingUp = scrollY < 0; // Negative scroll (over-scroll/bounce)
-    const now = Date.now();
-    const timeSinceLastLoad = now - lastLoadTimeRef.current;
-    
-    if ((isAtVeryTop || isPullingUp) && hasMoreMessages && !isLoadingMore && !isLoading && timeSinceLastLoad > LOAD_THROTTLE_MS) {
-      console.log('📄 User pulled to top, loading more messages...');
-      lastLoadTimeRef.current = now;
-      loadMoreMessages();
-    }
-    
     // Scroll to bottom button - show when content is scrollable and not at bottom
-    const hasMessages = messages.length > 0;
-    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
+    const hasMessages = allMessages.length > 0;
+    const lastMessage = hasMessages ? allMessages[allMessages.length - 1] : null;
     const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
     
     if (isAIResponseComplete) {
@@ -1821,10 +1378,10 @@ export default function CoachingScreen() {
     }
     
     // Create goal breakout session and link to journal entry
-    if (sessionId && firebaseUser) {
+    if (currentSessionId && firebaseUser) {
       try {
-        console.log('🎯 Creating goal breakout session for completed coaching session:', sessionId);
-        await createGoalBreakoutSession(sessionId);
+        console.log('🎯 Creating goal breakout session for completed coaching session:', currentSessionId);
+        await createGoalBreakoutSession(currentSessionId);
       } catch (error) {
         console.error('❌ Failed to create goal breakout session:', error);
       }
@@ -1833,15 +1390,15 @@ export default function CoachingScreen() {
     // Navigate to compass story for coaching completion immediately
     (navigation as any).navigate('CompassStory', { 
       fromCoaching: true,
-      sessionId: sessionId || undefined,
+      sessionId: currentSessionId || undefined,
       parsedCoachingData: parsedCoachingData || undefined
     });
     setShowCompletionForMessage(null);
     
     // Trigger insight extraction in background if we have a session ID
-    if (sessionId) {
-      console.log('🧠 Starting insight extraction for session:', sessionId);
-      triggerInsightExtraction(sessionId); // Don't await - run in background
+    if (currentSessionId) {
+      console.log('🧠 Starting insight extraction for session:', currentSessionId);
+      triggerInsightExtraction(currentSessionId); // Don't await - run in background
     }
   };
 
@@ -1982,7 +1539,7 @@ export default function CoachingScreen() {
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
-            Coach
+            {isBreakoutSession ? 'Breakout Session' : 'Coach'}
           </Text>
         </View>
 
@@ -2015,8 +1572,19 @@ export default function CoachingScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
-            bounces={false}
+            bounces={true}
             overScrollMode="never"
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoadingMore}
+                onRefresh={loadMoreMessages}
+                enabled={hasMoreMessages}
+                tintColor={`${colors.text}40`}
+                colors={[`${colors.text}40`]}
+                progressBackgroundColor="transparent"
+                title=""
+              />
+            }
             // Scroll limiti ekle
             onScrollEndDrag={(event) => {
               const { contentOffset } = event.nativeEvent;
@@ -2041,31 +1609,19 @@ export default function CoachingScreen() {
               }
             }}
           >
-            {/* Simple loading spinner */}
-            {isLoadingMore && (
-              <View style={{
-                alignItems: 'center',
-                paddingVertical: 16,
-              }}>
-                <ModernSpinner colorScheme={colorScheme} size={20} />
+
+            {/* Loading existing session */}
+            {loadingExistingSession && (
+              <View style={[styles.messageContainer, styles.aiMessageContainer]}>
+                <AnimatedTypingIndicator colorScheme={colorScheme} />
+                <Text style={[styles.messageText, { color: `${colors.text}60`, marginLeft: 8 }]}>
+                  Loading session...
+                </Text>
               </View>
             )}
 
-            {getMessagesWithSeparators(messages).map((item) => {
-              // Render date separator
-              if ('type' in item && item.type === 'separator') {
-                return (
-                  <DateSeparator 
-                    key={item.id} 
-                    date={item.date} 
-                    colorScheme={colorScheme} 
-                  />
-                );
-              }
-              
-              // Render message
-              const message = item as CoachingMessage;
-              return (
+            {/* Render all messages (Firestore + local + starting state) */}
+            {allMessages.map((message) => (
               <View
                 key={message.id}
                 ref={(ref) => {
@@ -2094,7 +1650,7 @@ export default function CoachingScreen() {
                      if (coachingCards.length > 0) {
                        return (
                          <View style={{ marginTop: 8, marginBottom: 16 }}>
-                           {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index, message.id))}
+                           {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index))}
                          </View>
                        );
                      }
@@ -2137,8 +1693,7 @@ export default function CoachingScreen() {
                    </View>
                  )}
                </View>
-              );
-            })}
+             ))}
             {shouldShowLoadingIndicator && (
               <View style={[
                 styles.messageContainer, 
@@ -2162,7 +1717,7 @@ export default function CoachingScreen() {
                     : 280 + containerHeight - 90, // Normal position + input growth
                 }
               ]}
-              onPress={() => handleScrollToBottom(true)}
+              onPress={handleScrollToBottom}
             >
               <ArrowDown size={20} color={colors.text} />
             </TouchableOpacity>

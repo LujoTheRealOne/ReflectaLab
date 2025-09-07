@@ -12,6 +12,7 @@ import CoachingScreen from '@/screens/CoachingScreen';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import { useAuth } from '@/hooks/useAuth';
 import SwipeableScreens from '@/components/SwipeableScreens';
 
 
@@ -38,17 +39,21 @@ export default function AppNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { progress } = useOnboardingProgress();
+  const { needsOnboarding } = useAuth();
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [currentRoute, setCurrentRoute] = useState('NotesScreen');
   
-  // Safeguard: If user somehow got to main app but still has OnboardingChat progress,
-  // redirect them back to auth flow
+  // Safeguard: Log if user somehow got to main app with OnboardingChat progress
+  // The progress should have been cleared by useAuth hook, but log for debugging
   useEffect(() => {
     if (progress && progress.currentStep === 17 && !progress.completedAt) {
-      console.log('🚨 SAFEGUARD: User in main app but has OnboardingChat progress - redirecting to auth');
-      // This will be handled at a higher level if needed
+      if (needsOnboarding) {
+        console.log('🚨 SAFEGUARD: User in main app but has OnboardingChat progress and needs onboarding');
+      } else {
+        console.log('✅ SAFEGUARD: User has OnboardingChat progress but backend shows completed - should be cleared by useAuth');
+      }
     }
-  }, [progress]);
+  }, [progress, needsOnboarding]);
 
   // Handle keyboard visibility for global BottomNavBar
   useEffect(() => {

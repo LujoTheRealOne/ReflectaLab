@@ -36,7 +36,7 @@ function AppContent() {
       // Small delay to ensure smooth transition
       setTimeout(() => {
         SplashScreen.hideAsync();
-      }, 500);
+      }, 300); // Reduced delay for faster app startup
     }
   }, [isLoaded]);
 

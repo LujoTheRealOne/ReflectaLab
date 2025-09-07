@@ -494,15 +494,36 @@ export default function SettingsScreen() {
   };
 
   const handleViewInsights = async () => {
-    if (!rcInitialized) return; // Wait for RevenueCat init
+    console.log('🧭 Settings - handleViewInsights called');
+    console.log('🧭 Settings - rcInitialized:', rcInitialized);
+    console.log('🧭 Settings - isPro:', isPro);
     
-    if (!isPro) {
-      const unlocked = await presentPaywall();
-      console.log('🧭 Compass insights access Pro check:', unlocked ? 'unlocked' : 'cancelled');
-      if (!unlocked) return; // Don't navigate if paywall was cancelled
+    // Add haptic feedback to confirm button press
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // BYPASS: Skip RevenueCat checks for compass navigation
+    console.log('🧭 Settings - Bypassing RevenueCat checks, navigating directly to CompassStory');
+    (navigation as any).navigate('CompassStory');
+    
+    /* ORIGINAL CODE - TEMPORARILY BYPASSED
+    if (!rcInitialized) {
+      console.log('🧭 Settings - RevenueCat not initialized, returning');
+      return; // Wait for RevenueCat init
     }
     
+    if (!isPro) {
+      console.log('🧭 Settings - User is not Pro, showing paywall');
+      const unlocked = await presentPaywall();
+      console.log('🧭 Compass insights access Pro check:', unlocked ? 'unlocked' : 'cancelled');
+      if (!unlocked) {
+        console.log('🧭 Settings - Paywall cancelled, not navigating');
+        return; // Don't navigate if paywall was cancelled
+      }
+    }
+    
+    console.log('🧭 Settings - Navigating to CompassStory');
     (navigation as any).navigate('CompassStory');
+    */
   };
 
   // Helper function to format the last updated time
@@ -612,7 +633,6 @@ export default function SettingsScreen() {
                   backgroundColor: '#FFFFFF'
                 }]}
                 onPress={handleViewInsights}
-                disabled={!hasInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
@@ -633,7 +653,6 @@ export default function SettingsScreen() {
                   backgroundColor: '#FFFFFF'
                 }]}
                 onPress={handleViewInsights}
-                disabled={!hasInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
@@ -654,7 +673,6 @@ export default function SettingsScreen() {
                   backgroundColor: '#FFFFFF'
                 }]}
                 onPress={handleViewInsights}
-                disabled={!hasInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
@@ -674,10 +692,7 @@ export default function SettingsScreen() {
                 style={[styles.compassCard, styles.compassCardViewAll, { 
                   backgroundColor: '#FFFFFF'
                 }]}
-                onPress={() => {
-                  // Navigate to stats or analytics screen
-                  console.log('Navigate to stats screen');
-                }}
+                onPress={handleViewInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>

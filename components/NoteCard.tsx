@@ -18,6 +18,8 @@ export default function NoteCard({ title, subtitle, preview, date }: NoteCardPro
       { 
         backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
         borderColor: isDark ? '#374151' : '#D9D9D9',
+        shadowColor: isDark ? '#000' : '#000',
+        shadowOpacity: isDark ? 0.25 : 0.15,
       }
     ]}>
       <View style={[styles.cardHeaderRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}> 
@@ -40,9 +42,10 @@ export default function NoteCard({ title, subtitle, preview, date }: NoteCardPro
         styles.cardBody, 
         { 
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
-          borderColor: isDark ? 'rgba(107, 114, 128, 0.3)' : 'rgba(168, 162, 158, 0.3)',
+          borderColor: isDark ? 'rgba(107, 114, 128, 0.5)' : 'rgba(168, 162, 158, 0.5)',
           overflow: 'hidden',
-          shadowColor: isDark ? 'rgba(198, 184, 61, 0.6)' : '#000',
+          shadowColor: isDark ? '#000' : '#000',
+          shadowOpacity: isDark ? 0.3 : 0.18,
         }
       ]}> 
         <Text 
@@ -65,11 +68,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 6,
     },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
     borderWidth: 0.5,
   },
   cardHeaderRow: {
@@ -114,12 +117,12 @@ const styles = StyleSheet.create({
     zIndex: 1,
     // Enhanced shadow for content area
     shadowOffset: {
-      width: 0,
+      width: 6,
       height: 3,
     },
-    shadowOpacity: 0.20,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
     borderWidth: 1,
   },
   cardPreview: {

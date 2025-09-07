@@ -9,7 +9,7 @@ import { useSyncSingleton } from '@/hooks/useSyncSingleton';
 import { db } from '@/lib/firebase';
 import { syncService } from '@/services/syncService';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import { useCurrentEntry } from '@/navigation/HomeScreen';
+import { useCurrentEntry } from '@/components/CurrentEntryContext';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import {

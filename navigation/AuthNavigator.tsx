@@ -40,7 +40,7 @@ export type AuthStackParamList = {
 const Stack = createStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
-  const { shouldShowGetStarted, needsOnboarding, isSignedIn } = useAuth();
+  const { shouldShowGetStarted, needsOnboarding, isSignedIn, refreshUserAccount } = useAuth();
   const { shouldResumeOnboarding, canNavigateToChat, progress, isLoading: progressLoading } = useOnboardingProgress();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -52,6 +52,8 @@ export default function AuthNavigator() {
     // Continue with navigation, don't block
   }
 
+  // Removed redundant mismatch detection - now handled in useAuth hook
+
   // Determine initial route based on auth state and onboarding progress
   const getInitialRouteName = () => {
     console.log('🔄 AuthNavigator getInitialRouteName - Starting route determination...');
@@ -61,14 +63,14 @@ export default function AuthNavigator() {
       return shouldShowGetStarted ? 'GetStarted' : 'Login';
     }
     
-    // PRIORITY 1: If user has saved progress at OnboardingChat (step 17), ALWAYS resume there
-    if (progress && progress.currentStep === 17 && !progress.completedAt) {
+    // PRIORITY 1: If user has saved progress at OnboardingChat (step 17) AND still needs onboarding, resume there
+    if (progress && progress.currentStep === 17 && !progress.completedAt && needsOnboarding === true) {
       console.log('🎯 PRIORITY: Resuming OnboardingChat from step 17');
       return 'OnboardingChat';
     }
     
     // PRIORITY 2: If user needs onboarding and has saved progress, resume onboarding
-    if (needsOnboarding && shouldResumeOnboarding() && progress) {
+    if (needsOnboarding === true && shouldResumeOnboarding() && progress) {
       console.log('🔄 Resuming onboarding from saved progress');
       if (canNavigateToChat()) {
         console.log('📱 Can navigate to chat, going to OnboardingChat');
@@ -80,9 +82,23 @@ export default function AuthNavigator() {
     }
     
     // PRIORITY 3: If user needs onboarding but no saved progress, start fresh
-    if (needsOnboarding) {
+    if (needsOnboarding === true) {
       console.log('📱 Needs onboarding, no saved progress - starting fresh');
       return 'Onboarding';
+    }
+    
+    // PRIORITY 4: If user doesn't need onboarding, they shouldn't be in AuthNavigator
+    // This is a fallback case - user should have been routed to main app
+    if (needsOnboarding === false) {
+      console.log('🚨 ERROR: User completed onboarding but still in AuthNavigator - this should not happen');
+      console.log('📱 Fallback: Showing Login to prevent crash');
+      return 'Login';
+    }
+    
+    // PRIORITY 5: If needsOnboarding is null (still loading), show login as safe fallback
+    if (needsOnboarding === null) {
+      console.log('⏳ needsOnboarding still loading - showing Login as safe fallback');
+      return 'Login';
     }
     
     console.log('📱 Fallback to Login');

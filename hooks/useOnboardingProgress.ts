@@ -27,13 +27,23 @@ export const useOnboardingProgress = () => {
     loadProgress();
   }, []);
 
+  // Removed external progress clearing listener - simplified approach
+
   const loadProgress = async () => {
     try {
       const stored = await AsyncStorage.getItem(ONBOARDING_PROGRESS_KEY);
       if (stored) {
         const parsedProgress = JSON.parse(stored) as OnboardingProgress;
-        setProgress(parsedProgress);
-        console.log('📱 Loaded onboarding progress:', parsedProgress);
+        
+        // If progress is already completed, don't load it - just clear it
+        if (parsedProgress.completedAt) {
+          console.log('📱 Found completed onboarding progress - clearing it');
+          await AsyncStorage.removeItem(ONBOARDING_PROGRESS_KEY);
+          setProgress(null);
+        } else {
+          setProgress(parsedProgress);
+          console.log('📱 Loaded onboarding progress:', parsedProgress);
+        }
       }
     } catch (error) {
       console.error('❌ Error loading onboarding progress:', error);

@@ -174,6 +174,10 @@ export function useAICoaching(): UseAICoachingReturn {
           }
         }
         
+        // Log raw LLM response for inspection
+        console.log('🤖 RAW LLM RESPONSE:', fullContent);
+        console.log('🤖 LLM RESPONSE LENGTH:', fullContent.length);
+        
         // Check for finish tokens
         const hasFinishToken = fullContent.includes('[finish-start]') || fullContent.includes('[finish-end]');
         
@@ -328,6 +332,6 @@ export function useAICoaching(): UseAICoachingReturn {
     sendMessage,
     resendMessage,
     clearMessages,
-    setMessages: setMessagesCallback
+    setMessages
   };
 } 

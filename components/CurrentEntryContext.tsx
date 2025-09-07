@@ -8,19 +8,7 @@ interface CurrentEntryContextType {
 
 const CurrentEntryContext = createContext<CurrentEntryContextType | undefined>(undefined);
 
-export const useCurrentEntry = () => {
-  const context = useContext(CurrentEntryContext);
-  if (!context) {
-    throw new Error('useCurrentEntry must be used within a CurrentEntryProvider');
-  }
-  return context;
-};
-
-interface CurrentEntryProviderProps {
-  children: React.ReactNode;
-}
-
-export const CurrentEntryProvider: React.FC<CurrentEntryProviderProps> = ({ children }) => {
+export const CurrentEntryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(null);
 
   return (
@@ -28,4 +16,12 @@ export const CurrentEntryProvider: React.FC<CurrentEntryProviderProps> = ({ chil
       {children}
     </CurrentEntryContext.Provider>
   );
+};
+
+export const useCurrentEntry = () => {
+  const context = useContext(CurrentEntryContext);
+  if (context === undefined) {
+    throw new Error('useCurrentEntry must be used within a CurrentEntryProvider');
+  }
+  return context;
 };

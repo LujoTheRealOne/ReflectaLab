@@ -7,6 +7,30 @@ This file records all important changes and implementations made by the LLM assi
 
 ## 2025-01-27
 
+- **Implemented Note Editing Functionality**: Added ability to tap on saved notes to open and edit them in NewNote screen:
+  * **Made NoteCard Touchable**: Converted NoteCard from View to TouchableOpacity with onPress prop and activeOpacity for better user feedback
+  * **Added Navigation Logic**: Updated NotesScreen to navigate to NewNote with selectedEntry parameter when note cards are tapped
+  * **Leveraged Existing Infrastructure**: Used existing selectedEntry handling in NewNote screen that was already implemented for drawer navigation
+  * **Comprehensive Coverage**: Applied onPress handlers to both "This week" and "Last 7 days" note sections
+  * **Console Logging**: Added logging to track which notes are being opened for debugging
+  * **Result**: Users can now tap any note card in the Notes screen to open it for editing in the NewNote screen with full formatting capabilities
+
+- **Fixed ArdaEditor Auto-Heading Disable**: Added functionality to automatically turn off heading formatting when user presses Enter:
+  * **Smart Detection**: Monitors HTML content changes to detect when user creates new line after heading (</h1> followed by <p>, <div>, or <br>)
+  * **Automatic State Update**: Updates manualFormatState to disable heading1 when new line is detected
+  * **UI Feedback**: Toolbar H1 button automatically unhighlights when heading format is disabled
+  * **Safety Check**: Added optional chaining to prevent "Cannot read property 'heading1' of undefined" error
+  * **Result**: Natural heading behavior where heading format automatically turns off when user presses Enter, similar to other rich text editors
+
+- **Fixed ArdaEditor Formatting Toolbar Integration**: Resolved issue where formatting buttons in KeyboardToolbar weren't working with ArdaEditor:
+  * **Root Cause**: KeyboardToolbar was passing markdown-style prefixes/suffixes (like `**` for bold, `*` for italic) but ArdaEditor's `handleFormatText` function expects only the format type to use RichEditor's native formatting commands
+  * **Solution**: 
+    - Removed markdown prefixes/suffixes from KeyboardToolbar button definitions, now passing only format types ('bold', 'italic', 'strike', 'heading1', 'bullet', 'number', 'quote')
+    - Updated KeyboardToolbar interface to match simplified parameter structure
+    - Updated NewNote.tsx to pass only formatType to editorRef.current?.formatText()
+  * **Enhancement**: Added Quote formatting button to KeyboardToolbar to match ArdaEditor's supported formats
+  * **Result**: All formatting buttons (Bold, Italic, Strikethrough, H1, Bullet List, Numbered List, Quote) now work correctly with proper active state indication
+
 - **Fixed Settings Compass Navigation Issue**: Resolved issue where compass cards in SettingsScreen were not responding to touches and navigating to CompassStoryScreen:
   * **Root Cause 1**: Compass cards had `disabled={!hasInsights}` prop which prevented interaction when users didn't have insights yet
   * **Root Cause 2**: RevenueCat was not initialized (`rcInitialized: false`) which blocked navigation even after removing disabled state

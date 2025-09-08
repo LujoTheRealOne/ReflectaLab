@@ -82,6 +82,15 @@ export default function HomeContent() {
 
 
   const [entry, setEntry] = useState('');
+  
+  // Debug entry state changes
+  useEffect(() => {
+    console.log('📝 Entry state changed:', {
+      length: entry.length,
+      content: entry.substring(0, 100) || 'EMPTY',
+      latestEntryId: latestEntry?.id || 'none'
+    });
+  }, [entry, latestEntry]);
   const [editorLoaded, setEditorLoaded] = useState(false);
   const [hasTriggeredHaptic, setHasTriggeredHaptic] = useState(false);
   const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
@@ -173,7 +182,18 @@ export default function HomeContent() {
     const selectedEntry = (route.params as any)?.selectedEntry;
     const createNew = (route.params as any)?.createNew;
 
+    console.log('📝 Route params changed:', { 
+      selectedEntry: selectedEntry ? { id: selectedEntry.id, hasContent: !!selectedEntry.content } : null, 
+      createNew 
+    });
+
     if (selectedEntry) {
+      console.log('📖 Loading selected entry:', {
+        id: selectedEntry.id,
+        contentLength: selectedEntry.content?.length || 0,
+        content: selectedEntry.content?.substring(0, 100) || 'EMPTY'
+      });
+      
       setLatestEntry(selectedEntry);
       setEntry(selectedEntry.content || '');
       setOriginalContent(selectedEntry.content || '');
@@ -184,11 +204,12 @@ export default function HomeContent() {
       // Set stable ID for this existing entry session
       currentEntryIdRef.current = selectedEntry.id;
       isPersistedRef.current = true; // Mark as already persisted
-      console.log('📖 Loaded existing entry session with ID:', selectedEntry.id);
+      console.log('✅ Successfully loaded existing entry session with ID:', selectedEntry.id);
 
       // Clear the route params to prevent re-loading on re-renders
       navigation.setParams({ selectedEntry: undefined } as any);
     } else if (createNew) {
+      console.log('🆕 Creating new entry as requested');
       // Create a new entry when explicitly requested
       createNewEntry();
 
@@ -505,14 +526,15 @@ export default function HomeContent() {
       console.log('🔥 Firebase ready, params:', { selectedEntry: !!selectedEntry, createNew });
       
       // Only handle specific navigation params, never auto-fetch
-      if (!selectedEntry && !createNew) {
-        console.log('🆕 No params - starting fresh session');
+      // Don't create new entry if we already have content loaded (from selectedEntry)
+      if (!selectedEntry && !createNew && !latestEntry) {
+        console.log('🆕 No params and no existing entry - starting fresh session');
         createNewEntry(); // Always start with new entry if no specific params
       } else {
-        console.log('⏭️ Handling specific params');
+        console.log('⏭️ Handling specific params or entry already loaded');
       }
     }
-  }, [isFirebaseReady, route.params, createNewEntry]);
+  }, [isFirebaseReady, route.params, createNewEntry, latestEntry]);
 
   // Initialize microphone button position
   useEffect(() => {
@@ -914,8 +936,8 @@ export default function HomeContent() {
       {/* Keyboard Toolbar - Outside of any container for proper positioning */}
                   <KeyboardToolbar
               isVisible={isKeyboardVisible}
-              onFormatText={(formatType, prefix, suffix) => {
-                editorRef.current?.formatText(formatType, prefix, suffix);
+              onFormatText={(formatType) => {
+                editorRef.current?.formatText(formatType);
               }}
               keyboardHeight={keyboardHeight}
               activeFormats={activeFormats}

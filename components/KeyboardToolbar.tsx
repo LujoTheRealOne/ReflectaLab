@@ -17,12 +17,13 @@ import {
   List, 
   ListOrdered, 
   Heading1, 
-  Strikethrough
+  Strikethrough,
+  Quote
 } from 'lucide-react-native';
 
 interface KeyboardToolbarProps {
   isVisible: boolean;
-  onFormatText: (formatType: string, prefix?: string, suffix?: string) => void;
+  onFormatText: (formatType: string) => void;
   keyboardHeight: number;
   activeFormats: string[];
 }
@@ -48,9 +49,9 @@ export default function KeyboardToolbar({
     
   
 
-  const handleFormatPress = (formatType: string, prefix?: string, suffix?: string) => {
+  const handleFormatPress = (formatType: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onFormatText(formatType, prefix, suffix);
+    onFormatText(formatType);
   };
 
   const formatButtons = [
@@ -58,37 +59,43 @@ export default function KeyboardToolbar({
       icon: Bold,
       label: 'Bold',
       formatType: 'bold',
-      onPress: () => handleFormatPress('bold', '**', '**'),
+      onPress: () => handleFormatPress('bold'),
     },
     {
       icon: Italic,
       label: 'Italic', 
       formatType: 'italic',
-      onPress: () => handleFormatPress('italic', '*', '*'),
+      onPress: () => handleFormatPress('italic'),
     },
     {
       icon: Strikethrough,
       label: 'Strike',
       formatType: 'strike',
-      onPress: () => handleFormatPress('strike', '~~', '~~'),
+      onPress: () => handleFormatPress('strike'),
     },
     {
       icon: Heading1,
       label: 'H1',
       formatType: 'heading1',
-      onPress: () => handleFormatPress('heading1', '# ', ''),
+      onPress: () => handleFormatPress('heading1'),
     },
     {
       icon: List,
       label: 'Bullet',
       formatType: 'bullet',
-      onPress: () => handleFormatPress('bullet', '• ', ''),
+      onPress: () => handleFormatPress('bullet'),
     },
     {
       icon: ListOrdered,
       label: 'Number',
       formatType: 'number',
-      onPress: () => handleFormatPress('number', '1. ', ''),
+      onPress: () => handleFormatPress('number'),
+    },
+    {
+      icon: Quote,
+      label: 'Quote',
+      formatType: 'quote',
+      onPress: () => handleFormatPress('quote'),
     },
   ];
 

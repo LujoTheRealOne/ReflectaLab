@@ -190,6 +190,10 @@ export default function NotesScreen() {
                 subtitle=""
                 preview={extractPreview(entry.content)}
                 date={formatDate(entry.timestamp)}
+                onPress={() => {
+                  console.log('📝 Opening note for editing:', entry.id);
+                  (navigation as any).navigate('NewNote', { selectedEntry: entry });
+                }}
               />
             ))}
           </>
@@ -210,6 +214,10 @@ export default function NotesScreen() {
                 subtitle=""
                 preview={extractPreview(entry.content)}
                 date={formatDate(entry.timestamp)}
+                onPress={() => {
+                  console.log('📝 Opening note for editing:', entry.id);
+                  (navigation as any).navigate('NewNote', { selectedEntry: entry });
+                }}
               />
             ))}
           </>

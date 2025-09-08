@@ -97,7 +97,22 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
   const handleRichTextChange = useCallback((newHtml: string) => {
     setHtmlContent(newHtml);
     onUpdate(newHtml);
-  }, [onUpdate]);
+    
+    // Auto-disable heading format when user creates new line after heading
+    if (manualFormatState?.heading1) {
+      // Check if the content ends with a new paragraph or line break after heading
+      const hasNewLineAfterHeading = newHtml.includes('</h1>') && 
+        (newHtml.includes('</h1><p>') || newHtml.includes('</h1><div>') || newHtml.includes('</h1><br>'));
+      
+      if (hasNewLineAfterHeading) {
+        console.log('📝 Auto-disabling heading format after new line');
+        setManualFormatState(prev => ({
+          ...prev,
+          heading1: false
+        }));
+      }
+    }
+  }, [onUpdate, manualFormatState]);
 
   // Move cursor to end of content
   const moveCursorToEnd = useCallback(() => {
@@ -170,8 +185,13 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
       `;
       
       // Execute cursor positioning script
-      if (richTextRef.current.injectJavaScript) {
-        richTextRef.current.injectJavaScript(cursorScript);
+      {
+        const anyRef: any = richTextRef.current as any;
+        if (anyRef?.injectJavaScript) {
+          anyRef.injectJavaScript(cursorScript);
+        } else if (anyRef?.injectJavascript) {
+          anyRef.injectJavascript(cursorScript);
+        }
       }
     } catch (error) {
       console.log('⚠️ Move cursor error (non-critical):', error);
@@ -254,6 +274,17 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
       return;
     }
     
+    // Ensure editor has focus before applying formatting
+    try {
+      // Try common focus methods exposed by RichEditor
+      richTextRef.current.focusContentEditor?.();
+      // Some versions expose focusEditor
+      // @ts-ignore
+      richTextRef.current.focusEditor?.();
+    } catch (e) {
+      // Non-critical
+    }
+
     // Set processing flag
     isProcessingFormat.current[formatType] = true;
 
@@ -265,11 +296,8 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
     // Handle clear formatting specially
     if (formatType === 'clear') {
       try {
-        if (richTextRef.current.removeFormat) {
-          richTextRef.current.removeFormat();
-        } else if (richTextRef.current.sendAction) {
-          richTextRef.current.sendAction(actions.removeFormat, 'result');
-        }
+        const editorAny: any = richTextRef.current as any;
+        editorAny?.sendAction?.(actions.removeFormat, 'result');
         // Clear all manual states
         setManualFormatState({
           bold: false,
@@ -304,55 +332,28 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
     
     // Execute the formatting command
     try {
+      const editorAny: any = richTextRef.current as any;
       switch (formatType) {
         case 'bold':
-          if (richTextRef.current.setBold) {
-            richTextRef.current.setBold();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.setBold, 'result');
-          }
+          editorAny?.sendAction?.(actions.setBold, 'result');
           break;
         case 'italic':
-          if (richTextRef.current.setItalic) {
-            richTextRef.current.setItalic();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.setItalic, 'result');
-          }
+          editorAny?.sendAction?.(actions.setItalic, 'result');
           break;
         case 'strike':
-          if (richTextRef.current.setStrikethrough) {
-            richTextRef.current.setStrikethrough();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.setStrikethrough, 'result');
-          }
+          editorAny?.sendAction?.(actions.setStrikethrough, 'result');
           break;
         case 'heading1':
-          if (richTextRef.current.setHeading) {
-            richTextRef.current.setHeading('h1');
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.heading1, 'result');
-          }
+          editorAny?.sendAction?.(actions.heading1, 'result');
           break;
         case 'bullet':
-          if (richTextRef.current.setBullets) {
-            richTextRef.current.setBullets();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.insertBulletsList, 'result');
-          }
+          editorAny?.sendAction?.(actions.insertBulletsList, 'result');
           break;
         case 'number':
-          if (richTextRef.current.setOrderedList) {
-            richTextRef.current.setOrderedList();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.insertOrderedList, 'result');
-          }
+          editorAny?.sendAction?.(actions.insertOrderedList, 'result');
           break;
         case 'quote':
-          if (richTextRef.current.setBlockquote) {
-            richTextRef.current.setBlockquote();
-          } else if (richTextRef.current.sendAction) {
-            richTextRef.current.sendAction(actions.blockquote, 'result');
-          }
+          editorAny?.sendAction?.(actions.blockquote, 'result');
           break;
       }
     } catch (error) {
@@ -389,11 +390,12 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
   const generateCoachingBlock = useCallback(async () => {
     if (isGeneratingCoaching || !getAuthToken || !apiBaseUrl) return;
     
+    let loadingBlock: CoachingBlock | null = null;
     try {
       setIsGeneratingCoaching(true);
       
       // Add loading block
-      const loadingBlock: CoachingBlock = {
+      loadingBlock = {
         id: Crypto.randomUUID(),
         content: "Thinking...",
         thinking: "Generating coaching prompt",
@@ -401,7 +403,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
         timestamp: Date.now(),
       };
       
-      setCoachingBlocks(prev => [...prev, loadingBlock]);
+      setCoachingBlocks(prev => [...prev, loadingBlock!]);
 
       const token = await getAuthToken();
       if (!token) throw new Error('No auth token');
@@ -440,13 +442,15 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               } else if (data.type === 'done') {
                 const coachingData = parseCoachingResponse(streamedContent);
                 
-                setCoachingBlocks(prev => 
-                  prev.map(block => 
-                    block.id === loadingBlock.id 
-                      ? { ...block, ...coachingData }
-                      : block
-                  )
-                );
+                if (loadingBlock) {
+                  setCoachingBlocks(prev => 
+                    prev.map(block => 
+                      block.id === loadingBlock!.id 
+                        ? { ...block, ...coachingData }
+                        : block
+                    )
+                  );
+                }
                 return;
               }
             } catch (parseError) {
@@ -458,18 +462,20 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
     } catch (error) {
       console.error('Error generating coaching block:', error);
       
-      setCoachingBlocks(prev => 
-        prev.map(block => 
-          block.id === loadingBlock.id 
-            ? {
-                ...block,
-                content: "I'm having trouble generating a coaching prompt right now. Please try again.",
-                thinking: "There was an error connecting to the AI service.",
-                variant: 'text' as const
-              }
-            : block
-        )
-      );
+      if (loadingBlock) {
+        setCoachingBlocks(prev => 
+          prev.map(block => 
+            block.id === loadingBlock!.id 
+              ? {
+                  ...block,
+                  content: "I'm having trouble generating a coaching prompt right now. Please try again.",
+                  thinking: "There was an error connecting to the AI service.",
+                  variant: 'text' as const
+                }
+              : block
+          )
+        );
+      }
 
       Alert.alert(
         'AI Coaching Error',
@@ -541,14 +547,10 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
             initialContentHTML={htmlContent}
             onChange={handleRichTextChange}
             placeholder={placeholderText}
-            // Enable autocorrect and spell checking
+            // Enable autocorrect
             autoCorrect={true}
-            spellCheck={true}
             autoCapitalize="sentences"
-            // Improve text input behavior
-            keyboardType="default"
-            returnKeyType="default"
-            textContentType="none"
+            // Improve text input behavior (unsupported props removed)
             editorStyle={{
               backgroundColor: colors.background,
               color: colors.text,
@@ -562,6 +564,11 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               paddingBottom: '20px',
               // Constrain the editor content and enable text input features
               cssText: `
+                /* Ensure formatting is visually distinct */
+                b, strong { font-weight: 700; }
+                i, em { font-style: italic; }
+                s, strike, del { text-decoration: line-through; }
+                h1 { font-size: 24px; line-height: 30px; font-weight: 700; }
                 body { 
                   margin: 0; 
                   padding: 0; 
@@ -598,7 +605,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
                   overflow-x: hidden !important;
                 }
                 [contenteditable="true"] {
-                  -webkit-user-modify: read-write-plaintext-only !important;
+                  /* Allow rich text editing (was forcing plaintext-only) */
                   -webkit-line-break: after-white-space !important;
                   word-break: break-word !important;
                   overflow-wrap: break-word !important;
@@ -620,6 +627,11 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
                 -webkit-text-size-adjust: 100%;
                 -webkit-user-select: text;
                 -webkit-touch-callout: default;
+                /* Ensure formatting is visually distinct */
+                b, strong { font-weight: 700; }
+                i, em { font-style: italic; }
+                s, strike, del { text-decoration: line-through; }
+                h1 { font-size: 24px; line-height: 30px; font-weight: 700; }
                 p { 
                   margin: 0; 
                   padding: 0; 
@@ -647,7 +659,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
                   overflow-wrap: break-word !important;
                 }
                 [contenteditable] {
-                  -webkit-user-modify: read-write-plaintext-only;
+                  /* Allow rich text editing (remove plaintext-only restriction) */
                   -webkit-line-break: after-white-space;
                   word-break: break-word !important;
                   overflow-wrap: break-word !important;
@@ -663,9 +675,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
             }}
             useContainer={true}
             initialHeight={500}
-            // Additional props for better text input
-            androidHardwareAccelerationDisabled={false}
-            androidLayerType="hardware"
+            // Additional props for better text input (remove unsupported)
             // Event handlers for better text input behavior
             onFocus={handleEditorFocus}
             onLoad={handleEditorInitialized}
@@ -675,9 +685,9 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
               return true;
             }}
             // Also handle when editor becomes active
-            onMessage={(event) => {
+            onMessage={(_event) => {
               // Handle any messages from the WebView if needed
-              console.log('📨 WebView message:', event.nativeEvent.data);
+              // Some RN types don't expose nativeEvent here in this wrapper
             }}
             // Enable better text selection and input
             disabled={false}
@@ -722,11 +732,11 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
         onRequestClose={() => setShowAIChat(false)}
       >
         <AIChatInterface
+          isVisible={showAIChat}
           onClose={() => setShowAIChat(false)}
-          initialContext={htmlContent}
+          context={htmlContent}
           mode={aiMode}
-          getAuthToken={getAuthToken}
-          apiBaseUrl={apiBaseUrl}
+          entryId={"temp-entry"}
         />
       </Modal>
     </View>

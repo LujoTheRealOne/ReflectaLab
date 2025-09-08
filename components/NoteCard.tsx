@@ -1,27 +1,32 @@
 import React from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, useColorScheme, TouchableOpacity } from 'react-native';
 
 interface NoteCardProps {
   title: string;
   subtitle: string;
   preview: string;
   date?: string;
+  onPress?: () => void;
 }
 
-export default function NoteCard({ title, subtitle, preview, date }: NoteCardProps) {
+export default function NoteCard({ title, subtitle, preview, date, onPress }: NoteCardProps) {
   const colorScheme = useColorScheme();
   const isDark = (colorScheme === 'dark');
 
   return (
-    <View style={[
-      styles.cardContainer,
-      { 
-        backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
-        borderColor: isDark ? '#374151' : '#D9D9D9',
-        shadowColor: isDark ? '#000' : '#000',
-        shadowOpacity: isDark ? 0.25 : 0.15,
-      }
-    ]}>
+    <TouchableOpacity 
+      style={[
+        styles.cardContainer,
+        { 
+          backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
+          borderColor: isDark ? '#374151' : '#D9D9D9',
+          shadowColor: isDark ? '#000' : '#000',
+          shadowOpacity: isDark ? 0.25 : 0.15,
+        }
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       <View style={[styles.cardHeaderRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}> 
         <Text style={{ 
           fontSize: 12,
@@ -55,7 +60,7 @@ export default function NoteCard({ title, subtitle, preview, date }: NoteCardPro
           {preview}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

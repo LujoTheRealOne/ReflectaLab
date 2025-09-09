@@ -645,7 +645,7 @@ export default function HomeContent() {
                    }}
                    style={styles.backButton}
                  >
-                   <ChevronLeft size={24} color={colors.text} style={{ opacity: 0.5 }} />
+                   <ChevronLeft size={24} color={colors.text} />
                  </TouchableOpacity>
                  
                  <View style={styles.headerCenter}>
@@ -766,9 +766,10 @@ const styles = StyleSheet.create({
   },
   backButton: {
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-start', // Align to left side
     gap: 2,
     width: 44, // Fixed width for consistent spacing
+    paddingLeft: 0, // Remove any left padding
   },
   headerCenter: {
     flex: 1,
@@ -782,8 +783,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 20,
+    fontWeight: '600',
     lineHeight: 24,
     color: 'rgba(0, 0, 0, 0.60)',
   },

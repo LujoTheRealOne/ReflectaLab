@@ -16,7 +16,10 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "We use the camera to capture images for your journal entries and reflections.",
+        "NSMicrophoneUsageDescription": "We use the microphone for real-time voice coaching.",
+        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to access your Face ID biometric data."
       },
       "appleTeamId": "H396GGF5D9"
     },

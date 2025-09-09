@@ -701,6 +701,9 @@ export default function SettingsScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.commitmentsScrollContent}
                 style={styles.commitmentsScrollView}
+                snapToInterval={292} // Card width (280) + margin (12)
+                snapToAlignment="center"
+                decelerationRate="fast"
               >
                 {commitments.map((commitment, index) => (
                   <View 
@@ -713,7 +716,7 @@ export default function SettingsScreen() {
                     {/* Header with title and stats */}
                     <View style={styles.commitmentHeader}>
                       <View style={styles.commitmentTitleContainer}>
-                        <Text style={[styles.commitmentTitle, { color: '#262626' }]} numberOfLines={1}>
+                        <Text style={[styles.commitmentTitle, { color: colors.text }]} numberOfLines={1}>
                           {commitment.title}
                         </Text>
                         <Text style={[styles.commitmentDescription, { color: colors.text, opacity: .5 }]} numberOfLines={2}>
@@ -733,7 +736,9 @@ export default function SettingsScreen() {
                     {/* Action buttons */}
                     <View style={styles.commitmentActions}>
                       <TouchableOpacity 
-                        style={[styles.actionButton, styles.notDoneButton, { backgroundColor: '#F2F2F2' }]}
+                        style={[styles.actionButton, styles.notDoneButton, { 
+                          backgroundColor: colorScheme === 'dark' ? '#333333' : '#F2F2F2' 
+                        }]}
                         onPress={() => handleCommitmentCheckIn(commitment.id, false)}
                         disabled={isLoading}
                       >
@@ -742,11 +747,16 @@ export default function SettingsScreen() {
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity 
-                        style={[styles.actionButton, styles.doneButton, { backgroundColor: '#000000' }]}
+                        style={[styles.actionButton, styles.doneButton, { 
+                          backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' 
+                        }]}
                         onPress={() => handleCommitmentCheckIn(commitment.id, true)}
                         disabled={isLoading}
                       >
-                        <Text style={[styles.actionButtonText, { color: colors.background, opacity: .91 }]} numberOfLines={1}>
+                        <Text style={[styles.actionButtonText, { 
+                          color: colorScheme === 'dark' ? '#000000' : '#FFFFFF', 
+                          opacity: .91 
+                        }]} numberOfLines={1}>
                           {isLoading ? 'Processing...' : 'Done'}
                         </Text>
                       </TouchableOpacity>
@@ -1513,8 +1523,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   commitmentsScrollContent: {
-    paddingLeft: 20,
-    paddingRight: 8,
+    paddingHorizontal: 20,
+    alignItems: 'center',
   },
   commitmentCard: {
     width: 280,

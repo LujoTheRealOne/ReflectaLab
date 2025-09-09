@@ -98,9 +98,9 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
     setHtmlContent(newHtml);
     onUpdate(newHtml);
     
-    // Auto-disable heading format when user creates new line after heading
+    // Enhanced format state management for different scenarios
     if (manualFormatState?.heading1) {
-      // Check if the content ends with a new paragraph or line break after heading
+      // Auto-disable heading format when user creates new line after heading
       const hasNewLineAfterHeading = newHtml.includes('</h1>') && 
         (newHtml.includes('</h1><p>') || newHtml.includes('</h1><div>') || newHtml.includes('</h1><br>'));
       
@@ -111,6 +111,35 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
           heading1: false
         }));
       }
+    }
+
+    // Auto-disable list formats when cursor moves outside list context
+    if (manualFormatState?.bullet || manualFormatState?.number) {
+      const hasActiveList = newHtml.includes('<ul>') || newHtml.includes('<ol>');
+      const lastElementIsNotList = !newHtml.match(/<\/(ul|ol)>\s*$/);
+      
+      if (!hasActiveList || (lastElementIsNotList && newHtml.includes('<p>'))) {
+        console.log('📝 Auto-disabling list formats outside list context');
+        setManualFormatState(prev => ({
+          ...prev,
+          bullet: false,
+          number: false
+        }));
+      }
+    }
+
+    // Clear all format states when content is completely empty
+    if (!newHtml || newHtml === '<p></p>' || newHtml === '<p><br></p>' || newHtml.trim() === '') {
+      console.log('📝 Clearing all formats - empty content');
+      setManualFormatState({
+        bold: false,
+        italic: false,
+        strike: false,
+        heading1: false,
+        bullet: false,
+        number: false,
+        quote: false,
+      });
     }
   }, [onUpdate, manualFormatState]);
 
@@ -269,8 +298,19 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
       return;
     }
 
-    // Prevent multiple rapid clicks on the same format
+    // Prevent multiple rapid clicks on the same format (enhanced protection)
     if (isProcessingFormat.current[formatType]) {
+      console.log(`🚫 Blocked rapid click on ${formatType}`);
+      return;
+    }
+
+    // Additional debouncing - prevent any formatting within 150ms of last action
+    const now = Date.now();
+    const lastFormatTime = Object.values(isProcessingFormat.current).reduce((latest, time) => 
+      typeof time === 'number' ? Math.max(latest, time) : latest, 0);
+    
+    if (now - lastFormatTime < 150) {
+      console.log(`🚫 Blocked formatting - too soon after last action (${now - lastFormatTime}ms)`);
       return;
     }
     
@@ -285,8 +325,8 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
       // Non-critical
     }
 
-    // Set processing flag
-    isProcessingFormat.current[formatType] = true;
+    // Set processing flag with timestamp for better tracking
+    isProcessingFormat.current[formatType] = now;
 
     // Clear any existing timeout for this format
     if (formatTimeoutRef.current[formatType]) {
@@ -367,7 +407,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({
 
     // Reset processing flag after a short delay
     formatTimeoutRef.current[formatType] = setTimeout(() => {
-      isProcessingFormat.current[formatType] = false;
+      delete isProcessingFormat.current[formatType];
     }, 300);
   }, [manualFormatState]);
 

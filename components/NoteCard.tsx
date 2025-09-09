@@ -47,7 +47,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress }: No
         styles.cardBody, 
         { 
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
-          borderColor: isDark ? 'rgba(107, 114, 128, 0.5)' : 'rgba(168, 162, 158, 0.5)',
+          borderColor: isDark ? 'rgba(128, 128, 128, 0.2)' : 'rgba(196, 196, 196, 0.2)',
           overflow: 'hidden',
           shadowColor: isDark ? '#000' : '#000',
           shadowOpacity: isDark ? 0.3 : 0.18,
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
     gap: 2,
-    zIndex: 10,
+    zIndex: 5,
     position: 'relative',
   },
   cardHeaderContent: {
@@ -119,15 +119,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
     gap: 4,
-    zIndex: 1,
-    // Enhanced shadow for content area
+    zIndex: 10,
+    // Floating shadow effect
     shadowOffset: {
-      width: 6,
-      height: 3,
+      width: -13,
+      height: -6,
     },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOpacity: 0.08,
+    shadowRadius: 19,
+    elevation: 12,
     borderWidth: 1,
   },
   cardPreview: {

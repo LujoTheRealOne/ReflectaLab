@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity, RefreshControl } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
@@ -7,6 +8,7 @@ import NoteCard from '@/components/NoteCard';
 import Skeleton from '@/components/skeleton/Skeleton';
 import NoteCardSkeleton from '@/components/skeleton/NoteCardSkeleton';
 import { useSyncSingleton } from '@/hooks/useSyncSingleton';
+import { Plus } from 'lucide-react-native';
 
 type JournalEntry = {
   id: string;
@@ -120,25 +122,6 @@ export default function NotesScreen() {
       <View style={[styles.topSpacer, { height: insets.top + 12 }]} />
       <View style={styles.headerArea}>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Notes</Text>
-        <TouchableOpacity 
-          style={[
-            styles.plusButton,
-            { 
-              borderColor: colorScheme === 'dark' ? '#374151' : '#000',
-              backgroundColor: colorScheme === 'dark' ? '#374151' : '#000',
-            }
-          ]}
-          onPress={() => {
-            (navigation as any).navigate('NewNote', { createNew: true });
-          }}
-        >
-          <Text style={[
-            styles.plusIcon, 
-            { color: '#FFFFFF' }
-          ]}>
-            +
-          </Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -179,7 +162,7 @@ export default function NotesScreen() {
         {!shouldShowSkeleton && groupedEntries.thisWeek.length > 0 && (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionHeaderText, { color: 'rgba(0,0,0,0.4)' }]}>
+              <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
                 This week
               </Text>
             </View>
@@ -203,7 +186,7 @@ export default function NotesScreen() {
         {!shouldShowSkeleton && groupedEntries.last7Days.length > 0 && (
           <>
             <View style={[styles.sectionHeader, { marginTop: groupedEntries.thisWeek.length > 0 ? 20 : 0 }]}>
-              <Text style={[styles.sectionHeaderText, { color: 'rgba(0,0,0,0.4)' }]}>
+              <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
                 Last 7 days
               </Text>
             </View>
@@ -223,8 +206,34 @@ export default function NotesScreen() {
           </>
         )}
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 140 }} />
       </ScrollView>
+
+      {/* Floating Create Button with Gradient Background */}
+      <View style={[styles.floatingButtonContainer, { bottom: insets.bottom + 10 }]}>
+        <LinearGradient
+          colors={[
+            colorScheme === 'dark' ? 'rgba(17, 17, 17, 0)' : 'rgba(255, 255, 255, 0)',
+            colorScheme === 'dark' ? 'rgba(17, 17, 17, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+            colorScheme === 'dark' ? 'rgba(17, 17, 17, 1)' : 'rgba(255, 255, 255, 1)'
+          ]}
+          style={styles.gradientBackground}
+          locations={[0, 0.3, 1]}
+        />
+        <TouchableOpacity
+          style={[
+            styles.floatingCreateButton,
+            {
+              backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+            }
+          ]}
+          onPress={() => {
+            (navigation as any).navigate('NewNote', { createNew: true });
+          }}
+        >
+          <Plus size={32} color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'} strokeWidth={2}/>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -261,26 +270,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(0,0,0,0.4)', // text-Color-Text-Subtlest/40 equivalent
   },
-  plusButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
+  floatingButtonContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: 120,
+    pointerEvents: 'box-none',
+  },
+  gradientBackground: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    height: 120,
+  },
+  floatingCreateButton: {
+    width: 66,
+    height: 56,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    marginBottom: 64,
   },
-  plusIcon: {
-    fontSize: 18,
+  floatingCreateIcon: {
+    fontSize: 24,
     fontWeight: '300',
-    lineHeight: 18,
+    lineHeight: 24,
   },
 });
 

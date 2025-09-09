@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, useColorScheme, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, useColorScheme, TouchableOpacity, ActionSheetIOS, Platform } from 'react-native';
 
 interface NoteCardProps {
   title: string;
@@ -7,11 +7,30 @@ interface NoteCardProps {
   preview: string;
   date?: string;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
-export default function NoteCard({ title, subtitle, preview, date, onPress }: NoteCardProps) {
+export default function NoteCard({ title, subtitle, preview, date, onPress, onLongPress }: NoteCardProps) {
   const colorScheme = useColorScheme();
   const isDark = (colorScheme === 'dark');
+
+  const handleLongPress = () => {
+    if (!onLongPress) return;
+    
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ['Cancel', 'Delete Note'],
+        destructiveButtonIndex: 1,
+        cancelButtonIndex: 0,
+        title: 'Are you sure you want to delete this note? This action cannot be undone.',
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 1) {
+          onLongPress();
+        }
+      }
+    );
+  };
 
   return (
     <TouchableOpacity 
@@ -25,6 +44,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress }: No
         }
       ]}
       onPress={onPress}
+      onLongPress={handleLongPress}
       activeOpacity={0.7}
     >
       <View style={[styles.cardHeaderRow, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}> 

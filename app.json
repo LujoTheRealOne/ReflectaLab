@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.10.9",
+    "version": "0.10.10",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -57,7 +57,13 @@
         }
       ],
       "expo-audio",
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-local-authentication",
+        {
+          "fallbackLabel": "Use Passcode"
+        }
+      ]
     ],
     "owner": "acta",
     "extra": {

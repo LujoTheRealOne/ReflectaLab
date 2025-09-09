@@ -652,13 +652,13 @@ export default function SettingsScreen() {
         {shouldShowSkeleton ? (
           <View style={{ width: 120, height: 24, backgroundColor: '#E5E5E7', borderRadius: 6 }} />
         ) : (
-          <Text style={[styles.userName, { color: 'black' }]}>
+          <Text style={[styles.userName, { color: colors.text }]}>
             {userInfo.name}
           </Text>
         )}
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
         {/** Skeleton header when loading fresh */}
         {shouldShowSkeleton && (
           <View style={{ paddingHorizontal: 10, marginTop: 10 }}>
@@ -685,7 +685,7 @@ export default function SettingsScreen() {
                 style={styles.commitmentsScrollView}
               >
                 {[1, 2].map((_, index) => (
-                  <View key={index} style={[styles.commitmentCard, { backgroundColor: '#FFFFFF' }]}>
+                  <View key={index} style={[styles.commitmentCard, { backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222' }]}>
                     <Skeleton style={{ width: '60%', height: 16, borderRadius: 4, marginBottom: 8 }} />
                     <Skeleton style={{ width: '80%', height: 14, borderRadius: 4, marginBottom: 20 }} />
                     <View style={styles.commitmentActions}>
@@ -706,7 +706,7 @@ export default function SettingsScreen() {
                   <View 
                     key={commitment.id}
                     style={[styles.commitmentCard, { 
-                      backgroundColor: '#FFFFFF',
+                      backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
                       marginRight: index === commitments.length - 1 ? 20 : 12
                     }]}
                   >
@@ -716,15 +716,15 @@ export default function SettingsScreen() {
                         <Text style={[styles.commitmentTitle, { color: '#262626' }]} numberOfLines={1}>
                           {commitment.title}
                         </Text>
-                        <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.40)' }]} numberOfLines={2}>
+                        <Text style={[styles.commitmentDescription, { color: colors.text, opacity: .5 }]} numberOfLines={2}>
                           {commitment.description}
                         </Text>
                       </View>
                       <View style={styles.commitmentStats}>
-                        <Text style={[styles.commitmentStatsText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+                        <Text style={[styles.commitmentStatsText, { color: colors.text, opacity: .6 }]}>
                           {commitment.currentStreakCount} day streak
                         </Text>
-                        <Text style={[styles.commitmentTypeText, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                        <Text style={[styles.commitmentTypeText, { color: colors.text, opacity: .5 }]}>
                           {commitment.type === 'one-time' ? 'One-time' : 'Recurring'}
                         </Text>
                       </View>
@@ -737,7 +737,7 @@ export default function SettingsScreen() {
                         onPress={() => handleCommitmentCheckIn(commitment.id, false)}
                         disabled={isLoading}
                       >
-                        <Text style={[styles.actionButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={1}>
+                        <Text style={[styles.actionButtonText, { color: colors.text, opacity: .6 }]} numberOfLines={1}>
                           {isLoading ? 'Processing...' : 'Not done'}
                         </Text>
                       </TouchableOpacity>
@@ -746,7 +746,7 @@ export default function SettingsScreen() {
                         onPress={() => handleCommitmentCheckIn(commitment.id, true)}
                         disabled={isLoading}
                       >
-                        <Text style={[styles.actionButtonText, { color: 'rgba(255, 255, 255, 0.91)' }]} numberOfLines={1}>
+                        <Text style={[styles.actionButtonText, { color: colors.background, opacity: .91 }]} numberOfLines={1}>
                           {isLoading ? 'Processing...' : 'Done'}
                         </Text>
                       </TouchableOpacity>
@@ -757,13 +757,13 @@ export default function SettingsScreen() {
             ) : (
               <View 
                 style={[styles.emptyCommitmentsCard, { 
-                  backgroundColor: '#FFFFFF'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
                 }]}
               >
-                <Text style={[styles.commitmentTitle, { color: 'rgba(0, 0, 0, 0.40)', textAlign: 'center' }]}>
+                <Text style={[styles.commitmentTitle, { color: colors.text, opacity: .5, textAlign: 'center' }]}>
                   No Active Commitments
                 </Text>
-                <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.30)', textAlign: 'center', marginTop: 4 }]}>
+                <Text style={[styles.commitmentDescription, { color: colors.text, opacity: .3, textAlign: 'center', marginTop: 4 }]}>
                   Create commitments through coaching sessions
                 </Text>
               </View>
@@ -774,19 +774,19 @@ export default function SettingsScreen() {
               {/* Main Focus Card */}
               <TouchableOpacity 
                 style={[styles.compassCard, { 
-                  backgroundColor: '#FFFFFF'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
                 }]}
                 onPress={handleViewInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
                     <Text style={[styles.compassCardTitle, { color: '#2563EB' }]}>Main Focus</Text>
-                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    <Text style={[styles.compassCardTime, { color: colors.text, opacity: .5 }]}>
                       {formatLastUpdated(insights?.mainFocus?.updatedAt)}
                     </Text>
                   </View>
                 </View>
-                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                <Text style={[styles.compassCardContent, { color: colors.text, opacity: .9 }]} numberOfLines={2}>
                   {insights?.mainFocus?.headline || 'Generate insights by journaling and coaching'}
                 </Text>
               </TouchableOpacity>
@@ -794,19 +794,19 @@ export default function SettingsScreen() {
               {/* Key Blockers Card */}
               <TouchableOpacity 
                 style={[styles.compassCard, { 
-                  backgroundColor: '#FFFFFF'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
                 }]}
                 onPress={handleViewInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
                     <Text style={[styles.compassCardTitle, { color: '#EA580C' }]}>Key Blockers</Text>
-                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    <Text style={[styles.compassCardTime, { color: colors.text, opacity: .5 }]}>
                       {formatLastUpdated(insights?.keyBlockers?.updatedAt)}
                     </Text>
                   </View>
                 </View>
-                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                <Text style={[styles.compassCardContent, { color: colors.text, opacity: .9 }]} numberOfLines={2}>
                   {insights?.keyBlockers?.headline || 'Generate insights by journaling and coaching'}
                 </Text>
               </TouchableOpacity>
@@ -814,19 +814,19 @@ export default function SettingsScreen() {
               {/* Your Plan Card */}
               <TouchableOpacity 
                 style={[styles.compassCard, { 
-                  backgroundColor: '#FFFFFF'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
                 }]}
                 onPress={handleViewInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
                     <Text style={[styles.compassCardTitle, { color: '#16A34A' }]}>Your Plan</Text>
-                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    <Text style={[styles.compassCardTime, { color: colors.text, opacity: .5 }]}>
                       {formatLastUpdated(insights?.plan?.updatedAt)}
                     </Text>
                   </View>
                 </View>
-                <Text style={[styles.compassCardContent, { color: 'rgba(0, 0, 0, 0.90)' }]} numberOfLines={2}>
+                <Text style={[styles.compassCardContent, { color: colors.text, opacity: .9 }]} numberOfLines={2}>
                   {insights?.plan?.headline || 'Generate insights by journaling and coaching'}
                 </Text>
               </TouchableOpacity>
@@ -834,22 +834,22 @@ export default function SettingsScreen() {
               {/* Your Stats Card */}
               <TouchableOpacity 
                 style={[styles.compassCard, styles.compassCardViewAll, { 
-                  backgroundColor: '#FFFFFF'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
                 }]}
                 onPress={handleViewInsights}
               >
                 <View style={styles.compassCardHeader}>
                   <View style={styles.compassCardTitleContainer}>
-                    <Text style={[styles.compassCardTitle, { color: '#262626' }]}>Your stats</Text>
-                    <Text style={[styles.compassCardTime, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    <Text style={[styles.compassCardTitle, { color: colors.text, opacity: .8 }]}>Your stats</Text>
+                    <Text style={[styles.compassCardTime, { color: colors.text, opacity: .5 }]}>
                       Today
                     </Text>
                   </View>
                 </View>
                 <View style={styles.statsContent}>
-                  <Text style={[styles.statsText, { color: 'rgba(0, 0, 0, 0.90)' }]}>
+                  <Text style={[styles.statsText, { color: colors.text, opacity: .9 }]}>
                     {todayStats.minutes} minutes{' '}
-                    <Text style={[styles.statsSubtext, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                    <Text style={[styles.statsSubtext, { color: colors.text, opacity: .5 }]}>
                       invested in yourself.
                     </Text>
                   </Text>
@@ -907,12 +907,12 @@ export default function SettingsScreen() {
               </Text>
               {isPro && (
                 <View style={[styles.proBadge, { backgroundColor: colorScheme === 'dark' ? '#FFD700' : '#FFD700' }]}>
-                  <Star size={12} color="#000" fill="#000" />
-                  <Text style={[styles.proBadgeText, { color: '#000' }]}>PRO</Text>
+                  <Star size={12} color={colors.tint} fill={colors.tint} />
+                  <Text style={[styles.proBadgeText, { color: colors.tint }]}>PRO</Text>
                 </View>
               )}
             </View>
-            <Text style={[styles.subscriptionDescription, { color: '#999' }]}>
+            <Text style={[styles.subscriptionDescription, { color: colors.text, opacity: .6 }]}>
               {isPro 
                 ? 'You have access to all premium features including unlimited AI coaching, voice transcription, and advanced insights.'
                 : 'Upgrade to Pro to unlock unlimited AI coaching, voice transcription, advanced insights and more.'
@@ -1228,7 +1228,8 @@ export default function SettingsScreen() {
             >
               App Information
             </Button>
-            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
+          </View>
+          <View style={[styles.settingItem, { gap: 10, backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
             <Button
               variant="ghost"
               iconLeft={<RotateCcw size={20} color={colors.text} />}
@@ -1545,8 +1546,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    marginHorizontal: 20,
+    marginBottom: 12,
   },
   commitmentActions: {
     alignSelf: 'stretch',

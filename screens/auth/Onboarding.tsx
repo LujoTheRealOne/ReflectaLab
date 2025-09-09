@@ -732,7 +732,7 @@ export default function OnboardingScreen() {
       deactivateKeepAwake();
 
       // Play meditation bell sound
-      playMeditationBell();
+      // playMeditationBell();
 
       // Slide continue button back up
       Animated.timing(buttonSlideAnim, {

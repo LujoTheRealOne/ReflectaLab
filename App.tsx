@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 import { PostHogProvider } from 'posthog-react-native'
 
 import { NetworkStatusModal } from './components/NetworkStatusModal';
+import { BiometricProtectionOverlay } from './components/BiometricProtectionOverlay';
 import { useNetworkConnectivity } from './hooks/useNetworkConnectivity';
 import { useAnalytics } from './hooks/useAnalytics';
 import Navigation from './navigation';
@@ -83,6 +84,7 @@ function AppContent() {
       <NetworkStatusModal
         visible={isOffline}
       />
+      <BiometricProtectionOverlay />
     </>
   );
 }

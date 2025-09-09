@@ -1831,6 +1831,7 @@ export default function CoachingScreen() {
   };
 
   // 8. Set flag correctly in handleSendMessage:
+  
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
@@ -2026,6 +2027,11 @@ export default function CoachingScreen() {
     } else {
       setShowScrollToBottom(false);
     }
+  };
+
+  const handleConversationStarterPress = (starter: string) => {
+    setChatInput(starter);
+    textInputRef.current?.focus();
   };
 
   const handleCompletionAction = async () => {
@@ -2967,5 +2973,21 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     zIndex: 10,
+  },
+  conversationStartersContainer: {
+    paddingBottom: 12,
+    width: '100%',
+  },
+  startersScrollView: {
+    maxHeight: 50,
+  },
+  startersScrollContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  starterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
   },
 }); 

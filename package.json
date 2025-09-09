@@ -51,6 +51,7 @@
     "expo-haptics": "~14.1.4",
     "expo-image": "~2.4.0",
     "expo-keep-awake": "~14.1.4",
+    "expo-local-authentication": "^16.0.5",
     "expo-localization": "~16.1.6",
     "expo-notifications": "~0.31.4",
     "expo-router": "~5.1.5",

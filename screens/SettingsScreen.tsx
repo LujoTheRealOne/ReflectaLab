@@ -24,6 +24,7 @@ import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useSettingsCache } from '@/hooks/useSettingsCache';
 import { useActiveCommitments } from '@/hooks/useActiveCommitments';
+import { useBiometricAuth } from '@/hooks/useBiometricAuth';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
@@ -50,6 +51,7 @@ export default function SettingsScreen() {
     permissionStatus,
     checkPermissions
   } = useNotificationPermissions();
+  
   const { 
     initialized: rcInitializedLive, 
     isPro: isProLive, 
@@ -64,6 +66,15 @@ export default function SettingsScreen() {
 
   // Active commitments hook
   const { commitments, loading: commitmentsLoading, checkInCommitment } = useActiveCommitments();
+  
+  const {
+    isSupported: biometricSupported,
+    isEnrolled: biometricEnrolled,
+    isEnabled: biometricEnabled,
+    isLoading: biometricLoading,
+    setBiometricEnabled,
+    getAuthTypeLabel,
+  } = useBiometricAuth();
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -371,6 +382,51 @@ export default function SettingsScreen() {
     }
   }, [isLoading, checkInCommitment]);
 
+  // Handle biometric authentication toggle
+  const handleBiometricToggle = useCallback(async (newValue: boolean) => {
+    if (biometricLoading || isLoading) return;
+
+    setIsLoading(true);
+
+    try {
+      const success = await setBiometricEnabled(newValue);
+      
+      if (!success && newValue) {
+        Alert.alert(
+          'Authentication Failed',
+          'Face ID authentication was cancelled or failed. Please try again.',
+          [{ text: 'OK', style: 'default' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling biometric authentication:', error);
+      
+      let errorMessage = 'Failed to update Face ID settings. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('not supported')) {
+          errorMessage = 'Face ID is not supported on this device.';
+        } else if (error.message.includes('not enrolled')) {
+          errorMessage = 'Please set up Face ID in your device settings first.';
+        }
+      }
+      
+      Alert.alert(
+        'Error',
+        errorMessage,
+        (error instanceof Error && error.message.includes('not enrolled')) ? [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', style: 'default', onPress: () => Linking.openSettings() }
+        ] : [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [biometricLoading, isLoading, setBiometricEnabled]);
+
+  const handleBack = () => {
+    navigation.goBack();
+  };
 
   const handleManageAccount = () => {
     try {
@@ -946,6 +1002,42 @@ export default function SettingsScreen() {
             </View>
           )}
         </View>}
+
+        {/* Security Section */}
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Security</Text>
+
+        {biometricSupported && (
+          <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
+            <View style={styles.settingHeader}>
+              <Text style={[styles.settingTitle, { color: colors.text }]}>{getAuthTypeLabel()}</Text>
+            </View>
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Enable {getAuthTypeLabel()}</Text>
+                <Text style={[styles.settingDescription, { color: '#999' }]}>
+                  Protect your account with {getAuthTypeLabel()} authentication when opening the app.
+                </Text>
+              </View>
+              <Switch
+                value={biometricEnabled}
+                onValueChange={handleBiometricToggle}
+                trackColor={{ false: '#E5E5E7', true: colors.tint }}
+                thumbColor={colors.background}
+                disabled={biometricLoading || isLoading || !biometricEnrolled}
+              />
+            </View>
+            {biometricSupported && !biometricEnrolled && (
+              <TouchableOpacity
+                style={styles.systemSettingsButton}
+                onPress={() => { Linking.openSettings() }}
+              >
+                <Text style={styles.systemSettingsText}>
+                  Set up {getAuthTypeLabel()} in System Settings to enable this feature
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Notifications Section */}
         {!shouldShowSkeleton && <Text style={[styles.sectionTitle, { color: colors.text }]}>Notifications</Text>}

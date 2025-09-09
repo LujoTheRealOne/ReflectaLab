@@ -188,7 +188,7 @@ export default function BottomNavBar({
       {
         paddingBottom: Math.max(insets.bottom, 18),
         backgroundColor: colors.background,
-        borderTopColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(12, 10, 9, 0.10)',
+        borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(12, 10, 9, 0.10)',
       }
     ]}>
       <View style={styles.tabsContainer}>
@@ -225,6 +225,10 @@ const styles = StyleSheet.create({
     paddingRight: 108,
     overflow: 'hidden',
     borderTopWidth: 0.5,
+    borderLeftWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     flexDirection: 'column',
     justifyContent: 'flex-start',
     alignItems: 'center',

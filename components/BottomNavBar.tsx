@@ -232,10 +232,11 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     alignSelf: 'stretch',
-    justifyContent: 'space-between',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
     flexDirection: 'row',
     paddingHorizontal: 0,
+    gap: 40,
   },
   tabButton: {
     alignItems: 'center',

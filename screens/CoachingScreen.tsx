@@ -2409,31 +2409,31 @@ export default function CoachingScreen() {
               bounces={false}
             >
               <TouchableOpacity 
-                style={styles.suggestionButton}
+                style={[styles.suggestionButton, { backgroundColor: colorScheme === 'dark' ? '#333333' : '#EFEFEF' }]}
                 onPress={() => setChatInput('Start Custom Meditation')}
               >
-                <Text style={styles.suggestionButtonText}>Start Custom{'\n'}Meditation</Text>
+                <Text style={[styles.suggestionButtonText, { color: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }]}>Start Custom{'\n'}Meditation</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.suggestionButton}
+                style={[styles.suggestionButton, { backgroundColor: colorScheme === 'dark' ? '#333333' : '#EFEFEF' }]}
                 onPress={() => setChatInput('Ask me hard questions')}
               >
-                <Text style={styles.suggestionButtonText}>Ask me hard{'\n'}questions</Text>
+                <Text style={[styles.suggestionButtonText, { color: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }]}>Ask me hard{'\n'}questions</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.suggestionButton}
+                style={[styles.suggestionButton, { backgroundColor: colorScheme === 'dark' ? '#333333' : '#EFEFEF' }]}
                 onPress={() => setChatInput('Help me find my goal')}
               >
-                <Text style={styles.suggestionButtonText}>Help me find{'\n'}my goal</Text>
+                <Text style={[styles.suggestionButtonText, { color: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }]}>Help me find{'\n'}my goal</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.suggestionButton}
+                style={[styles.suggestionButton, { backgroundColor: colorScheme === 'dark' ? '#333333' : '#EFEFEF' }]}
                 onPress={() => setChatInput('Work through uncertainty')}
               >
-                <Text style={styles.suggestionButtonText}>Work through{'\n'}uncertainty</Text>
+                <Text style={[styles.suggestionButtonText, { color: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }]}>Work through{'\n'}uncertainty</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -2949,7 +2949,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   suggestionButtonText: {
-    color: 'rgba(0, 0, 0, 0.60)',
+    opacity: 0.6,
     fontSize: 12,
     fontWeight: '500',
     lineHeight: 16,

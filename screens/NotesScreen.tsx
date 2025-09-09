@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, useColorScheme, TouchableOpacity, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import NoteCard from '@/components/NoteCard';
 import Skeleton from '@/components/skeleton/Skeleton';
@@ -127,6 +127,14 @@ export default function NotesScreen() {
       console.error('❌ Failed to delete note:', error);
     }
   }, [deleteEntry]);
+
+  // Auto-refresh when screen is focused (first time or returning from other screens)
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 NotesScreen focused - triggering auto-refresh');
+      refreshEntries();
+    }, [refreshEntries])
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 

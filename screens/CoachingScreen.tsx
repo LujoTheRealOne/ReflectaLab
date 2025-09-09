@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown, Square } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -577,7 +577,8 @@ export default function CoachingScreen() {
   }, [loadExistingSessionFromBackend]);
 
   // Use the AI coaching hook
-  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
+  const coachingHook = useAICoaching();
+  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration } = coachingHook;
   
   // Test function to clear all coaching data
   clearAllCoachingData = useCallback(async () => {
@@ -1304,9 +1305,9 @@ export default function CoachingScreen() {
         ? `${existingText} ${transcription}` 
         : transcription;
       setChatInput(newText);
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 100);
+      // Trigger input field expansion for long transcriptions
+      handleTextChange(newText);
+      // No auto-focus after transcription - let user decide when to open keyboard
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
@@ -1541,11 +1542,23 @@ export default function CoachingScreen() {
         lastMessageRef.measureLayout(
           scrollViewRef.current as any,
           (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-            // Target scroll position = message Y position - target position
-            const targetScrollY = Math.max(0, msgY - targetFromTop);
+            // For long messages, show the end of the message instead of the beginning
+            const isLongMessage = msgHeight > 100; // Messages taller than 100px are considered long
+            
+            let targetScrollY;
+            if (isLongMessage) {
+              // For long messages: position the END of the message at target position
+              // This leaves room for AI response below
+              targetScrollY = Math.max(0, (msgY + msgHeight) - targetFromTop - 60); // 60px buffer for AI response
+            } else {
+              // For short messages: position the START of the message at target position  
+              targetScrollY = Math.max(0, msgY - targetFromTop);
+            }
             
             debugLog('📐 Measurement:', {
               messageY: msgY,
+              messageHeight: msgHeight,
+              isLongMessage,
               targetFromTop,
               targetScrollY
             });
@@ -1576,8 +1589,20 @@ export default function CoachingScreen() {
               estimatedY += msgHeight + 16; // marginBottom
             }
             
-            // Last message Y position
-            const targetScrollY = Math.max(0, estimatedY - targetFromTop);
+            // Estimate last message height
+            const lastMsg = messages[messages.length - 1];
+            const lastMsgLines = Math.max(1, Math.ceil(lastMsg.content.length / 40));
+            const lastMsgHeight = lastMsgLines * 22 + 48;
+            const isLongMessage = lastMsgHeight > 100;
+            
+            let targetScrollY;
+            if (isLongMessage) {
+              // For long messages: position the END of the message
+              targetScrollY = Math.max(0, (estimatedY + lastMsgHeight) - targetFromTop - 60);
+            } else {
+              // For short messages: position the START of the message
+              targetScrollY = Math.max(0, estimatedY - targetFromTop);
+            }
             
             scrollViewRef.current?.scrollTo({
               y: targetScrollY,
@@ -1856,6 +1881,11 @@ export default function CoachingScreen() {
     const messageContent = chatInput.trim();
     setChatInput('');
     
+    // Close keyboard and blur input
+    textInputRef.current?.blur();
+    Keyboard.dismiss();
+    setIsChatInputFocused(false);
+    
     // Reset input height and expand state
     setInputHeight(LINE_HEIGHT);
     setContainerHeight(CONTAINER_BASE_HEIGHT);
@@ -1871,6 +1901,17 @@ export default function CoachingScreen() {
     await sendMessage(messageContent, currentSessionId, {
         sessionType: 'default-session'
     });
+  };
+
+  const handleStopGeneration = () => {
+    console.log('🛑 Stopping AI response generation');
+    if (stopGeneration) {
+      stopGeneration();
+    }
+    // Focus back to input after stopping
+    setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 100);
   };
 
   const handleMicrophonePress = () => {
@@ -2302,17 +2343,37 @@ export default function CoachingScreen() {
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
-                                 <View>
-                   <Text
-                     style={[
-                       styles.messageText,
-                       message.role === 'user'
-                         ? { color: `${colors.text}99` }
-                         : { color: colors.text }
-                     ]}
-                   >
-                     {getDisplayContent(message.content)}
-                   </Text>
+                                  <View style={message.role === 'user' ? [
+                                    styles.userMessageBubble,
+                                    {
+                                      backgroundColor: colorScheme === 'dark' 
+                                        ? 'rgba(255, 255, 255, 0.12)' 
+                                        : 'rgba(0, 0, 0, 0.06)',
+                                      borderWidth: colorScheme === 'dark' ? 0.5 : 0,
+                                      borderColor: colorScheme === 'dark' 
+                                        ? 'rgba(255, 255, 255, 0.15)' 
+                                        : 'transparent'
+                                    }
+                                  ] : undefined}>
+                     <Text
+                       style={[
+                         styles.messageText,
+                         message.role === 'user'
+                           ? [
+                               styles.userMessageText, 
+                               { 
+                                 color: colorScheme === 'dark' 
+                                   ? 'rgba(255, 255, 255, 0.85)' 
+                                   : 'rgba(0, 0, 0, 0.75)' 
+                               }
+                             ]
+                           : { color: colors.text }
+                       ]}
+                       numberOfLines={message.role === 'user' ? undefined : undefined}
+                       ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
+                     >
+                       {getDisplayContent(message.content)}
+                     </Text>
 
                    {/* Render coaching cards for AI messages */}
                    {message.role === 'assistant' && (() => {
@@ -2500,16 +2561,29 @@ export default function CoachingScreen() {
 
                   <TouchableOpacity
                     style={[styles.sendButtonRound, { 
-                      backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                      backgroundColor: isLoading 
+                        ? (colorScheme === 'dark' ? '#404040' : '#E6E6E6') 
+                        : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
                       shadowColor: '#000',
                       shadowOffset: { width: 0, height: 2 },
                       shadowOpacity: 0.2,
                       shadowRadius: 4,
                       elevation: 3,
                     }]}
-                    onPress={chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress}
+                    onPress={
+                      isLoading 
+                        ? handleStopGeneration 
+                        : (chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress)
+                    }
                   >
-                    {chatInput.trim().length > 0 ? (
+                    {isLoading ? (
+                      <Square
+                        size={14}
+                        color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        fill={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        strokeWidth={0}
+                      />
+                    ) : chatInput.trim().length > 0 ? (
                       <ArrowUp
                         size={18}
                         color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
@@ -2580,7 +2654,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   chatHeaderText: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '600',
     textAlign: 'left',
   },
@@ -2609,10 +2683,21 @@ const styles = StyleSheet.create({
   aiMessageContainer: {
     alignItems: 'flex-start',
   },
+  userMessageBubble: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    maxWidth: '85%',
+    alignSelf: 'flex-end',
+  },
   messageText: {
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
+  },
+  userMessageText: {
+    textAlign: 'left',
   },
   typingIndicator: {
     flexDirection: 'row',

@@ -21,6 +21,7 @@ interface UseAICoachingReturn {
   resendMessage: (messageId: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => Promise<void>;
   clearMessages: () => void;
   setMessages: (messages: CoachingMessage[]) => void;
+  stopGeneration: () => void;
 }
 
 export function useAICoaching(): UseAICoachingReturn {
@@ -324,6 +325,15 @@ export function useAICoaching(): UseAICoachingReturn {
     setMessages(newMessages);
   }, []);
 
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      console.log('🛑 Stopping AI generation...');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     messages,
     isLoading,
@@ -332,6 +342,7 @@ export function useAICoaching(): UseAICoachingReturn {
     sendMessage,
     resendMessage,
     clearMessages,
-    setMessages
+    setMessages: setMessagesCallback,
+    stopGeneration
   };
 } 

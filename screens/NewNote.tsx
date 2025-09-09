@@ -10,7 +10,6 @@ import { db } from '@/lib/firebase';
 import { syncService } from '@/services/syncService';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useCurrentEntry } from '@/components/CurrentEntryContext';
-import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import {
   addDoc,
@@ -25,7 +24,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { ChevronLeft, ArrowDown, Check, Mic, Square, Plus, Loader2, FileText } from 'lucide-react-native';
+import { ChevronLeft, Mic, Square } from 'lucide-react-native';
 import { useAudioTranscriptionAv } from '@/hooks/useAudioTranscriptionAv';
 import { Button } from '@/components/ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -40,16 +39,10 @@ import {
   Keyboard,
   TouchableOpacity
 } from 'react-native';
-import { PanGestureHandler, State, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  useAnimatedGestureHandler,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
-  runOnJS,
   withTiming,
-  interpolate,
-  withRepeat,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -82,6 +75,8 @@ export default function HomeContent() {
 
 
   const [entry, setEntry] = useState('');
+  const [editorLoaded, setEditorLoaded] = useState(false);
+  const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
   
   // Debug entry state changes
   useEffect(() => {
@@ -91,9 +86,6 @@ export default function HomeContent() {
       latestEntryId: latestEntry?.id || 'none'
     });
   }, [entry, latestEntry]);
-  const [editorLoaded, setEditorLoaded] = useState(false);
-  const [hasTriggeredHaptic, setHasTriggeredHaptic] = useState(false);
-  const [latestEntry, setLatestEntry] = useState<JournalEntry | null>(null);
   const [isLoadingEntry, setIsLoadingEntry] = useState(true);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [originalContent, setOriginalContent] = useState('');
@@ -544,18 +536,6 @@ export default function HomeContent() {
     micButtonTranslateY.value = -80; // Lower position at navigation level
   }, []);
 
-  // Spinner animation for save status
-  useEffect(() => {
-    if (saveStatus === 'saving' || saveStatus === 'unsaved') {
-      spinnerRotation.value = withRepeat(
-        withTiming(360, { duration: 1000 }),
-        -1,
-        false
-      );
-    } else {
-      spinnerRotation.value = 0;
-    }
-  }, [saveStatus]);
 
   // Keep screen awake while recording
   useEffect(() => {
@@ -611,175 +591,13 @@ export default function HomeContent() {
   );
 
 
-  // Get save status icon
-  const getSaveStatusIcon = () => {
-    const iconColor = colorScheme === 'dark' ? '#ffffff' : '#000000';
-    const iconOpacity = colorScheme === 'dark' ? 0.8 : 0.8;
-    
-    // Show draft icon when we have a new entry with no content
-    if (isNewEntry && (!entry || entry.trim() === '' || entry === '<p></p>')) {
-      return <FileText size={18} color={iconColor} style={{ opacity: iconOpacity }} />;
-    }
 
-    switch (saveStatus) {
-      case 'saving':
-        return (
-          <Animated.View style={spinnerAnimatedStyle}>
-            <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
-          </Animated.View>
-        );
-      case 'unsaved':
-        return (
-          <Animated.View style={spinnerAnimatedStyle}>
-            <Loader2 size={18} color={iconColor} style={{ opacity: iconOpacity }} />
-          </Animated.View>
-        );
-      case 'saved':
-      default:
-        return <Check size={18} color={iconColor} style={{ opacity: iconOpacity }} />;
-    }
-  };
-
-  // Animation values
-  const translateY = useSharedValue(0);
-  const TRIGGER_THRESHOLD = 200; // Pixels to trigger haptic and console log
-  
   // Microphone button animation
   const micButtonOpacity = useSharedValue(1);
   const micButtonTranslateX = useSharedValue(0);
   const micButtonTranslateY = useSharedValue(0);
   
-  // Spinner animation for save status
-  const spinnerRotation = useSharedValue(0);
-
-  // Gesture handler functions
-  const triggerHapticFeedback = () => {
-    if (!hasTriggeredHaptic) {
-      setHasTriggeredHaptic(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
-
-  const triggerNewEntry = () => {
-    createNewEntry();
-  };
-
-  const resetHapticFlag = () => {
-    setHasTriggeredHaptic(false);
-  };
-
-  const gestureHandler = useAnimatedGestureHandler({
-    onStart: (_, context: any) => {
-      context.startY = translateY.value;
-    },
-    onActive: (event, context: any) => {
-      const newTranslateY = Math.max(0, context.startY + event.translationY);
-      translateY.value = newTranslateY;
-
-      // Trigger haptic feedback when threshold is reached (but don't create entry yet)
-      if (newTranslateY >= TRIGGER_THRESHOLD) {
-        runOnJS(triggerHapticFeedback)();
-      } else {
-        runOnJS(resetHapticFlag)();
-      }
-    },
-    onEnd: () => {
-      // Check if we should create a new entry based on final position
-      const shouldCreateEntry = translateY.value >= TRIGGER_THRESHOLD;
-
-      // Always snap back to original position with controlled spring
-      translateY.value = withSpring(0, {
-        damping: 20,
-        stiffness: 300,
-        overshootClamping: true
-      });
-
-      // Create new entry only if released beyond threshold
-      if (shouldCreateEntry) {
-        runOnJS(triggerNewEntry)();
-      }
-
-      runOnJS(resetHapticFlag)();
-    },
-  });
-
-  // Add horizontal swipe gesture for Notes navigation
   const [isNavigating, setIsNavigating] = useState(false);
-  
-  const navigateToNotes = useCallback(async () => {
-    if (isNavigating) return; // Prevent multiple navigation calls
-    
-    setIsNavigating(true);
-    
-    // Force save before navigation
-    const currentContent = entry.trim();
-    if (currentContent && currentContent.length >= 1) {
-      // Clear any pending auto-save and mark to skip cleanup save
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-      skipExitSaveRef.current = true;
-      try {
-        await saveEntry(entry);
-        console.log('✅ Pre-navigation save completed');
-      } catch (error) {
-        console.error('❌ Pre-navigation save failed:', error);
-      }
-    }
-    
-    // Pop back to SwipeableScreens (which contains NotesScreen)
-    (navigation as any).goBack();
-    
-    // Reset navigation flag after a short delay
-    setTimeout(() => setIsNavigating(false), 500);
-  }, [navigation, isNavigating, entry, saveEntry]);
-
-  const panGesture = Gesture.Pan()
-    .onUpdate((event) => {
-      // Track horizontal swipe to the right (positive translationX)
-      // More restrictive conditions to prevent accidental navigation
-      if (event.translationX > 150 && 
-          Math.abs(event.velocityX) > 800 && 
-          Math.abs(event.translationY) < 100 && // Ensure it's mostly horizontal
-          !isNavigating) {
-        runOnJS(navigateToNotes)();
-      }
-    });
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: translateY.value }],
-    };
-  });
-
-  const textAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = translateY.value > 5 ? 1 : 0; // Show text when sliding starts
-    return {
-      transform: [{ translateY: translateY.value / 2 + 10 }], // Stay centered in revealed black area
-      opacity,
-    };
-  });
-
-  const checkIconAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: translateY.value >= TRIGGER_THRESHOLD ? 1 : 0,
-    };
-  });
-
-  const arrowIconAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: translateY.value >= TRIGGER_THRESHOLD ? 0 : 1,
-    };
-  });
-
-  const curvedEdgesStyle = useAnimatedStyle(() => {
-    const maxBorderRadius = 30;
-    const borderRadius = Math.min((translateY.value / TRIGGER_THRESHOLD) * maxBorderRadius, maxBorderRadius);
-    return {
-      borderTopLeftRadius: borderRadius,
-      borderTopRightRadius: borderRadius,
-    };
-  });
 
   const micButtonAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -791,33 +609,11 @@ export default function HomeContent() {
     };
   });
 
-  const spinnerAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ rotate: `${spinnerRotation.value}deg` }],
-    };
-  });
-
   return (
-    <View style={[styles.container, { backgroundColor: 'black' }]}>
-
-      {/* Floating text that follows the gesture */}
-      <Animated.View style={[styles.floatingText, textAnimatedStyle]}>
-        <Text style={styles.instructionText}>Swipe down to create</Text>
-        <View style={{ position: 'relative' }}>
-          <Animated.View style={arrowIconAnimatedStyle}>
-            <ArrowDown size={24} color={'white'} />
-          </Animated.View>
-          <Animated.View style={[{ position: 'absolute', top: 0, left: 0 }, checkIconAnimatedStyle]}>
-            <Check size={24} color={'white'} />
-          </Animated.View>
-        </View>
-      </Animated.View>
-
-      {/* Main content that slides down */}
-      <GestureDetector gesture={panGesture}>
-        <PanGestureHandler onGestureEvent={gestureHandler}>
-          <Animated.View style={[styles.mainContent, animatedStyle, curvedEdgesStyle]}>
-          <Animated.View style={[styles.safeArea, { backgroundColor: colors.background }, curvedEdgesStyle]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Main content */}
+      <View style={styles.mainContent}>
+        <View style={[styles.safeArea, { backgroundColor: colors.background }]}>
                {/* Minimal Header - Full width at top */}
                <View style={[styles.minimalHeader, { 
                  backgroundColor: colors.background,
@@ -857,7 +653,7 @@ export default function HomeContent() {
                  </View>
                  
                  <View style={styles.headerRight}>
-                   {getSaveStatusIcon()}
+                   {/* Save status icons removed - cleaner UI */}
                  </View>
                </View>
 
@@ -928,10 +724,8 @@ export default function HomeContent() {
 
 
 
-          </Animated.View>
-        </Animated.View>
-        </PanGestureHandler>
-      </GestureDetector>
+        </View>
+      </View>
 
       {/* Keyboard Toolbar - Outside of any container for proper positioning */}
                   <KeyboardToolbar
@@ -949,23 +743,6 @@ export default function HomeContent() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  floatingText: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-    pointerEvents: 'none',
-  },
-  instructionText: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: '500',
-    opacity: 1,
-    marginBottom: 10,
   },
   mainContent: {
     flex: 1,

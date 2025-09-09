@@ -2358,49 +2358,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
           )}
         </View>
 
-        {/* Suggestion Buttons - only show when input is empty */}
-        {chatInput.trim().length === 0 && keyboardHeight === 0 && (
-          <View style={styles.suggestionContainer}>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.suggestionScrollContent}
-              style={styles.suggestionScrollView}
-              nestedScrollEnabled={true}
-              directionalLockEnabled={true}
-              alwaysBounceVertical={false}
-              bounces={false}
-            >
-              <TouchableOpacity 
-                style={styles.suggestionButton}
-                onPress={() => setChatInput('Start Custom Meditation')}
-              >
-                <Text style={styles.suggestionButtonText}>Start Custom{'\n'}Meditation</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.suggestionButton}
-                onPress={() => setChatInput('Ask me hard questions')}
-              >
-                <Text style={styles.suggestionButtonText}>Ask me hard{'\n'}questions</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.suggestionButton}
-                onPress={() => setChatInput('Help me find my goal')}
-              >
-                <Text style={styles.suggestionButtonText}>Help me find{'\n'}my goal</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.suggestionButton}
-                onPress={() => setChatInput('Work through uncertainty')}
-              >
-                <Text style={styles.suggestionButtonText}>Work through{'\n'}uncertainty</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        )}
+        {/* Suggestion Buttons - Temporarily hidden */}
+        {/* TODO: Re-enable suggestions later if needed */}
 
         {/* Input */}
         <View style={[styles.chatInputContainer, { 
@@ -2885,40 +2844,7 @@ const styles = StyleSheet.create({
     elevation: 2,
     zIndex: 999, // Input'tan düşük z-index
   },
-  suggestionContainer: {
-    position: 'absolute',
-    bottom: 210, // Input'un üstünde
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    zIndex: 1001, // Input'tan daha yüksek
-  },
-  suggestionScrollView: {
-    flexGrow: 0,
-  },
-  suggestionScrollContent: {
-    paddingHorizontal: 0,
-    gap: 8,
-    alignItems: 'center',
-  },
-  suggestionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#F2F2F2',
-    borderRadius: 12,
-    marginRight: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 80,
-  },
-  suggestionButtonText: {
-    color: 'rgba(0, 0, 0, 0.60)',
-    fontSize: 12,
-    fontWeight: '500',
-    lineHeight: 16,
-    textAlign: 'center',
-  },
+  // Suggestion styles moved to components/old/PromptSuggestions.tsx
   expandButton: {
     position: 'absolute',
     top: 8,

@@ -32,34 +32,52 @@ export default function CommitmentCard({
   const [currentState, setCurrentState] = useState(state);
   const [selectedDeadline, setSelectedDeadline] = useState(deadline || '1w');
   const [selectedCadence, setSelectedCadence] = useState(cadence || 'daily');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Debug logging (disabled)
   // console.log('🎯 CommitmentCard props:', { state, currentState, editable, title });
   // console.log('🎯 Should show buttons:', currentState === 'none', 'currentState:', currentState);
 
   const handleAccept = () => {
-    console.log('🟢 Accept button pressed', { editable, currentState });
-    if (!editable || currentState !== 'none') {
-      console.log('🟢 Accept blocked:', { editable, currentState });
+    console.log('🟢 Accept button pressed', { editable, currentState, isProcessing });
+    if (!editable || currentState !== 'none' || isProcessing) {
+      console.log('🟢 Accept blocked:', { editable, currentState, isProcessing });
       return;
     }
+    
+    // Immediately set processing state to prevent double-clicks
+    setIsProcessing(true);
+    setCurrentState('accepted');
     
     const newCommitmentId = `commitment_${Date.now()}`;
     console.log('🟢 Accepting commitment:', { newCommitmentId });
-    setCurrentState('accepted');
+    
     onUpdate?.({ state: 'accepted', commitmentId: newCommitmentId });
+    
+    // Reset processing state after a delay (in case API call fails)
+    setTimeout(() => {
+      setIsProcessing(false);
+    }, 5000);
   };
 
   const handleReject = () => {
-    console.log('🔴 Reject button pressed', { editable, currentState });
-    if (!editable || currentState !== 'none') {
-      console.log('🔴 Reject blocked:', { editable, currentState });
+    console.log('🔴 Reject button pressed', { editable, currentState, isProcessing });
+    if (!editable || currentState !== 'none' || isProcessing) {
+      console.log('🔴 Reject blocked:', { editable, currentState, isProcessing });
       return;
     }
     
-    console.log('🔴 Rejecting commitment');
+    // Immediately set processing state to prevent double-clicks
+    setIsProcessing(true);
     setCurrentState('rejected');
+    
+    console.log('🔴 Rejecting commitment');
     onUpdate?.({ state: 'rejected' });
+    
+    // Reset processing state after a delay (in case API call fails)
+    setTimeout(() => {
+      setIsProcessing(false);
+    }, 5000);
   };
 
   const formatDeadline = (deadline: string) => {
@@ -158,9 +176,10 @@ export default function CommitmentCard({
           <TouchableOpacity
             style={[styles.button, {
               backgroundColor: 'transparent',
+              opacity: isProcessing ? 0.5 : 1,
             }]}
             onPress={handleReject}
-            disabled={!editable}
+            disabled={!editable || isProcessing}
           >
             <Text style={[styles.buttonText, { 
               color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280'
@@ -170,15 +189,16 @@ export default function CommitmentCard({
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, {
-              backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000'
+              backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+              opacity: isProcessing ? 0.5 : 1,
             }]}
             onPress={handleAccept}
-            disabled={!editable}
+            disabled={!editable || isProcessing}
           >
             <Text style={[styles.buttonText, { 
               color: colorScheme === 'dark' ? '#000000' : '#FFFFFF'
             }]}>
-              Accept
+              {isProcessing ? 'Processing...' : 'Accept'}
             </Text>
           </TouchableOpacity>
         </View>

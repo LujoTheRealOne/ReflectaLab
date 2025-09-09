@@ -15,12 +15,13 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, MeditationCard } from '@/components/cards';
+import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, MeditationCard, SessionSuggestionCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { coachingCacheService } from '@/services/coachingCacheService';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -348,10 +349,7 @@ export default function CoachingScreen() {
   const routeSessionId = (route.params as any)?.sessionId;
   const routeSessionType = (route.params as any)?.sessionType;
 
-  // Session ID state - now uses userId as session ID (single session per user)
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  
-  // Use userId as session ID (single session per user)
+  // Use userId as session ID (single session per user) - no state needed
   const getSessionId = (): string => {
     return firebaseUser?.uid || 'anonymous';
   };
@@ -364,55 +362,74 @@ export default function CoachingScreen() {
     }
   };
 
-  // Local storage functions for conversation history
-  const getStorageKey = (userId: string) => `coaching_messages_${userId}`;
-  
+  // Cache management using secure coaching cache service
   const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], userId: string) => {
     try {
-      const storageKey = getStorageKey(userId);
-      // Keep last 300 messages in cache for better offline experience
-      const messagesToSave = messages.slice(-300);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(messagesToSave));
-      debugLog(`💾 Saved ${messagesToSave.length} messages to storage (last 300)`);
+      await coachingCacheService.saveMessages(messages, userId);
+      debugLog(`💾 Saved ${messages.length} messages to secure cache for user:`, userId);
     } catch (error) {
-      console.error('Error saving messages to storage:', error);
+      console.error('Error saving messages to secure cache:', error);
     }
   }, []);
 
-  const loadMessagesFromStorage = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
+  const loadExistingSessionFromBackend = useCallback(async (userId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> => {
     try {
-      const storageKey = getStorageKey(userId);
-      debugLog('🔍 Loading from storage key:', storageKey);
-      const storedMessages = await AsyncStorage.getItem(storageKey);
-      debugLog('📦 Raw stored data:', storedMessages ? 'Found data' : 'No data');
+      debugLog('🔍 Loading existing session from backend for user:', userId);
       
-      if (storedMessages) {
-        const parsedMessages: CoachingMessage[] = JSON.parse(storedMessages).map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        }));
-        debugLog(`📱 Loaded ${parsedMessages.length} messages from storage`);
-        return parsedMessages;
-      }
+      // ALWAYS check backend first - never create session from cache
+      const sessionResult = await coachingCacheService.initializeSession(userId);
+      
+      debugLog(`📱 Session result:`, {
+        exists: sessionResult.sessionExists,
+        messageCount: sessionResult.messages.length
+      });
+      
+      return sessionResult;
     } catch (error) {
-      console.error('Error loading messages from storage:', error);
+      console.error('Error loading session from backend:', error);
+      return { messages: [], sessionExists: false };
     }
-    return [];
   }, []);
 
   // Debug function to clear storage (for testing)
   const clearStorageForUser = useCallback(async (userId: string) => {
     try {
-      const storageKey = getStorageKey(userId);
-      await AsyncStorage.removeItem(storageKey);
-      console.log('🗑️ Cleared local storage for user:', userId);
+      await coachingCacheService.clearUserMessages(userId);
+      console.log('🗑️ Cleared secure cache for user:', userId);
     } catch (error) {
-      console.error('Error clearing storage:', error);
+      console.error('Error clearing secure cache:', error);
     }
   }, []);
 
   // Test function to clear all coaching data (will be defined after setMessages)
   let clearAllCoachingData: (() => Promise<void>) | null = null;
+
+  // Manual refresh from backend (will be defined after setMessages is available)
+  let refreshFromBackend: (() => Promise<void>) | null = null;
+
+  // Clear coaching cache for specific user with full state reset
+  const clearCoachingCacheForUser = useCallback(async (userId: string) => {
+    try {
+      console.log('🧹 Clearing coaching cache and state for user:', userId);
+      
+      // Clear secure cache for this user
+      await coachingCacheService.clearUserMessages(userId);
+      
+      // Reset all coaching-related states
+      setMessages([]);
+      setAllMessages([]);
+      setDisplayedMessageCount(300);
+      setHasMoreMessages(false);
+      setIsLoadingMore(false);
+      setShowCompletionForMessage(null);
+      setParsedCoachingData(null);
+      setIsInitialized(false);
+      
+      console.log('✅ Coaching cache and state cleared for user:', userId);
+    } catch (error) {
+      console.error('❌ Error clearing coaching cache for user:', userId, error);
+    }
+  }, []);
 
   // Firestore direct access for coaching sessions
   const loadMessagesFromFirestore = useCallback(async (userId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
@@ -516,56 +533,48 @@ export default function CoachingScreen() {
   }, []);
 
   // Multi-device sync strategy using Firestore
-  const syncMessages = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
-    console.log('🔄 Starting multi-device sync for user:', userId);
+  // Load existing coaching session (backend first - never create from cache)
+  const initializeCoachingSession = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
+    console.log('🔄 Initializing coaching session for user:', userId);
     
     try {
-      // 1. Try to load from Firestore first
-      console.log('🔄 Step 1: Loading from Firestore...');
-      const firestoreResult = await loadMessagesFromFirestore(userId);
-      console.log(`🔄 Firestore returned ${firestoreResult.totalCount} messages`);
+      // 1. Load existing session from backend (never from cache)
+      console.log('🔄 Step 1: Loading existing session from backend...');
+      const sessionResult = await loadExistingSessionFromBackend(userId);
       
-      if (firestoreResult.totalCount > 0) {
-        // 2. Firestore has messages, set up pagination
-        console.log('🔄 Step 2: Firestore has messages, setting up pagination...');
-        setAllMessages(firestoreResult.allMessages);
-        setHasMoreMessages(firestoreResult.totalCount > 300);
-        setDisplayedMessageCount(Math.min(300, firestoreResult.totalCount));
+      if (sessionResult.sessionExists) {
+        console.log(`✅ Found existing session with ${sessionResult.messages.length} messages`);
         
-        // Get last 300 messages for display (or all if less than 300)
-        const displayMessages = firestoreResult.allMessages.slice(-300);
-        // Save last 300 messages to cache for better offline experience
-        await saveMessagesToStorage(firestoreResult.allMessages, userId);
-        console.log(`✅ Synced ${firestoreResult.totalCount} messages from Firestore (showing last 300)`);
-        console.log(`💾 Cached last 300 messages to local storage`);
+        // Set up pagination for existing session
+        setAllMessages(sessionResult.messages);
+        setHasMoreMessages(sessionResult.messages.length > 300);
+        setDisplayedMessageCount(Math.min(300, sessionResult.messages.length));
+        
+        // Return last 30 messages for display
+        const displayMessages = sessionResult.messages.slice(-30);
+        console.log(`✅ Session loaded with ${displayMessages.length} display messages`);
         return displayMessages;
       } else {
-        // 3. Firestore empty, check local cache (last 300 messages)
-        console.log('🔄 Step 3: Firestore empty, checking local cache...');
-        const localMessages = await loadMessagesFromStorage(userId);
-        console.log(`🔄 Local cache has ${localMessages.length} messages (max 300)`);
+        console.log('📝 No existing session found - ready to create new session on first message');
         
-        if (localMessages.length > 0) {
-          // 4. Local has messages, sync to Firestore
-          console.log('🔄 Step 4: Local has messages, syncing to Firestore...');
-          await saveMessagesToFirestore(localMessages, userId);
-          console.log(`✅ Synced ${localMessages.length} messages from local to Firestore`);
-          console.log(`💾 Note: Local cache contains last 300 messages`);
-          return localMessages;
-        } else {
-          console.log('🔄 Both Firestore and local cache are empty');
-        }
+        // No session exists - reset everything
+        setAllMessages([]);
+        setHasMoreMessages(false);
+        setDisplayedMessageCount(0);
+        
+        return [];
       }
     } catch (error) {
-      console.error('🔄 Sync failed, falling back to local cache:', error);
-      const fallbackMessages = await loadMessagesFromStorage(userId);
-      console.log(`🔄 Fallback: loaded ${fallbackMessages.length} messages from local cache`);
-      return fallbackMessages;
+      console.error('❌ Session initialization failed:', error);
+      
+      // Reset on error
+      setAllMessages([]);
+      setHasMoreMessages(false);
+      setDisplayedMessageCount(0);
+      
+      return [];
     }
-    
-    console.log('🔄 Sync completed with 0 messages');
-    return [];
-  }, [loadMessagesFromFirestore, loadMessagesFromStorage, saveMessagesToStorage, saveMessagesToFirestore]);
+  }, [loadExistingSessionFromBackend]);
 
   // Use the AI coaching hook
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
@@ -577,8 +586,8 @@ export default function CoachingScreen() {
     try {
       console.log('🧹 Clearing all coaching data...');
       
-      // Clear local storage
-      await clearStorageForUser(firebaseUser.uid);
+      // Clear secure cache
+      await coachingCacheService.clearUserMessages(firebaseUser.uid);
       
       // Clear Firestore coaching session
       const { db } = await import('../lib/firebase');
@@ -611,11 +620,45 @@ export default function CoachingScreen() {
     } catch (error) {
       console.error('❌ Error clearing coaching data:', error);
     }
-  }, [firebaseUser, clearStorageForUser, user?.firstName, setMessages]);
+  }, [firebaseUser, user?.firstName, setMessages]);
 
-  // Expose clear function globally for testing (remove in production)
+  // Manual refresh from backend
+  refreshFromBackend = useCallback(async () => {
+    if (!firebaseUser?.uid) {
+      console.warn('⚠️ Cannot refresh from backend: no user');
+      return;
+    }
+
+    try {
+      console.log('🔄 Manual refresh from backend requested for user:', firebaseUser.uid);
+      
+      // Re-initialize session from backend
+      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+      
+      if (sessionMessages.length > 0) {
+        setMessages(sessionMessages);
+        console.log(`✅ Refreshed with ${sessionMessages.length} messages from backend`);
+      } else {
+        console.log('📝 No session found in backend');
+        // Show welcome message if no session exists
+        const welcomeMessage: CoachingMessage = {
+          id: '1',
+          content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
+          role: 'assistant',
+          timestamp: new Date()
+        };
+        setMessages([welcomeMessage]);
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing from backend:', error);
+    }
+  }, [firebaseUser?.uid, setMessages, initializeCoachingSession, user?.firstName]);
+
+  // Expose functions globally for testing (remove in production)
   if (__DEV__) {
     (global as any).clearCoachingData = clearAllCoachingData;
+    (global as any).refreshCoachingFromBackend = refreshFromBackend;
+    (global as any).coachingCacheService = coachingCacheService;
   }
   
   const [chatInput, setChatInput] = useState('');
@@ -789,12 +832,37 @@ export default function CoachingScreen() {
     return totalHeight;
   }, [messages, isLoading, shouldShowLoadingIndicator]);
 
+  // Function to parse coaching cards from any content (moved before dynamic padding)
+  const parseCoachingCards = (content: string) => {
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    const components: Array<{ type: string; props: Record<string, string> }> = [];
+
+    let match;
+    while ((match = componentRegex.exec(content)) !== null) {
+      const componentType = match[1];
+      const propsString = match[2];
+
+      const props: Record<string, string> = {};
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+
+      while ((propMatch = propRegex.exec(propsString)) !== null) {
+        const [, key, value] = propMatch;
+        props[key] = value;
+      }
+
+      components.push({ type: componentType, props });
+    }
+
+    return components;
+  };
+
   // 2. Dynamic bottom padding - account for live input container height so last lines stay visible
   const dynamicBottomPadding = useMemo(() => {
-    // Base padding when idle
-    const basePadding = 50;
+    // Base padding when idle - massively increased for better content access
+    const basePadding = 300;
 
-    // Klavye açıksa ekstra alan ekle
+    // Keyboard-aware space
     const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
 
     // Extra space for the growing input container to prevent overlap
@@ -803,25 +871,39 @@ export default function CoachingScreen() {
     // If the AI is responding or user just sent a message, add more for positioning
     const lastMessage = messages[messages.length - 1];
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (keyboardHeight > 0) {
-      // Klavye açıkken - daha fazla alan ver
-      return keyboardExtraSpace;
-    } else if (isUserWaitingForAI) {
-      return basePadding + extraForInput + 120;
+
+    // Add extra padding when coaching cards are present in the last assistant message
+    let cardsPadding = 0;
+    if (lastMessage?.role === 'assistant') {
+      try {
+        const cards = parseCoachingCards(lastMessage.content);
+        if (cards.length > 0) {
+          cardsPadding = 180; // larger cushion so cards never get clipped
+        }
+      } catch (_e) {
+        // fail open - no extra padding if parsing fails
+      }
     }
 
-    return basePadding + extraForInput;
+    if (keyboardHeight > 0) {
+      // Klavye açıkken - daha fazla alan ver + card padding
+      return keyboardExtraSpace + cardsPadding;
+    } else if (isUserWaitingForAI) {
+      return basePadding + extraForInput + 350 + cardsPadding;
+    }
+
+    return basePadding + extraForInput + cardsPadding;
   }, [messages, isLoading, containerHeight, keyboardHeight]);
 
   // New state for content height tracking
   const [contentHeight, setContentHeight] = useState(0);
   const [scrollViewHeight, setScrollViewHeight] = useState(0);
 
-  // Scroll limits calculation - simplified
+  // Scroll limits calculation - more permissive
   const scrollLimits = useMemo(() => {
     const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
-    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
+    // Allow extremely generous scrolling - add massive buffer for cards and input
+    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 700);
     
     return {
       minContentHeight,
@@ -873,38 +955,6 @@ export default function CoachingScreen() {
     });
     
     return { components, rawData: finishContent };
-  };
-
-  // Function to parse coaching cards from any content
-  const parseCoachingCards = (content: string) => {
-    // Parse component markers like [focus:focus="...",context="..."]
-    const componentRegex = /\[(\w+):([^\]]+)\]/g;
-    const components: Array<{ type: string; props: Record<string, string> }> = [];
-    
-    let match;
-    while ((match = componentRegex.exec(content)) !== null) {
-      const componentType = match[1];
-      const propsString = match[2];
-      
-      // Parse props from key="value" format
-      const props: Record<string, string> = {};
-      const propRegex = /(\w+)="([^"]+)"/g;
-      let propMatch;
-      
-      while ((propMatch = propRegex.exec(propsString)) !== null) {
-        const [, key, value] = propMatch;
-        props[key] = value;
-      }
-      
-      components.push({ type: componentType, props });
-      
-      // Debug logging for commitment cards (disabled)
-      // if (componentType === 'commitmentDetected') {
-      //   console.log('🎯 Parsed commitmentDetected token:', { props, state: props.state });
-      // }
-    }
-    
-    return components;
   };
 
   // Function to render a coaching card based on type and props
@@ -1059,6 +1109,148 @@ export default function CoachingScreen() {
           />
         );
       }
+      case 'commitmentCheckin': {
+        return (
+          <CommitmentCheckinCard
+            key={baseProps.key}
+            title={props.title || 'Commitment Check-in'}
+            description={props.description || ''}
+            commitmentId={props.commitmentId}
+            streakCount={props.streakCount}
+            commitmentType={(props.commitmentType as 'one-time' | 'recurring') || 'one-time'}
+            doneText={props.doneText || 'Great job! Keep up the momentum.'}
+            notDoneText={props.notDoneText || 'No worries, let\'s get back on track.'}
+            userResponse={(props.userResponse as 'none' | 'yes' | 'no') || 'none'}
+            onUpdate={async (response: 'yes' | 'no') => {
+              console.log('🎯 CommitmentCheckinCard onUpdate called:', response);
+              
+              if (!firebaseUser?.uid || !props.commitmentId) {
+                console.error('❌ Missing user or commitment ID for check-in');
+                return;
+              }
+
+              try {
+                const token = await getToken();
+                if (!token) {
+                  console.error('❌ No auth token available for commitment check-in');
+                  return;
+                }
+
+                console.log('🔥 Calling commitment check-in API...');
+                const apiResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    commitmentId: props.commitmentId,
+                    completed: response === 'yes',
+                    coachingSessionId: firebaseUser.uid,
+                    messageId: hostMessageId || `msg_${Date.now()}`
+                  }),
+                });
+
+                if (apiResponse.ok) {
+                  const result = await apiResponse.json();
+                  console.log('✅ Commitment check-in successful:', result);
+                  
+                  // Backend handles message update, just refresh messages from backend
+                  console.log('🔄 Refreshing messages from backend after check-in...');
+                  
+                  if (refreshFromBackend) {
+                    console.log('🔄 Calling refreshFromBackend after commitment check-in...');
+                    await refreshFromBackend();
+                    console.log('✅ refreshFromBackend completed after commitment check-in');
+                  } else {
+                    console.error('❌ refreshFromBackend function not available');
+                  }
+                } else {
+                  const errorText = await apiResponse.text();
+                  console.error('❌ Failed to update commitment check-in:', {
+                    status: apiResponse.status,
+                    error: errorText
+                  });
+                }
+              } catch (error) {
+                console.error('❌ Failed to process commitment check-in:', error);
+              }
+            }}
+          />
+        );
+      }
+      case 'sessionSuggestion': {
+        return (
+          <SessionSuggestionCard
+            key={baseProps.key}
+            sessionSuggestion={{
+              type: 'sessionSuggestion',
+              title: props.title || 'Session Suggestion',
+              reason: props.reason || '',
+              duration: props.duration || '60m',
+              state: (props.state as 'none' | 'scheduled' | 'dismissed') || 'none',
+              scheduledDate: props.scheduledDate,
+              scheduledTime: props.scheduledTime,
+              scheduledSessionId: props.scheduledSessionId
+            }}
+            coachingSessionId={firebaseUser?.uid || 'unknown'}
+            messageId={hostMessageId || 'unknown'}
+            onSchedule={(sessionTitle, duration, dateTime) => {
+              console.log('✅ Session scheduled:', { sessionTitle, duration, dateTime });
+            }}
+            onDismiss={(sessionTitle) => {
+              console.log('✅ Session dismissed:', sessionTitle);
+            }}
+            onStateChange={async (newState, additionalData) => {
+              console.log('🎯 SessionSuggestion state change:', { newState, additionalData });
+              
+              // Update the message content with new state
+              try {
+                const updatedMessages = messages.map((message) => {
+                  if (message.role !== 'assistant') return message;
+                  if (hostMessageId && message.id !== hostMessageId) return message;
+
+                  const tokenRegex = /\[sessionSuggestion:([^\]]+)\]/g;
+                  let occurrence = 0;
+                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                    if (occurrence !== index) { occurrence++; return match; }
+                    occurrence++;
+
+                    const existingProps: Record<string, string> = {};
+                    const propRegex = /(\w+)="([^"]+)"/g;
+                    let propMatch;
+                    while ((propMatch = propRegex.exec(propsString)) !== null) {
+                      const [, k, v] = propMatch;
+                      existingProps[k] = v;
+                    }
+                    
+                    // Update state and additional data
+                    existingProps.state = newState;
+                    if (additionalData?.scheduledDate) existingProps.scheduledDate = additionalData.scheduledDate;
+                    if (additionalData?.scheduledTime) existingProps.scheduledTime = additionalData.scheduledTime;
+
+                    const newPropsString = Object.entries(existingProps)
+                      .map(([k, v]) => `${k}="${v}"`)
+                      .join(',');
+                    return `[sessionSuggestion:${newPropsString}]`;
+                  });
+                  return { ...message, content: updatedContent };
+                });
+
+                // Update messages in state
+                setMessages(updatedMessages);
+                
+                // Persist to Firestore
+                await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
+                console.log('✅ SessionSuggestion state updated and saved');
+                
+              } catch (error) {
+                console.error('❌ Failed to update session suggestion state:', error);
+              }
+            }}
+          />
+        );
+      }
       case 'checkin':
         // Check-in cards are handled by the scheduling popup system
         return null;
@@ -1193,7 +1385,8 @@ export default function CoachingScreen() {
       
       // Cleanup function that runs when leaving the screen
       return () => {
-        if (sessionId && !sessionCompletedRef.current) {
+        const currentSessionId = getSessionId();
+        if (currentSessionId && currentSessionId !== 'anonymous' && !sessionCompletedRef.current) {
           sessionCompletedRef.current = true; // Prevent multiple calls
           
           const sessionMinutes = Math.max(Math.floor((Date.now() - sessionStartRef.current.getTime()) / (1000 * 60)), 1);
@@ -1207,7 +1400,7 @@ export default function CoachingScreen() {
 
           // Log coaching session completion (only once)
           console.log('✅ [COACHING] Regular coaching session completed (user left screen)', {
-            sessionId: sessionId,
+            sessionId: currentSessionId,
             duration: sessionMinutes,
             messageCount: messageCount,
             wordsWritten: totalWords
@@ -1215,7 +1408,7 @@ export default function CoachingScreen() {
 
           // Track coaching session completion
           trackCoachingSessionCompleted({
-            session_id: sessionId,
+            session_id: currentSessionId,
             duration_minutes: sessionMinutes,
             message_count: messageCount,
             words_written: totalWords,
@@ -1224,36 +1417,54 @@ export default function CoachingScreen() {
           });
         }
       };
-    }, [sessionId])
+    }, [firebaseUser?.uid])
   );
 
-  // Set sessionId when firebaseUser is available
-  useEffect(() => {
-    if (firebaseUser?.uid) {
-      setSessionId(firebaseUser.uid);
-    }
-  }, [firebaseUser?.uid]);
+  // Session ID is derived from firebaseUser.uid - no useEffect needed
 
+  // Track current user to detect user switches
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  
   // Load conversation history from local storage or show welcome message
   const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Handle user switching - clear cache when user changes
+  useEffect(() => {
+    const newUserId = firebaseUser?.uid || null;
+    
+    if (currentUserId && newUserId && currentUserId !== newUserId) {
+      // User switched - clear previous user's cache and reset initialization
+      console.log('👤 User switched detected:', currentUserId, '→', newUserId);
+      clearCoachingCacheForUser(currentUserId);
+      setIsInitialized(false); // Force re-initialization for new user
+    } else if (currentUserId && !newUserId) {
+      // User logged out - clear current user's cache
+      console.log('🚪 User logged out, clearing cache for:', currentUserId);
+      clearCoachingCacheForUser(currentUserId);
+      setIsInitialized(false);
+    }
+    
+    // Update cache service with new user
+    coachingCacheService.setCurrentUser(newUserId);
+    setCurrentUserId(newUserId);
+  }, [firebaseUser?.uid, currentUserId, clearCoachingCacheForUser]);
   
   useEffect(() => {
     if (!firebaseUser || isInitialized) return;
     
     const initializeChat = async () => {
-      debugLog('🔄 Initializing chat with multi-device sync for user:', firebaseUser.uid);
+      debugLog('🔄 Initializing chat for user:', firebaseUser.uid);
       
-      // Multi-device sync: Backend first, then local cache
-      const syncedMessages = await syncMessages(firebaseUser.uid);
+      // Load existing session from backend (never create from cache)
+      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
       
-      if (syncedMessages.length > 0) {
-        // Load last 30 messages from synced data
-        const recentMessages = syncedMessages.slice(-30);
-        setMessages(recentMessages);
-        console.log(`✅ Loaded ${recentMessages.length} messages`);
+      if (sessionMessages.length > 0) {
+        // Existing session found - load recent messages
+        setMessages(sessionMessages);
+        console.log(`✅ Loaded existing session with ${sessionMessages.length} messages`);
       } else {
-        // No messages found anywhere, show welcome message
-        debugLog('📝 No messages found, showing welcome message');
+        // No existing session found - show welcome message (session will be created on first user message)
+        debugLog('📝 No existing session found, showing welcome message');
         const initialMessage: CoachingMessage = {
           id: '1',
           content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
@@ -1261,14 +1472,14 @@ export default function CoachingScreen() {
           timestamp: new Date()
         };
         setMessages([initialMessage]);
-        debugLog('✅ Initialized coaching session with welcome message');
+        debugLog('✅ Ready to create new session - welcome message shown');
       }
       
       setIsInitialized(true);
     };
     
     initializeChat();
-  }, [firebaseUser, isInitialized, setMessages, user?.firstName, syncMessages]);
+  }, [firebaseUser, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
 
   // Save messages to both local storage and Firestore whenever messages change
   useEffect(() => {
@@ -1621,24 +1832,20 @@ export default function CoachingScreen() {
     // Use userId as session ID (single session per user)
     const currentSessionId = getSessionId();
     
-    if (!sessionId) {
-      setSessionId(currentSessionId);
-      
-      // Log coaching session start
-      console.log('🎯 [COACHING] Starting single user coaching session...', {
-        sessionId: currentSessionId,
-        userId: firebaseUser?.uid,
-        sessionType: 'single-user-session',
-        trigger: 'manual'
-      });
-      
-      // Track coaching session started
-      trackCoachingSessionStarted({
-        session_id: currentSessionId,
-        session_type: 'regular',
-        trigger: 'manual',
-      });
-    }
+    // Log coaching session (session is always the user ID)
+    console.log('🎯 [COACHING] User coaching session...', {
+      sessionId: currentSessionId,
+      userId: firebaseUser?.uid,
+      sessionType: 'single-user-session',
+      trigger: 'manual'
+    });
+    
+    // Track coaching session activity
+    trackCoachingSessionStarted({
+      session_id: currentSessionId,
+      session_type: 'regular',
+      trigger: 'manual',
+    });
 
     const messageContent = chatInput.trim();
     setChatInput('');
@@ -1671,6 +1878,13 @@ export default function CoachingScreen() {
         textInputRef.current?.focus();
       }, 100);
     }
+  };
+
+  const handleVoiceModePress = () => {
+    // Navigate to voice mode screen
+    (navigation as any).navigate('VoiceMode', { 
+      sessionId: getSessionId()
+    });
   };
 
   const handleRecordingCancel = () => {
@@ -1821,10 +2035,11 @@ export default function CoachingScreen() {
     }
     
     // Create goal breakout session and link to journal entry
-    if (sessionId && firebaseUser) {
+    const currentSessionId = getSessionId();
+    if (currentSessionId && currentSessionId !== 'anonymous' && firebaseUser) {
       try {
-        console.log('🎯 Creating goal breakout session for completed coaching session:', sessionId);
-        await createGoalBreakoutSession(sessionId);
+        console.log('🎯 Creating goal breakout session for completed coaching session:', currentSessionId);
+        await createGoalBreakoutSession(currentSessionId);
       } catch (error) {
         console.error('❌ Failed to create goal breakout session:', error);
       }
@@ -1833,15 +2048,15 @@ export default function CoachingScreen() {
     // Navigate to compass story for coaching completion immediately
     (navigation as any).navigate('CompassStory', { 
       fromCoaching: true,
-      sessionId: sessionId || undefined,
+      sessionId: currentSessionId,
       parsedCoachingData: parsedCoachingData || undefined
     });
     setShowCompletionForMessage(null);
     
     // Trigger insight extraction in background if we have a session ID
-    if (sessionId) {
-      console.log('🧠 Starting insight extraction for session:', sessionId);
-      triggerInsightExtraction(sessionId); // Don't await - run in background
+    if (currentSessionId && currentSessionId !== 'anonymous') {
+      console.log('🧠 Starting insight extraction for session:', currentSessionId);
+      triggerInsightExtraction(currentSessionId); // Don't await - run in background
     }
   };
 
@@ -2015,31 +2230,8 @@ export default function CoachingScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
-            bounces={false}
-            overScrollMode="never"
-            // Scroll limiti ekle
-            onScrollEndDrag={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              // Eğer maksimum scroll limitini aşmışsa, geri getir
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
-            }}
-            // Momentum scroll sonrası da kontrol et
-            onMomentumScrollEnd={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
-            }}
+            bounces={true}
+            overScrollMode="auto"
           >
             {/* Simple loading spinner */}
             {isLoadingMore && (
@@ -2297,6 +2489,8 @@ export default function CoachingScreen() {
                         backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
                       }]}
                       onPress={handleMicrophonePress}
+                      onLongPress={handleVoiceModePress}
+                      delayLongPress={500}
                     >
                       <Text style={[styles.voiceButtonText, { 
                         color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 

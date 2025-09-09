@@ -11,6 +11,7 @@ import InfoScreen from '@/screens/InfoScreen';
 import CoachingScreen from '@/screens/CoachingScreen';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
+import VoiceModeScreen from '@/screens/VoiceModeScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useAuth } from '@/hooks/useAuth';
 import SwipeableScreens from '@/components/SwipeableScreens';
@@ -30,6 +31,9 @@ export type AppStackParamList = {
       components: Array<{ type: string; props: Record<string, string> }>;
       rawData: string;
     };
+  };
+  VoiceMode: {
+    sessionId?: string;
   };
 };
 
@@ -219,6 +223,17 @@ export default function AppNavigator() {
         }}
       >
         {() => <CompassStoryScreen />}
+      </Stack.Screen>
+      
+      <Stack.Screen
+        name="VoiceMode"
+        options={{
+          gestureEnabled: false,
+          presentation: 'modal',
+          animationTypeForReplace: 'push',
+        }}
+      >
+        {() => <VoiceModeScreen />}
       </Stack.Screen>
     </Stack.Navigator>
     

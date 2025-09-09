@@ -23,6 +23,7 @@ import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useSettingsCache } from '@/hooks/useSettingsCache';
+import { useActiveCommitments } from '@/hooks/useActiveCommitments';
 import { useNavigation } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
@@ -60,6 +61,9 @@ export default function SettingsScreen() {
   
   // Onboarding progress hook
   const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
+
+  // Active commitments hook
+  const { commitments, loading: commitmentsLoading, checkInCommitment } = useActiveCommitments();
 
   // State for toggles
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false);
@@ -340,6 +344,33 @@ export default function SettingsScreen() {
     }
   }, [isLoading, coachingMessages, saveCoachingMessagesPreference]);
 
+  // Handle commitment check-in
+  const handleCommitmentCheckIn = useCallback(async (commitmentId: string, completed: boolean) => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+    try {
+      await checkInCommitment(commitmentId, completed);
+      
+      // Show success feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Alert.alert(
+        'Success',
+        completed ? 'Great job! Your commitment has been marked as done.' : 'Thanks for the update. Keep going!',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } catch (error) {
+      console.error('Error checking in commitment:', error);
+      Alert.alert(
+        'Error',
+        'Failed to update commitment. Please try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, checkInCommitment]);
+
 
   const handleManageAccount = () => {
     try {
@@ -587,43 +618,100 @@ export default function SettingsScreen() {
         {/* Your Compass Section */}
         {!shouldShowSkeleton && (
           <>
-            {/* Active Commitment Card */}
-            <View 
-              style={[styles.activeCommitmentCard, { 
-                backgroundColor: '#FFFFFF'
-              }]}
-            >
-              {/* Header with title and Edit button */}
-              <View style={styles.commitmentHeader}>
-                <View style={styles.commitmentTitleContainer}>
-                  <Text style={[styles.commitmentTitle, { color: '#262626' }]}>
-                    Active Commitment
-                  </Text>
-                  <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.40)' }]}>
-                    Write 1000 Pages every day.
-                  </Text>
-                </View>
-                <TouchableOpacity style={styles.editButton}>
-                  <Text style={[styles.editButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
-                    Edit
-                  </Text>
-                </TouchableOpacity>
-              </View>
+            {/* Active Commitments Section */}
+            <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 10, marginBottom: 10 }]}>Active Commitments</Text>
+            
+            {commitmentsLoading ? (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.commitmentsScrollContent}
+                style={styles.commitmentsScrollView}
+              >
+                {[1, 2].map((_, index) => (
+                  <View key={index} style={[styles.commitmentCard, { backgroundColor: '#FFFFFF' }]}>
+                    <Skeleton style={{ width: '60%', height: 16, borderRadius: 4, marginBottom: 8 }} />
+                    <Skeleton style={{ width: '80%', height: 14, borderRadius: 4, marginBottom: 20 }} />
+                    <View style={styles.commitmentActions}>
+                      <Skeleton style={{ flex: 1, height: 32, borderRadius: 10, marginRight: 4 }} />
+                      <Skeleton style={{ flex: 1, height: 32, borderRadius: 10, marginLeft: 4 }} />
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : commitments.length > 0 ? (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.commitmentsScrollContent}
+                style={styles.commitmentsScrollView}
+              >
+                {commitments.map((commitment, index) => (
+                  <View 
+                    key={commitment.id}
+                    style={[styles.commitmentCard, { 
+                      backgroundColor: '#FFFFFF',
+                      marginRight: index === commitments.length - 1 ? 20 : 12
+                    }]}
+                  >
+                    {/* Header with title and stats */}
+                    <View style={styles.commitmentHeader}>
+                      <View style={styles.commitmentTitleContainer}>
+                        <Text style={[styles.commitmentTitle, { color: '#262626' }]} numberOfLines={1}>
+                          {commitment.title}
+                        </Text>
+                        <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.40)' }]} numberOfLines={2}>
+                          {commitment.description}
+                        </Text>
+                      </View>
+                      <View style={styles.commitmentStats}>
+                        <Text style={[styles.commitmentStatsText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+                          {commitment.currentStreakCount} day streak
+                        </Text>
+                        <Text style={[styles.commitmentTypeText, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+                          {commitment.type === 'one-time' ? 'One-time' : 'Recurring'}
+                        </Text>
+                      </View>
+                    </View>
 
-              {/* Action buttons */}
-              <View style={styles.commitmentActions}>
-                <TouchableOpacity style={[styles.actionButton, styles.notDoneButton, { backgroundColor: '#F2F2F2' }]}>
-                  <Text style={[styles.actionButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={1}>
-                    Not done
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionButton, styles.doneButton, { backgroundColor: '#000000' }]}>
-                  <Text style={[styles.actionButtonText, { color: 'rgba(255, 255, 255, 0.91)' }]} numberOfLines={1}>
-                    Done
-                  </Text>
-                </TouchableOpacity>
+                    {/* Action buttons */}
+                    <View style={styles.commitmentActions}>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.notDoneButton, { backgroundColor: '#F2F2F2' }]}
+                        onPress={() => handleCommitmentCheckIn(commitment.id, false)}
+                        disabled={isLoading}
+                      >
+                        <Text style={[styles.actionButtonText, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={1}>
+                          {isLoading ? 'Processing...' : 'Not done'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.doneButton, { backgroundColor: '#000000' }]}
+                        onPress={() => handleCommitmentCheckIn(commitment.id, true)}
+                        disabled={isLoading}
+                      >
+                        <Text style={[styles.actionButtonText, { color: 'rgba(255, 255, 255, 0.91)' }]} numberOfLines={1}>
+                          {isLoading ? 'Processing...' : 'Done'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View 
+                style={[styles.emptyCommitmentsCard, { 
+                  backgroundColor: '#FFFFFF'
+                }]}
+              >
+                <Text style={[styles.commitmentTitle, { color: 'rgba(0, 0, 0, 0.40)', textAlign: 'center' }]}>
+                  No Active Commitments
+                </Text>
+                <Text style={[styles.commitmentDescription, { color: 'rgba(0, 0, 0, 0.30)', textAlign: 'center', marginTop: 4 }]}>
+                  Create commitments through coaching sessions
+                </Text>
               </View>
-            </View>
+            )}
 
             {/* Compass Cards Grid */}
             <View style={styles.compassCardsGrid}>
@@ -1313,6 +1401,60 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 16,
     textAlign: 'center',
+  },
+  commitmentStats: {
+    alignItems: 'flex-end',
+  },
+  commitmentStatsText: {
+    fontSize: 11,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  commitmentTypeText: {
+    fontSize: 10,
+    fontWeight: '400',
+    lineHeight: 14,
+  },
+  // Scrollable commitments styles
+  commitmentsScrollView: {
+    marginBottom: 20,
+  },
+  commitmentsScrollContent: {
+    paddingLeft: 20,
+    paddingRight: 8,
+  },
+  commitmentCard: {
+    width: 280,
+    height: 171,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginRight: 12,
+  },
+  emptyCommitmentsCard: {
+    alignSelf: 'stretch',
+    height: 120,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 8,
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginHorizontal: 20,
   },
   commitmentActions: {
     alignSelf: 'stretch',

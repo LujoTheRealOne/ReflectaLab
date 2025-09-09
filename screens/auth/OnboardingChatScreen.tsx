@@ -337,12 +337,9 @@ export default function OnboardingChatScreen() {
     };
   }, []); // EMPTY DEPENDENCIES - only run on actual unmount
 
-  // Session ID state - will be generated when first message is sent
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  
-  // Generate unique session ID using proper UUID
-  const generateSessionId = (): string => {
-    return Crypto.randomUUID();
+  // Use user ID as session ID for onboarding (consistent with main coaching)
+  const getSessionId = (): string => {
+    return firebaseUser?.uid || 'anonymous-onboarding';
   };
   
   const [chatInput, setChatInput] = useState('');
@@ -473,13 +470,9 @@ export default function OnboardingChatScreen() {
         throw new Error('Authentication token not available');
       }
 
-      // Ensure we have a sessionId - generate one if needed
-      let currentSessionId = sessionId;
-      if (!currentSessionId) {
-        currentSessionId = generateSessionId();
-        setSessionId(currentSessionId);
-        console.log(`🆔 Generated new session ID for API call: ${currentSessionId}`);
-      }
+      // Use user ID as session ID for onboarding
+      const currentSessionId = getSessionId();
+      console.log(`🆔 Using user ID as session ID for onboarding: ${currentSessionId}`);
 
       const requestBody = {
         message: entryContent.trim(),
@@ -1003,8 +996,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         setParsedCoachingData(parsedData);
         
         // Log initial life deep dive session completion
+        const currentSessionId = getSessionId();
         console.log('✅ [COACHING] Completing initial life deep dive session...', {
-          sessionId: sessionId,
+          sessionId: currentSessionId,
           duration: sessionMinutes,
           messageCount: messages.length,
           wordsWritten: totalWords,
@@ -1012,9 +1006,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         });
         
         // Track initial life deep dive session completion
-        if (sessionId) {
+        if (currentSessionId && currentSessionId !== 'anonymous-onboarding') {
           trackCoachingSessionCompleted({
-            session_id: sessionId,
+            session_id: currentSessionId,
             duration_minutes: Math.max(sessionMinutes, 1),
             message_count: messages.length,
             words_written: totalWords,
@@ -1054,34 +1048,30 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    // Generate session ID for first user message if not already set
-    let currentSessionId = sessionId;
-    if (!currentSessionId) {
-      currentSessionId = generateSessionId();
-      setSessionId(currentSessionId);
-      console.log(`🆔 Generated new session ID for onboarding: ${currentSessionId}`);
-      
-      // Log initial life deep dive session start
-      console.log('🎯 [COACHING] Starting initial life deep dive session...', {
-        sessionId: currentSessionId,
-        sessionType: 'initial_life_deep_dive',
-        trigger: 'manual'
-      });
-      
-      // Track initial life deep dive session started on first user message
-      trackCoachingSessionStarted({
-        session_id: currentSessionId,
-        session_type: 'initial_life_deep_dive',
-        trigger: 'manual',
-      });
-      
-      // Also track this as an onboarding step completion
-      trackOnboardingStep({
-        step_name: 'initial_life_deep_dive_started',
-        step_number: 17,
-        time_spent: Math.floor((Date.now() - sessionStartTime.getTime()) / 1000),
-      });
-    }
+    // Use user ID as session ID for onboarding
+    const currentSessionId = getSessionId();
+    console.log(`🆔 Using user ID as session ID for onboarding: ${currentSessionId}`);
+    
+    // Log initial life deep dive session activity
+    console.log('🎯 [COACHING] Initial life deep dive session activity...', {
+      sessionId: currentSessionId,
+      sessionType: 'initial_life_deep_dive',
+      trigger: 'manual'
+    });
+    
+    // Track initial life deep dive session started on first user message
+    trackCoachingSessionStarted({
+      session_id: currentSessionId,
+      session_type: 'initial_life_deep_dive',
+      trigger: 'manual',
+    });
+    
+    // Also track this as an onboarding step completion
+    trackOnboardingStep({
+      step_name: 'initial_life_deep_dive_started',
+      step_number: 17,
+      time_spent: Math.floor((Date.now() - sessionStartTime.getTime()) / 1000),
+    });
 
     const messageContent = chatInput.trim();
     setChatInput('');
@@ -1391,15 +1381,16 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       // Navigate to compass story with onboarding completed
       navigation.navigate('CompassStory', { 
         fromOnboarding: true,
-        sessionId: sessionId || undefined, // Pass sessionId for insight tracking
+        sessionId: getSessionId(), // Pass sessionId for insight tracking
         parsedCoachingData: parsedCoachingData || undefined
       });
       setShowCompletionForMessage(null);
 
       // Trigger insight extraction in background if we have a session ID
-      if (sessionId) {
-        console.log('🧠 Starting insight extraction for onboarding session:', sessionId);
-        triggerInsightExtraction(sessionId); // Don't await - run in background
+      const finalSessionId = getSessionId();
+      if (finalSessionId && finalSessionId !== 'anonymous-onboarding') {
+        console.log('🧠 Starting insight extraction for onboarding session:', finalSessionId);
+        triggerInsightExtraction(finalSessionId); // Don't await - run in background
       }
 
       // After compass story, navigate to main app

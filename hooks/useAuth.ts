@@ -574,6 +574,10 @@ export function useAuth() {
         await settingsCache.clearCache(firebaseUser.uid);
         console.log('🧹 Clearing auth cache for user:', firebaseUser.uid);
         await authCache.clearCache();
+        console.log('🧹 Clearing coaching cache for user:', firebaseUser.uid);
+        // Import coaching cache service dynamically to avoid circular dependencies
+        const { coachingCacheService } = await import('../services/coachingCacheService');
+        await coachingCacheService.clearUserMessages(firebaseUser.uid);
       }
       
       console.log('✅ Sign out completed successfully');

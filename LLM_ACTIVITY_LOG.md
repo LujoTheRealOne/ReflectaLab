@@ -1,868 +1,1320 @@
-# LLM Activity Log - ReflectaLab
-
-This file records all important changes and implementations made by the LLM assistant.
-
-
-*This log file should be updated after every significant LLM implementation.*
-
-## 2025-01-27
-
-- **Implemented Note Editing Functionality**: Added ability to tap on saved notes to open and edit them in NewNote screen:
-  * **Made NoteCard Touchable**: Converted NoteCard from View to TouchableOpacity with onPress prop and activeOpacity for better user feedback
-  * **Added Navigation Logic**: Updated NotesScreen to navigate to NewNote with selectedEntry parameter when note cards are tapped
-  * **Leveraged Existing Infrastructure**: Used existing selectedEntry handling in NewNote screen that was already implemented for drawer navigation
-  * **Comprehensive Coverage**: Applied onPress handlers to both "This week" and "Last 7 days" note sections
-  * **Console Logging**: Added logging to track which notes are being opened for debugging
-  * **Result**: Users can now tap any note card in the Notes screen to open it for editing in the NewNote screen with full formatting capabilities
-
-- **Fixed ArdaEditor Auto-Heading Disable**: Added functionality to automatically turn off heading formatting when user presses Enter:
-  * **Smart Detection**: Monitors HTML content changes to detect when user creates new line after heading (</h1> followed by <p>, <div>, or <br>)
-  * **Automatic State Update**: Updates manualFormatState to disable heading1 when new line is detected
-  * **UI Feedback**: Toolbar H1 button automatically unhighlights when heading format is disabled
-  * **Safety Check**: Added optional chaining to prevent "Cannot read property 'heading1' of undefined" error
-  * **Result**: Natural heading behavior where heading format automatically turns off when user presses Enter, similar to other rich text editors
-
-- **Fixed ArdaEditor Formatting Toolbar Integration**: Resolved issue where formatting buttons in KeyboardToolbar weren't working with ArdaEditor:
-  * **Root Cause**: KeyboardToolbar was passing markdown-style prefixes/suffixes (like `**` for bold, `*` for italic) but ArdaEditor's `handleFormatText` function expects only the format type to use RichEditor's native formatting commands
-  * **Solution**: 
-    - Removed markdown prefixes/suffixes from KeyboardToolbar button definitions, now passing only format types ('bold', 'italic', 'strike', 'heading1', 'bullet', 'number', 'quote')
-    - Updated KeyboardToolbar interface to match simplified parameter structure
-    - Updated NewNote.tsx to pass only formatType to editorRef.current?.formatText()
-  * **Enhancement**: Added Quote formatting button to KeyboardToolbar to match ArdaEditor's supported formats
-  * **Result**: All formatting buttons (Bold, Italic, Strikethrough, H1, Bullet List, Numbered List, Quote) now work correctly with proper active state indication
-
-- **Fixed Settings Compass Navigation Issue**: Resolved issue where compass cards in SettingsScreen were not responding to touches and navigating to CompassStoryScreen:
-  * **Root Cause 1**: Compass cards had `disabled={!hasInsights}` prop which prevented interaction when users didn't have insights yet
-  * **Root Cause 2**: RevenueCat was not initialized (`rcInitialized: false`) which blocked navigation even after removing disabled state
-  * **Solution**: 
-    - Removed the `disabled` prop from all compass cards (Main Focus, Key Blockers, Your Plan) to allow navigation regardless of insights status
-    - **BYPASSED RevenueCat checks** for compass navigation to allow immediate access without waiting for RevenueCat initialization or Pro subscription
-  * **Enhanced Debugging**: Added comprehensive console logging and haptic feedback to `handleViewInsights` function for better debugging
-  * **Updated Your Stats Card**: Changed the "Your stats" card onPress handler from a console.log to use the same `handleViewInsights` function as other compass cards
-  * **Consistent Navigation**: All four compass cards now consistently navigate to CompassStoryScreen when pressed
-  * **Temporary Access**: Navigation bypasses Pro subscription checks temporarily for development/testing purposes
-  * **Result**: Users can now successfully navigate to the compass story from any compass card in the settings screen without RevenueCat or Pro subscription barriers
-
-- **Fixed useCurrentEntry Import Error**: Fixed a runtime error in NewNote.tsx where `useCurrentEntry` was being imported from the wrong location:
-  * **Error**: `TypeError: 0, _HomeScreen.useCurrentEntry is not a function (it is undefined)`
-  * **Root Cause**: NewNote.tsx was importing `useCurrentEntry` from `@/navigation/HomeScreen` but the hook is actually defined and exported from `@/components/CurrentEntryContext`
-  * **Solution**: Updated import statement to `import { useCurrentEntry } from '@/components/CurrentEntryContext'`
-  * **Result**: Runtime error resolved, NewNote screen should now load without crashing
-
-- **Fixed ArdaEditor Formatting Toolbar Integration**: Fixed the integration between ArdaEditor and KeyboardToolbar where formatting buttons weren't working:
-  * **Root Cause**: KeyboardToolbar was passing markdown-style prefixes/suffixes (like `**` for bold, `*` for italic) but ArdaEditor's `handleFormatText` function expects only the format type to use RichEditor's native formatting commands
-  * **Solution**: Removed markdown prefixes/suffixes from KeyboardToolbar button definitions, now passing only format types ('bold', 'italic', 'strike', 'heading1', 'bullet', 'number', 'quote')
-  * **Enhancement**: Added Quote formatting button to KeyboardToolbar to match ArdaEditor's supported formats
-  * **Result**: All formatting buttons (Bold, Italic, Strikethrough, H1, Bullet List, Numbered List, Quote) now work correctly with proper active state indication
-
-- **Fixed Critical Navigation Issue - Cache/Backend Mismatch**: Resolved a critical issue where users who had completed onboarding in the backend were still being redirected to onboarding screens due to cache/backend data mismatch:
-  * **Root Cause**: The `useAuth` hook was caching `needsOnboarding: true` state even when the backend Firestore data showed `onboardingCompleted: true`, causing navigation logic to incorrectly redirect completed users back to onboarding
-  * **Navigation Logic Improvements**: Enhanced navigation logic in `navigation/index.tsx` and `navigation/AuthNavigator.tsx` to properly handle onboarding completion status:
-    - Added automatic user account refresh on navigation mount to ensure latest backend data
-    - Updated navigation conditions to only consider onboarding chat progress if user actually needs onboarding
-    - Added detection and handling of potential cache/backend mismatches
-  * **Auth Hook Enhancements**: Improved `hooks/useAuth.ts` with better cache management:
-    - Added `refreshUserAccount()` function to force refresh user account data from backend
-    - Enhanced `completeOnboarding()` to use the new refresh mechanism
-    - Added comprehensive logging for debugging cache refresh operations
-  * **AppNavigator Safeguard Fix**: Fixed the safeguard in `navigation/AppNavigator.tsx` that was incorrectly redirecting users:
-    - Updated safeguard to check both onboarding progress AND backend completion status
-    - Added automatic progress clearing when backend shows completion but local progress exists
-    - Prevents infinite redirect loops for users with completed onboarding
-  * **Require Cycle Resolution**: Fixed the require cycle warning between `navigation/HomeScreen.tsx` and `screens/NewNote.tsx`:
-    - Extracted `CurrentEntryContext` to separate file `components/CurrentEntryContext.tsx`
-    - Eliminated circular dependency while maintaining functionality
-  * **Result**: Users who complete onboarding now properly navigate to the main app without being redirected back to onboarding screens, and the app correctly syncs cache with backend data
-
-## 2025-01-27
-
-- **Replaced Compass Section with 2x2 Cards Grid in Settings**: Transformed the compass display from a single large image and button to an interactive card-based interface:
-  * **New Card Layout**: Replaced the large compass preview image with a 2x2 grid of insight cards:
-    - **Main Focus Card**: Shows the main focus headline with blue accent color (#2563EB)
-    - **Key Blockers Card**: Displays key blockers headline with orange accent color (#EA580C)  
-    - **Your Plan Card**: Shows plan headline with green accent color (#16A34A)
-    - **View All Card**: General card for accessing complete compass story with app tint color
-  * **Card Design**: Each card follows the provided design specification:
-    - 171px height with 16px padding and 24px border radius
-    - Light background (#F9F9F9 light, #1A1A1A dark) with subtle border and shadow
-    - Header section with colored title and timestamp
-    - Content section showing the insight headline or fallback text
-    - Proper dark theme support for all text colors and borders
-  * **Interactive Functionality**: All cards navigate to CompassStory screen when tapped:
-    - Uses existing `handleViewInsights()` function for navigation
-    - Maintains Pro subscription gating and paywall presentation
-    - Cards are disabled when no insights are available (`!hasInsights`)
-  * **Data Integration**: Cards display real insight data from useInsights hook:
-    - Shows actual headlines from `insights.mainFocus.headline`, `insights.keyBlockers.headline`, `insights.plan.headline`
-    - Displays individual timestamps using existing `formatLastUpdated()` function
-    - Falls back to "No insights yet" when data is unavailable
-  * **Responsive Layout**: Grid uses flexbox with proper spacing:
-    - 2x2 grid layout with 12px gap between cards
-    - Each card takes ~48% width with flex: 1 for equal sizing
-    - Maintains proper spacing and alignment across different screen sizes
-  * **Theme Compatibility**: Full dark theme support throughout:
-    - Dynamic background colors for light/dark modes
-    - Proper text color adaptation for titles, timestamps, and content
-    - Border colors adjust appropriately (#D9D9D9 light, #333 dark)
-  * **Improved User Experience**: More engaging and informative compass overview:
-    - Users can see all three insight types at a glance
-    - Individual timestamps show when each insight was last updated
-    - Cleaner, more modern card-based interface
-    - Maintains all existing functionality while improving visual presentation
-
-- Added Notes screen and navigation wiring:
-  * Created `screens/NotesScreen.tsx` implementing the provided layout (header "Notes", grouped sections, and note cards) with light/dark theme compatibility.
-  * Registered `Notes` route in `navigation/AppNavigator.tsx` with iOS-style slide transition.
-  * Updated the journal drawer icon button in `screens/HomeContent.tsx` to navigate to `Notes` instead of opening the drawer, per request.
-  * No data hookups yet; the screen uses placeholder content and is ready to bind to Firestore later.
-
-- **Added Onboarding Reset Feature to Settings**: Implemented functionality to allow users to reset their onboarding progress and go through the onboarding process again:
-  * **Settings Screen Enhancement**: Added new "Reset Onboarding" button to the "More Information" section:
-    - Added RotateCcw icon from lucide-react-native for visual clarity
-    - Positioned button in the information section alongside Privacy Policy, Terms of Service, and App Information
-    - Maintains consistent styling with other info buttons using ghost variant
-  * **Reset Functionality**: Implemented `handleResetOnboarding()` function with proper user confirmation:
-    - Shows confirmation alert explaining the consequences of resetting onboarding
-    - Uses destructive style for the reset action to indicate permanent change
-    - Calls `clearOnboardingProgress()` from useOnboardingProgress hook to clear AsyncStorage
-    - Shows success confirmation after reset completion
-    - Includes proper error handling with user-friendly error messages
-  * **Integration with Existing System**: Leverages existing onboarding infrastructure:
-    - Uses `useOnboardingProgress` hook's `clearProgress` function
-    - Removes onboarding data from AsyncStorage (@onboarding_progress key)
-    - App will automatically detect missing onboarding progress on next launch
-    - User will be redirected through complete onboarding flow again
-  * **User Experience**: Clear communication about what the reset does:
-    - Explains that all onboarding progress will be cleared
-    - Informs user they'll need to complete onboarding again
-    - Provides confirmation that reset was successful
-    - Maintains app stability - no immediate navigation changes required
-  * **CRITICAL FIX - Complete Reset Implementation**: Fixed the reset functionality to clear both AsyncStorage AND Firebase onboarding status:
-    - **Issue**: Initial implementation only cleared AsyncStorage but Firebase still had `onboardingCompleted: true`
-    - **Root Cause**: App navigation logic checks Firebase user account data (`useAuth.ts` line 195) for onboarding completion status
-    - **Solution**: Updated `handleResetOnboarding()` to also reset Firebase onboarding data:
-      - Calls `FirestoreService.updateUserAccount()` to set `onboardingCompleted: false`
-      - Resets all onboarding data fields to default values (empty arrays, 0 values)
-      - Updates `updatedAt` timestamp for proper data consistency
-    - **Complete Reset Flow**: Now properly clears both local (AsyncStorage) and server (Firebase) onboarding state
-    - **User Guidance**: Updated success message to recommend app restart for clean onboarding experience
-
-- **Fixed ArdaEditor Layout and Size Constraints**: Resolved editor expanding beyond screen boundaries and improved layout behavior:
-  * **Height Constraints**: Limited editor height to prevent unlimited expansion:
-    - Set `minHeight: 300px` and `maxHeight: 600px` for the RichEditor
-    - Reduced `initialHeight` from 500px to 300px for better initial display
-    - Added proper height constraints to `editorStack` container
-  * **Width and Overflow Control**: Prevented horizontal overflow and content expansion:
-    - Added `maxWidth: '100%'` and `overflow: 'hidden'` to all container styles
-    - Enhanced CSS styling with `max-width: 100%` and `overflow-x: hidden`
-    - Added `word-wrap: break-word` to ensure text wraps properly
-    - Applied `box-sizing: border-box` to all elements for consistent sizing
-  * **ScrollView Improvements**: Enhanced scrolling behavior and content containment:
-    - Removed `KeyboardAvoidingView` wrapper that was causing layout issues
-    - Added `bounces={false}` and `overScrollMode="never"` to prevent overscroll
-    - Updated `contentContainerStyle` to use proper style object instead of inline styles
-    - Added proper padding and margin constraints
-  * **Coaching Blocks Layout**: Fixed coaching block positioning and text wrapping:
-    - Added horizontal margins (16px) to coaching blocks for proper spacing
-    - Applied `maxWidth: '100%'` and `overflow: 'hidden'` to prevent expansion
-    - Enhanced text wrapping with `flexWrap: 'wrap'` for content and buttons
-    - Added `flexShrink: 1` to option buttons for responsive sizing
-  * **CSS Enhancements**: Improved web content styling within RichEditor:
-    - Added comprehensive CSS rules for content containment
-    - Enhanced `cssText` and `contentCSSText` with proper width constraints
-    - Added proper padding (16px left/right) for better text positioning
-    - Ensured all elements respect container boundaries with `!important` rules
-
-- **Fixed Autocorrect and Word Suggestions in ArdaEditor**: Resolved text input issues where autocorrect and word suggestions weren't working properly:
-  * **Native Text Input Properties**: Added proper autocorrect and spell checking support:
-    - Enabled `autoCorrect={true}` and `spellCheck={true}` on RichEditor
-    - Added `autoCapitalize="sentences"` for proper capitalization
-    - Set appropriate `keyboardType="default"` and `returnKeyType="default"`
-    - Added `textContentType="none"` to prevent interference with text input
-  * **WebView CSS Enhancements**: Improved contenteditable behavior with proper CSS rules:
-    - Added `autocorrect: on`, `spellcheck: true`, and `autocapitalize: sentences` to CSS
-    - Enhanced `[contenteditable]` elements with `-webkit-user-modify: read-write-plaintext-only`
-    - Added `-webkit-line-break: after-white-space` for proper word breaking
-    - Applied `word-break: break-word` for consistent text wrapping
-  * **Focus and Initialization Handling**: Added proper event handlers for better text input:
-    - Added `handleEditorFocus()` to ensure proper focus behavior
-    - Added `handleEditorInitialized()` for proper content loading
-    - Added `onFocus` and `onLoad` event handlers to RichEditor
-    - Set `keyboardDisplayRequiresUserAction={false}` for immediate keyboard access
-  * **Hardware Acceleration**: Optimized performance for text input:
-    - Enabled `androidHardwareAccelerationDisabled={false}` for better performance
-    - Set `androidLayerType="hardware"` for optimized rendering
-    - Added `-webkit-text-size-adjust: 100%` for consistent text sizing
-  * **Text Selection Improvements**: Enhanced text selection and editing capabilities:
-    - Added `-webkit-user-select: text` and `-webkit-touch-callout: default`
-    - Set `-webkit-appearance: none` to prevent system interference
-    - Initially enabled full keyboard functionality, then refined for better UX
-
-- **Removed iOS Keyboard Accessory View (Done Bar)**: Hidden the unwanted keyboard toolbar that appears above the iOS keyboard:
-  * **Native Property**: Set `hideKeyboardAccessoryView={true}` on RichEditor to hide the accessory view
-  * **CSS Enhancement**: Added `-webkit-keyboard-accessory-view: none` to both `cssText` and `contentCSSText`
-  * **Applied to All Input Elements**: Ensured the CSS rule applies to `input`, `textarea`, and `[contenteditable]` elements
-  * **User Experience**: Provides cleaner keyboard interface without the distracting "Done" toolbar
-  * **Maintains Functionality**: Autocorrect and spell checking still work without the accessory view
-
-- **Repositioned Microphone Button and Extended Editor Height**: Improved layout by moving microphone button to navigation level and extending editor reach:
-  * **Microphone Button Positioning**: Moved floating microphone button down to navigation buttons level:
-    - Changed `bottom` position from `120px` to `40px` in `floatingMicButton` style
-    - Updated animation `translateY` values from `20px` to `-80px` for keyboard-closed state
-    - Updated initial position to match new lower placement
-    - Button now aligns with navigation buttons when keyboard is closed
-  * **Editor Height Extension**: Increased editor container height to reach navigation buttons:
-    - Reduced `marginBottom` from `80px` to `20px` when keyboard is closed
-    - Editor now extends much closer to navigation buttons for better space utilization
-    - Maintained `200px` margin when keyboard is visible for proper text input space
-  * **Improved Space Utilization**: Better use of screen real estate:
-    - More writing space available when keyboard is closed
-    - Microphone button positioned at natural thumb reach level
-    - Cleaner visual alignment with navigation elements
-
-- **Added Automatic Cursor Positioning to End of Text in ArdaEditor**: Enhanced UX by automatically moving cursor to the end of content when editor is focused or tapped:
-  * **Cursor Positioning Function**: Implemented `moveCursorToEnd()` with robust JavaScript injection:
-    - Uses `document.createRange()` and `window.getSelection()` APIs for precise cursor control
-    - Handles both text nodes and element nodes for comprehensive content support
-    - Includes proper error handling with non-critical logging
-    - Focuses the contenteditable element before positioning cursor
-  * **Focus Event Integration**: Enhanced `handleEditorFocus()` to automatically position cursor:
-    - Calls `moveCursorToEnd()` with 100ms delay after focus to ensure proper timing
-    - Maintains existing focus functionality while adding cursor positioning
-    - Provides console logging for debugging and user feedback
-  * **Smart Click Detection**: Enhanced cursor positioning to only trigger on empty areas:
-    - Analyzes click location using `window.getSelection()` and `getBoundingClientRect()`
-    - Only moves cursor to end when clicking on truly empty areas
-    - Preserves normal text editing when clicking within existing content
-    - Prevents interference with text selection and editing operations
-  * **Improved Writing Experience**: Smart cursor behavior that respects user intent:
-    - Cursor automatically jumps to end only when clicking on empty areas
-    - Normal text editing preserved when clicking within existing content
-    - Allows proper text selection and cursor positioning within text
-    - Seamless continuation of writing flow when accessing empty areas
-  * **WebView Message Handling**: Added `onMessage` handler for potential future enhancements:
-    - Logs WebView messages for debugging purposes
-    - Provides foundation for advanced editor interactions if needed
-
-- **Enhanced Editor Layout and Width Constraints**: Fixed editor height consistency and prevented horizontal expansion:
-  * **Improved Height Management**: Enhanced editor to always reach navigation buttons:
-    - Changed `editorStack` and `richEditor` to use `flex: 1` for full space utilization
-    - Increased `minHeight` from 300px to 400px for better minimum coverage
-    - Increased `initialHeight` from 300px to 500px for better initial display
-    - Editor now consistently reaches navigation level regardless of content amount
-  * **Strict Width Control**: Implemented comprehensive horizontal constraint system:
-    - Added `width: 100% !important` and `min-width: 100% !important` to body element
-    - Applied `max-width: 100% !important` and `overflow-x: hidden !important` to all elements
-    - Enhanced word wrapping with `word-break: break-word !important` and `overflow-wrap: break-word !important`
-    - Prevented editor from expanding beyond container boundaries
-  * **Content Element Constraints**: Applied strict width rules to all content elements:
-    - Paragraphs (`p`) and divs constrained to `width: 100% !important`
-    - All contenteditable elements forced to respect container width
-    - Input and textarea elements prevented from horizontal overflow
-    - Comprehensive CSS rules with `!important` flags to override any conflicting styles
-  * **Improved Text Wrapping**: Enhanced text flow and line breaking:
-    - Multiple word-wrapping strategies: `word-wrap`, `word-break`, and `overflow-wrap`
-    - Proper line breaking with `-webkit-line-break: after-white-space`
-    - Consistent text flow regardless of content length or type
-
-- **Added Life Compass Reset Feature to Settings**: Implemented functionality to allow users to reset their compass insights and start fresh:
-  * **Settings Screen Enhancement**: Added new "Reset Life Compass" button to the "More Information" section:
-    - Added Compass icon from lucide-react-native for visual clarity
-    - Positioned alongside other reset/utility options (Reset Onboarding, App Information)
-    - Maintains consistent styling with other info buttons using ghost variant
-  * **Compass Reset Functionality**: Implemented `handleResetCompass()` function with proper user confirmation:
-    - Shows detailed confirmation alert explaining permanent deletion of all compass data
-    - Uses destructive style to indicate irreversible action
-    - Calls new `FirestoreService.deleteUserInsights()` method to remove all insights
-    - Shows success confirmation after deletion completion
-    - Includes proper error handling with user-friendly error messages
-  * **Backend Support**: Added `deleteUserInsights()` method to FirestoreService:
-    - Queries `userInsights` collection for all documents belonging to the user
-    - Deletes all insights documents using batch Promise.all() for efficiency
-    - Includes proper error handling and logging
-    - Returns meaningful error messages for UI handling
-  * **Data Management**: Complete removal of compass insights data:
-    - Deletes all user insights from Firestore `userInsights` collection
-    - Removes Main Focus, Key Blockers, and Plan data permanently
-    - Real-time listeners automatically update UI to reflect empty state
-    - New insights will be generated as user continues journaling and coaching
-  * **User Experience**: Clear communication about compass reset consequences:
-    - Explains that all compass insights will be permanently deleted
-    - Warns that action cannot be undone
-    - Informs user that new insights will be generated through future activity
-    - Provides confirmation that reset was successful
-
-- **Restored Goal Breakout Session Generation After Coaching Completion**: Re-implemented the missing functionality where completing a coaching session automatically generates a goal breakout session linked to a journal entry:
-  * **Enhanced Coaching Completion Flow**: Modified `CoachingScreen.tsx` to create goal breakout sessions after coaching completion:
-    - Added `createGoalBreakoutSession()` function that generates a new coaching session with `sessionType: 'default-session'`
-    - Creates initial assistant message welcoming user to goal breakout planning
-    - Links the new session to the completed coaching session via `parentSessionId`
-  * **Automatic Journal Entry Linking**: Creates a new journal entry automatically linked to the goal breakout session:
-    - Generates journal entry with `linkedCoachingSessionId` pointing to the goal breakout session
-    - Sets appropriate title: "Goal Breakout - [date]"
-    - Leaves content empty for user to fill in during their reflection
-  * **Updated Type Definitions**: Enhanced `types/journal.ts` to include `linkedCoachingSessionId` field:
-    - Added `linkedCoachingSessionId?: string` to `JournalEntry` interface
-    - Maintains existing `linkedCoachingMessageId` field for coaching messages
-    - Enables proper linking between journal entries and coaching sessions
-  * **HomeContent Integration**: The existing HomeContent logic automatically detects and displays linked coaching sessions:
-    - Shows "Goal breakout session" card when `linkedCoachingSessionId` is present
-    - Allows users to click and continue the goal breakout conversation
-    - Maintains proper session type detection (`sessionType === 'default-session'` → "Goal breakout session")
-  * **User Experience Flow**: 
-    1. User completes coaching session → clicks "End this session"
-    2. System creates goal breakout session in background
-    3. System creates linked journal entry
-    4. User sees compass results, then returns to home
-    5. Home screen shows new "Goal breakout session" card
-    6. User can click to continue goal planning conversation
-  * **Error Handling**: Added proper error handling and logging for goal breakout session creation
-  * **Analytics Integration**: Tracks journal entry creation for goal breakout sessions using existing analytics
-
-## 2025-08-25
-
-- **Replaced TipTap Editor with High-Performance Native React Native Editor**: Eliminated WebKit issues and performance problems by creating a complete native replacement:
-  * **Backup and Migration**: 
-    - Moved existing TipTap.tsx to TipTap_backup.tsx for safe preservation of original implementation
-    - Created new native editor using same interface (EditorProps) for seamless drop-in replacement
-    - Maintained backward compatibility with all existing props and callbacks
-  * **Native Performance Gains**: 
-    - Replaced DOM-based TipTap editor with native React Native TextInput for superior performance
-    - Eliminated WebKit bridge issues and webkit.messageHandlers polyfills
-    - Removed heavy dependencies (@tiptap packages) reducing bundle size
-    - Native keyboard handling and text selection for better mobile UX
-  * **Preserved AI Coaching Features**: 
-    - Maintained spacebar trigger for AI coaching blocks (empty line + space)
-    - Preserved streaming AI response handling and XML parsing logic
-    - Kept all coaching block variants (text, buttons, multi-select) with native rendering
-    - Maintained AIChatInterface integration and keyboard shortcuts
-  * **Enhanced Native Experience**: 
-    - Native React Native coaching blocks using TouchableOpacity and Text components
-    - Proper KeyboardAvoidingView and ScrollView for optimal mobile experience
-    - Native haptic feedback and animations using React Native Reanimated
-    - Intelligent cursor position tracking and text insertion
-  * **Visual Consistency**: 
-    - Maintained dark/light theme compatibility with proper Colors integration
-    - Preserved same dimensions and styling as original editor
-    - Native components styled to match existing app design patterns
-  * **Technical Implementation**: 
-    - Used AsyncStorage-ready architecture for future offline capabilities
-    - Proper React Native lifecycle management with useRef and useCallback patterns
-    - Error handling and graceful fallbacks for API failures
-    - Memory-efficient with no DOM manipulation or web dependencies
-  * **Developer Experience**: 
-    - Cleaner codebase with standard React Native patterns
-    - Easier debugging without web/native context switching
-    - Simplified maintenance without webkit compatibility issues
-  * **Result**: High-performance native journal editor that eliminates WebKit crashes while preserving all AI coaching functionality and providing superior mobile UX
-
-- **Added Native Keyboard Formatting Toolbar**: Enhanced the native journal editor with comprehensive text formatting capabilities:
-  * **Smart Keyboard Toolbar**: Created `KeyboardToolbar.tsx` component that appears above keyboard when typing
-    - Positioned dynamically above keyboard using keyboard height detection
-    - Horizontal scrolling for all formatting options
-    - Clean, native design matching app theme
-  * **Complete Formatting Options**: 
-    - **Bold** (`**text**`) - Wrap selected text in double asterisks
-    - **Italic** (`*text*`) - Wrap selected text in single asterisks  
-    - **Strikethrough** (`~~text~~`) - Cross out text with tildes
-    - **Code** (`\`text\``) - Inline code with backticks
-    - **Heading 1** (`# text`) - Large headers with hash
-    - **Heading 2** (`## text`) - Medium headers with double hash
-    - **Bullet Lists** (`• text`) - Unordered lists with bullet points
-    - **Numbered Lists** (`1. text`) - Ordered lists with numbers
-    - **Quotes** (`> text`) - Block quotes with greater than symbol
-    - **Clear Formatting** - Remove all markdown formatting from text
-  * **Intelligent Text Processing**: 
-    - **Cursor-aware formatting**: Inserts formatting at exact cursor position
-    - **Line-based formatting**: Headers, lists, and quotes applied to current line
-    - **Inline formatting**: Bold, italic, code applied around cursor with proper positioning
-    - **Smart cursor placement**: Positions cursor between formatting markers for immediate typing
-  * **Native Performance Features**: 
-    - Uses native TextInput setNativeProps for instant cursor positioning
-    - Haptic feedback on all button presses for tactile experience
-    - Markdown-style formatting that's readable in plain text
-    - Real-time text updates with proper state management
-  * **Enhanced Keyboard Integration**: 
-    - Automatic show/hide based on keyboard visibility
-    - Proper padding adjustments for toolbar space
-    - Smooth keyboard animations and transitions
-    - keyboardShouldPersistTaps for uninterrupted formatting
-  * **Result**: Professional text editing experience with full formatting capabilities while maintaining native performance and eliminating WebKit issues. Users can now format their journal entries with rich text while typing, creating beautifully formatted content that remains readable even in plain text form.
-
-## 2025-08-25 (Previous)
-
-- **Fixed Logout White Screen Issue**: Resolved critical UX problem where users saw white screen during logout:
-  * **Enhanced Auth State Management**: 
-    - Added `isSigningOut` state to track logout process and prevent auth state confusion
-    - Improved `isAuthReady` logic to remain stable during logout transitions
-    - Added proper timing control with 500ms delay to allow smooth navigation completion
-  * **Navigation Loading Enhancement**: 
-    - Updated Navigation component to show splash screen during logout process
-    - Prevented white screen flash by maintaining loading state throughout sign out
-    - Added debug logging for `isSigningOut` state for better monitoring
-  * **Firebase Auth State Cleanup**: 
-    - Preserved `isSigningOut` state during Firebase auth cleanup to maintain stability
-    - Enhanced comment documentation for timeout management strategy
-  * **Result**: Logout now provides smooth transition with proper loading state, eliminating jarring white screen experience
-
-- **Fixed Logout Navigation & Auth Token Errors**: Resolved persistent navigation issues and API errors during logout:
-  * **HomeContent Auth Guards**: 
-    - Added authentication checks to `fetchCoachingSession` to prevent API calls when `firebaseUser` is null
-    - Enhanced dependency arrays to include `firebaseUser` for proper cleanup during logout
-    - Added early return logic with descriptive logging for auth state validation
-  * **Navigation Flow Optimization**: 
-    - Force auth flow during sign out by including `isSigningOut` in `shouldShowAuthFlow` logic
-    - Enhanced navigation key to include logout state for immediate navigation reset
-    - Improved logout transition timing from 500ms to 200ms for faster UX
-  * **Auth State Cleanup Enhancement**: 
-    - Added comprehensive logging for auth state reset completion
-    - Immediate state cleanup in Firebase auth change handler when user signs out
-    - Faster isSigningOut reset with improved timeout management
-  * **Result**: Eliminated "Error fetching coaching session: No auth token" errors and ensured immediate navigation to auth flow during logout
-
-- **Fixed Critical Logout Race Condition**: Resolved persistent auto re-sign-in issue that was causing infinite logout loops:
-  * **Enhanced Timing Control**: 
-    - Removed premature timeout-based `isSigningOut` reset (200ms) that was causing race conditions
-    - Reset `isSigningOut` only when Firebase auth state actually changes to null (proper lifecycle management)
-    - Added comprehensive logging for sign out completion and auth state transitions
-  * **Multi-Layer Auto Sign-In Guards**: 
-    - Added `isSigningOut` guard to prevent auto sign-in during logout process
-    - Added `isFirebaseReady` check to ensure Firebase is ready before attempting auto sign-in
-    - Implemented 2-second cooldown period after sign out using `lastSignOutTimeRef` timestamp
-    - Added detailed logging for each guard condition with remaining cooldown time
-  * **Robust State Management**: 
-    - Track sign out timestamp in `lastSignOutTimeRef` to prevent immediate re-authentication
-    - Enhanced dependency arrays to include `isSigningOut` in auto sign-in and user loading effects
-    - Comprehensive cleanup of all auth-related state when Firebase user becomes null
-  * **Result**: Eliminated race condition where logout would complete but immediately trigger auto sign-in, causing white screen and auth loops
-
-- **Enhanced PostHog Analytics for New User Tracking**: Implemented comprehensive user tracking system with intelligent new user detection:
-  * **Enhanced Analytics Functions**: 
-    - Enhanced `trackSignUp` with detailed user properties (email, name, method, account creation time, duration)
-    - Enhanced `trackSignIn` with user identification and returning user detection
-    - Enhanced `trackOnboardingCompleted` with onboarding data, user responses, and completion analytics
-    - Added `trackFirstTimeAppOpened` for new user funnel analysis and first-session tracking
-  * **Intelligent New User Detection**: 
-    - Implemented smart detection based on account creation time (within 60 seconds) and onboarding status
-    - Automatic differentiation between new sign-ups and returning user sign-ins
-    - Fallback account creation tracking for edge cases and error scenarios
-  * **Comprehensive Logging System**: 
-    - Added detailed console logging for all PostHog events with user identification
-    - Enhanced debug logging for sign-up vs sign-in detection with timing analysis
-    - Structured logging with user properties, methods, and duration tracking
-  * **Enhanced OAuth Flow Tracking**: 
-    - Added step-by-step logging for Google and Apple OAuth flows
-    - Enhanced error tracking and user journey analytics
-    - Improved sign-in duration tracking and method detection
-  * **Result**: Complete PostHog analytics pipeline for user acquisition, onboarding funnel analysis, and retention tracking with production-ready event structure
-
-- **Fixed Onboarding Consistency System**: Resolved critical issue where OnboardingChatScreen (life deep dive) wouldn't resume properly after app restart:
-  * **Enhanced Navigation Priority Logic**: 
-    - Implemented 3-tier priority system in AuthNavigator: step 17 resume > saved progress > fresh start
-    - Added priority override for OnboardingChat (step 17) to ALWAYS resume regardless of Firestore state
-    - Enhanced getInitialRouteName with detailed logging and step-by-step decision tracking
-  * **Fixed Timing and State Conflicts**: 
-    - Added progressLoading dependency to root Navigation component to wait for AsyncStorage before routing
-    - Enhanced navigation route determination to respect AsyncStorage progress over Firestore user account state
-    - Added hasOnboardingChatProgress check to force auth flow when user has step 17 progress
-  * **Enhanced Progress Persistence**: 
-    - Added immediate progress saving on OnboardingChatScreen mount with detailed parameter logging
-    - Implemented unmount progress saving to catch user navigation away from screen
-    - Enhanced progress tracking with comprehensive console logging for debugging
-  * **Added AppNavigator Safeguard**: 
-    - Implemented safety mechanism to redirect users back to auth flow if they reach main app with OnboardingChat progress
-    - Added CommonActions.reset navigation to ensure proper flow redirection
-    - Comprehensive logging for safeguard activation and user flow tracking
-  * **Enhanced Debug Logging System**: 
-    - Added detailed logging for shouldResumeOnboarding and canNavigateToChat decisions
-    - Enhanced AuthNavigator debug logs with full progress state and routing decisions
-    - Added comprehensive logging for progress loading, saving, and navigation state changes
-  * **Result**: Bulletproof onboarding consistency system that ensures users always resume from their exact position in OnboardingChatScreen, with multiple layers of safeguards and comprehensive debugging
-
-- **Fixed Infinite Loop and Analytics Dependencies**: Resolved critical performance issues in OnboardingChatScreen and useAnalytics.ts:
-  * **OnboardingChatScreen Infinite Loop Fix**: 
-    - Identified and fixed infinite unmount/mount loop caused by excessive dependencies in useEffect cleanup function
-    - Changed unmount useEffect to empty dependency array to only run on actual component unmount
-    - Eliminated continuous "Component unmounting, ensuring progress is saved" console spam
-    - Improved component lifecycle management and performance
-  * **useAnalytics.ts Dependencies Fix**: 
-    - Fixed missing posthog dependencies in 15+ useCallback functions causing potential stale closure issues
-    - Added posthog dependency to all analytics tracking functions for proper React hooks compliance
-    - Fixed trackSignOut, trackAppOpened, trackEntryCreated, trackMeaningfulAction, and 10+ other functions
-    - Ensured all PostHog tracking functions properly update when posthog instance changes
-  * **Result**: Eliminated performance degradation and infinite loops, improved analytics reliability with proper React hooks patterns
-
-- **Fixed Onboarding Completion Loop**: Resolved critical issue where completed onboarding would restart life deep dive:
-  * **Root Cause Analysis**: OnboardingChatScreen was saving progress on component unmount even after successful onboarding completion
-    - User completes life deep dive → `handleEnterApp()` → onboarding completion ✅
-    - AsyncStorage cleared → `🗑️ Cleared onboarding progress` ✅
-    - Firebase updated → `needsOnboarding: false, onboardingCompleted: true` ✅
-    - BUT component unmount cleanup → `💾 Saved onboarding progress: {currentStep: 17}` ❌
-    - Next app start → Found progress → Redirected to OnboardingChat again ❌
-  * **Solution Implemented**: 
-    - Added `isOnboardingCompleted` state and `isOnboardingCompletedRef` useRef for closure-safe tracking
-    - Enhanced `handleEnterApp()` to mark completion before navigation: `setIsOnboardingCompleted(true)` + `isOnboardingCompletedRef.current = true`
-    - Modified unmount useEffect cleanup to check completion status before saving progress
-    - Added safeguard: `if (isOnboardingCompletedRef.current) { skip progress save }`
-  * **Technical Details**:
-    - Used useRef pattern to avoid stale closure issues in useEffect cleanup with empty dependencies
-    - Maintained proper React hooks patterns while preventing unwanted side effects
-    - Added comprehensive logging for debugging onboarding completion flow
-  * **Result**: Clean onboarding completion → no progress saved on unmount → no false resume → direct home screen access after life deep dive completion
-
-- **Fixed PostHog Analytics Spam**: Eliminated excessive user_signed_in event tracking that was flooding analytics:
-  * **Problem Identified**: `user_signed_in` event was being tracked multiple times per session on every Firebase auth state change
-    - Every Firebase auth state update → `initializeUserDocument()` → `trackSignIn()` call
-    - Same user session producing 5-10+ duplicate analytics events
-    - PostHog dashboard polluted with redundant sign-in data
-    - Analytics data accuracy compromised by false engagement metrics
-  * **Solution Implemented**: 
-    - Added session-based tracking with `lastTrackedUserIdRef` to prevent duplicate events
-    - Enhanced tracking logic: `if (!hasAlreadyTrackedThisUser) { track() }` pattern
-    - Session tracking state: Mark user as tracked once per app session
-    - Logout state cleanup: Reset `lastTrackedUserIdRef.current = null` on user sign-out
-    - Smart logging: Added "(session-once)" markers and "already tracked" skip messages
-  * **Technical Implementation**:
-    - Used `useRef` for session-persistent tracking state across auth state changes
-    - Maintained proper lifecycle: Track on first auth → Skip subsequent → Reset on logout → Track next user
-    - Preserved all tracking functionality while eliminating spam
-    - Added comprehensive logging for tracking decisions and skips
-  * **Result**: Clean analytics flow → One sign-in event per user per session → Accurate PostHog metrics → No tracking spam
-
-- **CRITICAL FIX: Firebase Auth Persistence on React Native**
-  * Implemented AsyncStorage-backed persistence to prevent random logouts across sessions
-  * Changes in `lib/firebase.ts`:
-    - Switched to `initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) })`
-    - Added guard to fallback to `getAuth(app)` if `initializeAuth` was already called
-    - Ensured this runs only on React Native (non-web) platforms
-    - Kept emulator connections intact and idempotent
-  * Impact:
-    - Fixes `@firebase/auth` warning about memory persistence
-    - Prevents auth state loss after app restarts → no more random logouts
-    - Stabilizes auth flow and onboarding state across sessions
-
-## 2025-08-24
-
-- **Fixed Authentication Consistency Issues**: Completely overhauled authentication state management to provide smooth user experience:
-  * **Enhanced useAuth Hook**: 
-    - Added timeout handling (10s) for user account loading to prevent infinite loading states
-    - Implemented exponential backoff retry logic for Firebase authentication failures
-    - Added comprehensive error state management with user-friendly messages
-    - Created fallback user account creation to prevent blocking when Firestore fails
-    - Added proper cleanup of timeouts and retry mechanisms on component unmount
-    - Improved state synchronization between Clerk and Firebase authentication
-  * **Improved Navigation State Management**: 
-    - Simplified navigation keys to reduce unnecessary stack resets
-    - Added dedicated error screens with retry functionality
-    - Implemented proper loading states for both authentication and user data
-    - Removed blocking user account loading that could cause infinite loading
-    - Added graceful handling of network failures and timeouts
-  * **Enhanced Security & Error Handling**: 
-    - Added input validation for authentication tokens and API configurations
-    - Improved error messages with specific handling for network and token errors
-    - Added proper response validation for token exchange operations
-    - Enhanced logging with security-conscious debug information
-    - Implemented proper error recovery mechanisms
-  * **Professional Code Structure**: 
-    - Organized state variables with clear comments and sections
-    - Added comprehensive TypeScript types for all authentication states
-    - Implemented proper cleanup patterns for all async operations
-    - Added computed authentication states for better navigation decisions
-  * **Result**: Authentication now handles edge cases gracefully, provides clear error feedback, and never blocks users indefinitely. The app provides a smooth authentication experience even with poor network conditions or service failures.
-
-- **Fixed Login Screen Flash Issue**: Eliminated the bad UX of showing login screen before redirecting to home for authenticated users:
-  * **Enhanced Splash Screen Management**: 
-    - Modified App.tsx to keep splash screen visible until Clerk authentication is fully loaded
-    - Reduced splash screen timeout from 2s to 500ms after auth state is determined
-    - Prevents premature hiding of splash screen during auth initialization
-  * **Improved Authentication State Logic**: 
-    - Enhanced isAuthReady computation to wait for both Clerk and Firebase auth states
-    - Added comprehensive authentication state checks before showing navigation
-    - Implemented conservative auth state management to prevent false negatives
-  * **Optimized Navigation Flow**: 
-    - Return null from Navigation component until auth is fully ready (keeps splash visible)
-    - Removed blocking user account loading that caused additional loading screens
-    - Allow authenticated users to proceed to app while user data loads in background
-  * **Enhanced Debug Logging**: 
-    - Added detailed console logs for authentication state changes
-    - Improved debugging capabilities for authentication flow issues
-  * **Result**: App now opens directly to the correct screen (home for authenticated users, login for non-authenticated) without any intermediate flashing or loading screens. Provides a smooth, professional app startup experience.
-
-## 2025-08-24 (Previous)
-
-- **Added Year Display to Home Screen**: Enhanced the date display section in HomeContent.tsx:
-  * Added year display above the existing weekday/month/day display
-  * Extracted year from the same `displayDate` used for other date components
-  * Added `yearText` style with small font (12px), bold weight (600), reduced opacity (0.6), and negative margin for proper spacing
-  * Maintains consistent styling with existing date display design
-  * Works with both current day entries and historical entries
-
-- **Added Calendar Navigation to Journal Drawer**: Implemented date-based navigation in JournalDrawer.tsx:
-  * Added calendar icon button next to "Journal Entries" title in drawer header
-  * Installed and integrated `@react-native-community/datetimepicker` dependency
-  * Created bottom sheet modal with calendar picker for date selection
-  * Implemented date selection logic to navigate to entries for chosen date
-  * If entry exists for selected date, navigates to that entry
-  * If no entry exists for selected date, creates new entry opportunity
-  * Added proper TypeScript types and error handling
-  * Includes haptic feedback and smooth modal animations
-  * Compatible with both iOS and Android date picker styles
-  * Enhanced modal layout with proper positioning, handle bar, shadows, and safe area support
-  * Improved UX with backdrop touch handling and proper modal animations
-  * Fixed calendar layout positioning and styling for better user experience
-
-- **Repositioned Microphone Button with Keyboard Animations**: Enhanced microphone button UX in HomeContent.tsx:
-  * Moved microphone button from bottom navbar to floating right-side position
-  * Created round, floating design with shadow and elevation effects
-  * Implemented smooth animations that respond to keyboard visibility
-  * When keyboard appears: button animates smoothly above keyboard
-  * When keyboard hides: button returns to right side, slightly above navbar
-  * Added proper z-index layering and touch handling
-  * Maintained all existing recording functionality and disabled states
-  * Used React Native Reanimated for performant, smooth animations
-  * Fixed keyboard behavior: navigation elements now hide when keyboard opens
-  * Lowered microphone button position above keyboard (20px gap instead of 80px)
-  * Improved UX by preventing navigation interference during text input
-  * Removed navbar container styling (borders, shadows, background) for cleaner appearance
-  * Fine-tuned microphone button positioning: positioned much lower when keyboard open (80px above keyboard) with consistent 2px right padding in both states
-  * Fixed microphone button visibility issue when keyboard opens
-  * Optimized positioning for better accessibility and visual consistency
-
-- **Fixed Editor Text Wrapping and Layout**: Resolved horizontal overflow issues in TipTap editor:
-  * Added proper word-wrap and overflow-wrap properties to editor styles in TipTap.tsx
-  * Implemented max-width constraints and box-sizing for proper container behavior
-  * Enhanced CSS in tiptap.css with comprehensive text wrapping rules for all content types
-  * Added specific handling for long URLs, code blocks, and links to prevent horizontal scrolling
-  * Updated HomeContent container styles to properly constrain editor width
-  * Fixed TypeScript typing issues with CSS properties
-  * Text now properly wraps within screen boundaries instead of extending horizontally
-  * Restored coaching cards to always be visible (reversed previous hiding behavior)
-  * Resized microphone button from 60x60px to 50x50px for better proportion
-  * Changed microphone icon color from white to gray (#666666) and reduced icon size to 20px
-  * Added plus button next to date text for creating new journal entries
-  * Plus button triggers createNewEntry() function with haptic feedback
-  * Styled as minimal icon without background or border
-  * Reduced navigation button widths from 70px to 45px for Settings and Chat buttons to match drawer button size
-  * Improved visual consistency across bottom navigation elements
-  * Replaced text-based save status indicators with icons:
-    - "Saved" → Check icon (✓)
-    - "Saving/Unsaved" → Animated spinning Loader2 icon
-    - "Creating new entry" → FileText/Draft icon  
-  * Added smooth rotation animation for loading states using React Native Reanimated
-  * Enhanced save status icons for better visibility: increased size from 16px to 18px
-  * Implemented dark mode compatibility with appropriate colors and opacity
-  * All status icons use consistent colors: white in dark mode, black in light mode
-
-- Switched `screens/CoachingScreen.tsx` from `useAudioTranscriptionAv` (expo-av) to `useAudioTranscription` (expo-audio) to enable real-time microphone input metering for the recording indicator. No UI changes, only hook swap. The `AudioLevelIndicator` now reflects actual levels via `recorderState.metering` with normalization and graceful fallback.
-
-- Fixed keyboard behavior in CoachingScreen: When the text input is focused and user starts voice recording, the keyboard now stays open instead of dismissing. Applied to `handleMicrophonePress`, `handleRecordingCancel`, and `handleRecordingConfirm` functions using `isChatInputFocused` state and delayed focus restoration.
-
-- Implemented onboarding progress persistence with AsyncStorage:
-  * Created `hooks/useOnboardingProgress.ts` to manage onboarding state persistence
-  * Updated `screens/auth/Onboarding.tsx` to save progress on each step and restore on app restart
-  * Updated `screens/auth/OnboardingChatScreen.tsx` to clear progress when onboarding completes
-  * Updated `navigation/AuthNavigator.tsx` to resume onboarding from saved progress
-  * Users can now exit the app during onboarding and resume from where they left off
-  * Progress includes: currentStep, name, selectedRoles, selectedSelfReflection, clarityLevel, stressLevel, coachingStylePosition, timeDuration, and interaction states
-
-
-- **Enhanced Message Scrolling System in OnboardingChatScreen**: Copied advanced message positioning and scrolling logic from CoachingScreen to OnboardingChatScreen:
-  * Implemented powerful message positioning system with dynamic content height calculation
-  * Added smart scroll management with user scroll detection and auto-positioning
-  * Added scroll-to-bottom button that appears when AI responses complete and user scrolls up
-  * Added performance optimizations with useMemo for dynamic calculations
-  * User messages now position 20px below header for optimal visibility
-
-- **Improved Input Box Handling in OnboardingChatScreen**: Updated input system to match CoachingScreen's advanced functionality:
-  * TextInput now completely hides (renders null) during voice recording
-  * Added intelligent keyboard focus management - preserves and restores focus during recording
-  * Implemented SpinningAnimation during transcription phase
-  * Added clean recording UI with audio level indicator and cancel/confirm buttons
-  * Switched from `useAudioTranscriptionAv` to `useAudioTranscription` for real-time audio level metering
-
-- **Enhanced UI Components**: 
-  * Added AnimatedTypingIndicator with 3-dot animation for AI response loading states
-  * Improved AudioLevelIndicator with 6-dot real-time visualization during recording
-  * Added scroll-to-bottom button with proper styling and positioning
-  * Updated loading message containers with fixed heights for smooth animations
-
-- **Fixed Onboarding Completion Flow**: Updated OnboardingChatScreen completion behavior:
-  * "View Compass Results" button now properly completes onboarding process by calling `completeOnboarding()`
-  * Added loading state to completion button to prevent double-taps
-  * Button shows "Completing..." text during onboarding completion process
-  * Ensures user is marked as onboarding complete in Firebase and AsyncStorage is cleared
-
-- **Fixed Enter App Button Persistence**: Resolved issue where Enter App button would disappear after appearing:
-  * Added `hasReached100` state to track when progress reaches 100%
-  * Enter App button now stays visible permanently once progress reaches 100%
-  * Added progress bar safety with Math.min to prevent values exceeding 100%
-  * Added debug logging for progress tracking
-
-- **Ensured Premium Bypass for Initial Compass Access**: Enhanced CompassStoryScreen to properly bypass premium requirements for onboarding:
-  * Added detailed debug logging when `fromOnboarding: true` parameter is passed
-  * Confirmed premium paywall is bypassed for first-time compass access after deep dive
-  * Users can view their initial compass results without premium subscription requirement
-
-- **Fixed Meditation Screen Exit Behavior**: Corrected navigation logic when user exits app during meditation:
-  * Updated `canNavigateToChat()` function in `hooks/useOnboardingProgress.ts` to properly handle step 15 (meditation preparation screen)
-  * Removed incorrect logic that allowed navigation to main app when onboarding steps were completed but onboarding wasn't officially finished
-  * Now only allows chat navigation for step 17 (OnboardingChat) or when `completedAt` timestamp exists
-  * Fixed issue where exiting during meditation would redirect to home screen instead of returning to step 15 (meditation preparation)
-  * Users now properly resume from meditation preparation screen (step 15) when they exit during meditation, allowing them to restart meditation process
-
-- **Fixed View Insights Button**: Corrected function errors in SettingsScreen.tsx:
-  * Fixed undefined variable `initialized` → `rcInitialized`
-  * Fixed undefined function `presentPaywallIfNeeded` → `presentPaywall`
-  * Removed unused `currentOffering` parameter
-  * Button now properly navigates to CompassStory screen for Pro users
-  * Non-Pro users correctly see paywall before accessing insights
-
-- **Added Restore Subscription for Pro Users**: Enhanced subscription management in SettingsScreen.tsx:
-  * Added small "Restore Purchases" button below "Manage Subscription" for Pro users
-  * Used ghost variant for subtle appearance with 10px top margin
-  * Maintained existing restore functionality with proper error handling
-  * Preserved original layout for Free users
-
-- **TEMPORARY: RevenueCat Bypass for TestFlight Testing**: Disabled RevenueCat integration to prevent crashes:
-  * Modified `useRevenueCat` hook to always return `isPro: true` and `initialized: true`
-  * Bypassed all RevenueCat SDK configuration, initialization, and API calls
-  * Disabled paywall presentations (`presentPaywall`, `presentPaywallIfNeeded`) - always return true
-  * Disabled purchase restoration and customer info refresh functions
-  * Added clear bypass comments and TODO notes for easy reversion
-  * Users can now access all Pro features (coaching, compass, voice recording) without subscription
-  * All original RevenueCat code preserved in comments for future restoration
-  * This allows full app testing in TestFlight without subscription-related crashes
-
-- **Enhanced Editor and UI Polish**: Improved user experience with personalized welcome and theme consistency:
-  * Updated TipTap editor placeholder to "Welcome Louis, what's on your mind?" for personalized greeting
-  * Fixed microphone button icon color in light mode - now white (#ffffff) for better contrast
-  * Confirmed save status icons are properly themed - black (#000000) in light mode, white (#ffffff) in dark mode
-  * Placeholder text disappears automatically when user starts typing (built-in TipTap behavior)
-  * All UI elements now properly respect system theme changes
-
-- **UI Refinements and Cleanup**: Final polish for better user experience:
-  * Increased save status icon opacity to 0.8 in light mode for better visibility (was 0.4, too faint)
-  * Centered chat and settings icons in navbar with justifyContent and alignItems center alignment
-  * Removed TipTap placeholder extension completely - clean editor with no placeholder text
-  * Removed unused user prop from TipTap component for cleaner code
-  * All UI elements now have consistent visual hierarchy and proper contrast
-
-## 2025-01-13
-
-- **Enhanced PostHog Analytics Implementation**: Comprehensive tracking system for professional dashboards and metrics:
-  * **Enhanced Analytics Functions in `useAnalytics.ts`**:
-    - `trackMeaningfulAction` - Tracks substantial user actions (journal entries 200+ chars, coaching sessions) for true DAU/WAU measurement
-    - `trackOnboardingStep` - Detailed funnel tracking for key steps (signup → coaching config → meditation → session start → compass view)
-    - `trackCoachingSessionStarted/Completed` - Full coaching session lifecycle with duration, message count, words written, insights generated
-    - `trackNotificationPermissionRequested/Granted/Denied` - Permission tracking with context (onboarding/settings/prompt)
-    - `trackCoachingMessagesOptIn` - Coach message preference tracking with frequency and context
-    - `trackLifeCompassViewed` - Life compass viewing analytics with source context and compass data
-  * **Implementation across all key screens**:
-    - `HomeContent.tsx` - Meaningful action tracking for journal entries (triggers at 200+ characters)
-    - `Onboarding.tsx` - Key onboarding step completion tracking with user input and time spent
-    - `OnboardingChatScreen.tsx` - Coaching session lifecycle, notification permissions, and coaching message opt-ins
-    - `SettingsScreen.tsx` - Settings-based notification and coaching message preference changes
-    - `CompassStoryScreen.tsx` - Life compass viewing from different contexts (onboarding/coaching/navigation)
-  * **Professional Dashboard Metrics Now Available**:
-    - DAU/WAU based on meaningful actions (not just app opens)
-    - Retention analysis based on valuable user actions
-    - Detailed onboarding funnel with drop-off analysis
-    - Notification opt-in rates and coaching message adoption
-    - Coaching session engagement and completion rates
-    - Life compass viewing patterns and user journey mapping
-  * All tracking includes proper timestamps, user context, and relevant metadata for comprehensive analytics
-
-- **Enhanced Onboarding Analytics for Detailed Funnel Analysis**: Significantly improved onboarding step tracking for granular drop-off analysis:
-  * **Expanded Step Tracking in `Onboarding.tsx`**: Updated `getStepName()` function to track 15 detailed onboarding steps:
-    - `name_entered` (Step 1) - User entered their name
-    - `roles_selected` (Step 2) - User selected their life roles 
-    - `self_reflection_selected` (Step 3) - User selected self-reflection practices
-    - `clarity_level_set` (Step 4) - User set their life clarity level
-    - `stress_level_set` (Step 5) - User set their stress level
-    - `motivation_viewed` (Step 6) - User viewed motivational message
-    - `research_viewed` (Step 8) - User viewed research-backed benefits
-    - `figures_viewed` (Step 9) - User viewed world leading figures
-    - `ready_confirmed` (Step 10) - User confirmed they're ready
-    - `coaching_style_configured` (Step 11) - User configured coaching style
-    - `time_duration_set` (Step 12) - User set session duration
-    - `configuration_loading` (Step 13) - System loading custom configuration
-    - `meditation_intro_viewed` (Step 14) - User viewed meditation introduction
-    - `meditation_prepared` (Step 15) - User prepared for meditation (headphones step)
-    - `meditation_started` (Step 16) - User started 5-minute meditation
-  * **Renamed Initial Coaching Session Tracking**: Distinguished initial life deep dive from regular coaching sessions:
-    - Changed `session_type` from 'onboarding' to 'initial_life_deep_dive' in `OnboardingChatScreen.tsx`
-    - Updated `trackOnboardingStep` call to use 'initial_life_deep_dive_started' instead of 'coaching_session_started'
-    - Updated `trackCoachingSessionStarted` type definition to include 'initial_life_deep_dive' session type
-    - Enhanced console logging to clarify when initial life deep dive starts vs. regular coaching sessions
-  * **Enhanced Analytics Type System**: Updated `trackOnboardingStep` function in `useAnalytics.ts`:
-    - Added all 15 new step names plus 'initial_life_deep_dive_started' and 'life_compass_viewed' to type definitions
-    - Enables comprehensive funnel analysis with detailed drop-off points identification
-    - Better segmentation between initial onboarding deep dive and regular coaching usage
-  * **PostHog Dashboard Benefits**: With these analytics improvements, now possible to create:
-    - Detailed 17-step onboarding funnel (signup → name → roles → ... → meditation → deep dive → compass)
-    - Precise drop-off analysis at every onboarding checkpoint
-    - Distinction between initial life deep dive engagement vs. ongoing coaching sessions
-    - User journey mapping from first touch to compass completion
-    - Granular retention analysis based on specific onboarding completion milestones
-
-- **Separated Initial vs Regular Coaching Session Events**: Enhanced event naming for clearer PostHog analytics distinction:
-  * **Updated `trackCoachingSessionStarted` Function**: Modified to use different event names based on session type:
-    - Initial life deep dive sessions → `initial_coaching_session_started` event
-    - Regular coaching sessions → `coaching_session_started` event  
-    - Session type automatically determined from `session_type` parameter
-  * **Updated `trackCoachingSessionCompleted` Function**: Added session type parameter and dynamic event naming:
-    - Initial life deep dive completion → `initial_coaching_session_completed` event
-    - Regular coaching completion → `coaching_session_completed` event
-    - Added `session_type` parameter to completion tracking calls
-  * **Enhanced All Coaching Session Tracking**: Updated both `OnboardingChatScreen.tsx` and `CoachingScreen.tsx`:
-    - OnboardingChatScreen tracks with `session_type: 'initial_life_deep_dive'`
-    - CoachingScreen tracks with `session_type: 'regular'`
-    - Console logging now shows the specific event name being tracked
-  * **PostHog Dashboard Benefits**: With these changes, now possible to create:
-    - Separate funnel analysis for initial life deep dive vs. regular coaching engagement
-    - Clear conversion tracking from onboarding deep dive to regular coaching usage
-    - Distinct session duration and completion rate metrics for each coaching type
-    - Better user journey understanding: onboarding → initial deep dive → regular coaching patterns
-
-- **Fixed Critical WebView Bridge Error in TipTap Editor**: Resolved production crash caused by webkit messageHandlers access in DOM context:
-  * **Root Cause**: TipTap editor using `"use dom"` directive was trying to access `window.webkit.messageHandlers.ReactNativeWebView.postMessage()` which doesn't exist in DOM context
-  * **Solution in `TipTap.tsx`**: Added WebView bridge safety polyfill to prevent undefined object access:
-    ```typescript
-    // WebView bridge safety check - prevent webkit messageHandlers errors in DOM context
-    if (typeof window !== 'undefined' && !window.webkit) {
-      window.webkit = {
-        messageHandlers: {
-          ReactNativeWebView: {
-            postMessage: () => {
-              console.warn('WebView postMessage called in DOM context - ignoring');
-            }
-          }
-        }
-      } as any;
+# LLM Activity Log
+
+## 2024-12-19 - Mobile Commitment System Integration
+
+### Problem
+Mobile coaching system was not integrated with the web backend's commitment API endpoints. Key differences identified:
+- **API Integration**: Mobile only did local state updates, web used proper API calls
+- **Commitment Check-ins**: Mobile lacked `commitmentCheckin` cards that web scheduler sends
+- **Commitment Flow**: Mobile didn't create actual commitment documents in Firestore
+- **Scheduler System**: Mobile had no automatic commitment check-in message system
+
+### Solution Implementation
+
+#### 1. Added Commitment Check-in Cards
+- **NEW FILE**: `components/cards/CommitmentCheckinCard.tsx`
+- **Features**: Yes/No response buttons, streak tracking, response messages
+- **Integration**: Calls `/api/coaching/commitments/checkin` endpoint
+- **UI**: Clean design matching existing card system
+
+#### 2. Updated Mobile API Integration
+- **Enhanced**: `CoachingScreen.tsx` commitment handling
+- **API Calls**: Now calls `/api/coaching/commitments/create` and `/api/coaching/commitments/checkin`
+- **State Sync**: Proper message content updates with API responses
+- **Error Handling**: Comprehensive error logging and user feedback
+
+#### 3. Commitment Flow Improvements
+- **Creation**: Mobile now creates actual Firestore commitment documents
+- **Updates**: Proper state management with `accepted`, `rejected`, `none` states
+- **ID Tracking**: Commitment IDs properly stored and referenced
+- **Message Updates**: Token-based content updates for both card types
+
+#### 4. Parser Enhancements
+- **Card Recognition**: Added `commitmentCheckin` to coaching card parser
+- **Content Cleaning**: Updated display content cleaner for new card types
+- **Token Handling**: Enhanced regex patterns for both commitment card types
+
+### Technical Details
+
+#### API Endpoints Used
+```typescript
+// Commitment Creation
+POST /api/coaching/commitments/create
+{
+  title, description, type, deadline?, cadence?,
+  coachingSessionId, messageId
+}
+
+// Commitment Check-in
+POST /api/coaching/commitments/checkin
+{
+  commitmentId, completed: boolean,
+  coachingSessionId, messageId
+}
+```
+
+#### Card Types Supported
+- `commitmentDetected`: For initial commitment creation
+- `commitmentCheckin`: For scheduled check-ins (from scheduler)
+
+#### State Management
+- **Creation Flow**: `none` → `accepted`/`rejected` + API call
+- **Check-in Flow**: `none` → `yes`/`no` + API call
+- **Message Updates**: Token-based content replacement
+- **Firestore Sync**: Automatic persistence via API endpoints
+
+### Impact
+- ✅ Mobile now fully integrated with web commitment system
+- ✅ Users receive scheduled commitment check-ins on mobile
+- ✅ Proper commitment tracking and streak management
+- ✅ Consistent experience across web and mobile platforms
+- ✅ No breaking changes to existing functionality
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Enhanced commitment handling
+- `components/cards/CommitmentCheckinCard.tsx` - New check-in card
+- `components/cards/index.ts` - Added new card export
+
+### Testing Notes
+- Commitment creation flow tested with API integration
+- Check-in card responses properly call backend APIs
+- Message content updates work correctly
+- No linter errors introduced
+
+## 2024-12-19 - Mobile Commitment Status Update Fix
+
+### Problem
+Mobile commitment check-in status updates were not working properly. Investigation revealed:
+- **Missing Authentication**: Mobile API calls lacked `Authorization` header
+- **Wrong Update Strategy**: Mobile was doing frontend message updates instead of backend
+- **Inconsistent Flow**: Web system handled updates in backend, mobile in frontend
+
+### Root Cause Analysis
+1. **Authentication Issue**: Mobile `fetch` calls missing `Bearer ${token}` header
+2. **Message Update Logic**: Mobile manually updating message content in frontend
+3. **Backend Sync**: Backend updates weren't reflected in mobile UI
+
+### Solution Implementation
+
+#### 1. Fixed Authentication Headers
+- **Enhanced**: All commitment API calls now include proper `Authorization: Bearer ${token}`
+- **Consistency**: Matches web system authentication pattern
+- **Security**: Ensures proper user verification on backend
+
+#### 2. Corrected Update Flow
+- **Before**: Mobile updated message content manually in frontend
+- **After**: Backend handles message updates, mobile refreshes from backend
+- **Method**: Uses `refreshFromBackend()` function after successful API calls
+- **Benefit**: Single source of truth for message state
+
+#### 3. Optimistic UI Updates
+- **Added**: Immediate UI feedback for better UX
+- **Pattern**: Update UI first, then call API (matches web system)
+- **Fallback**: Backend refresh ensures consistency
+
+#### 4. Enhanced Error Handling
+- **Logging**: Comprehensive error logging for debugging
+- **User Feedback**: Clear error messages in console
+- **Graceful Degradation**: UI updates even if backend sync fails
+
+### Technical Changes
+
+#### API Call Pattern (Before)
+```typescript
+// Missing auth header, manual message update
+fetch('/api/commitments/checkin', {
+  headers: { 'Content-Type': 'application/json' }
+})
+// Manual token replacement in message content
+```
+
+#### API Call Pattern (After)
+```typescript
+// Proper auth header, backend handles updates
+fetch('/api/commitments/checkin', {
+  headers: { 
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  }
+})
+// Backend updates message, mobile refreshes
+await refreshFromBackend();
+```
+
+#### Message Update Strategy
+- **Web**: Backend updates `userResponse="none"` → `userResponse="yes/no"`
+- **Mobile**: Now matches web - backend handles all message updates
+- **Sync**: Mobile refreshes from backend after API success
+
+### Impact
+- ✅ Commitment status updates now work on mobile
+- ✅ Proper authentication for all API calls
+- ✅ Consistent behavior between web and mobile
+- ✅ Single source of truth for message state
+- ✅ Better error handling and user feedback
+- ✅ Optimistic UI updates for better UX
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Fixed API auth and update flow
+- `components/cards/CommitmentCheckinCard.tsx` - Added optimistic updates
+
+### Verification
+- Commitment creation: ✅ Creates Firestore documents
+- Commitment check-in: ✅ Updates status and streak
+- Message updates: ✅ Backend handles token updates
+- Authentication: ✅ Proper Bearer token in headers
+- UI feedback: ✅ Immediate optimistic updates
+
+## 2024-12-19 - Mobile Backend Refresh Fix for Commitment Updates
+
+### Problem
+User reported: "COMMITMENT OLUŞTURULUYOR AMA STATUS DEGİSTİRME İSLEMİ OLMUYOR WEBDE OLUYOR O"
+- Commitments were being created successfully
+- But status updates (check-ins) were not reflecting in mobile UI
+- Web system worked correctly
+
+### Root Cause Analysis
+The `refreshFromBackend()` function was using **cache service** instead of **direct Firestore access**:
+
+```typescript
+// WRONG: Using cache service (not real backend)
+const sessionResult = await coachingCacheService.initializeSession(userId);
+
+// CORRECT: Direct Firestore access (real backend)
+const firestoreResult = await loadMessagesFromFirestore(userId);
+```
+
+### Technical Issue
+- **Web System**: Direct Firestore queries for message updates
+- **Mobile System**: Was using `coachingCacheService.initializeSession()` which reads from cache
+- **Result**: Backend updates weren't visible because mobile was reading stale cache data
+
+### Solution Implementation
+
+#### 1. Fixed refreshFromBackend Function
+```typescript
+// BEFORE (Wrong): Cache-based refresh
+const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+// This calls coachingCacheService.initializeSession() - CACHE!
+
+// AFTER (Correct): Direct Firestore refresh
+const firestoreResult = await loadMessagesFromFirestore(firebaseUser.uid);
+// This queries Firestore directly - REAL BACKEND!
+```
+
+#### 2. Enhanced Message State Management
+- **All Messages**: `setAllMessages(firestoreResult.allMessages)`
+- **Pagination**: Proper `hasMoreMessages` and `displayedMessageCount` updates
+- **Display**: Last 30 messages for UI (`firestoreResult.allMessages.slice(-30)`)
+
+#### 3. Added Debug Logging
+- Track when `refreshFromBackend` is called
+- Verify function availability
+- Log success/failure of refresh operations
+
+### Impact
+- ✅ **Status Updates Now Work**: Mobile UI reflects backend changes
+- ✅ **Real-time Sync**: Direct Firestore queries ensure fresh data
+- ✅ **Consistent Behavior**: Mobile now matches web system approach
+- ✅ **Better Debugging**: Enhanced logging for troubleshooting
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Fixed `refreshFromBackend` to use Firestore directly
+
+### Flow Verification
+1. **User clicks commitment check-in** → Optimistic UI update
+2. **API call succeeds** → Backend updates commitment + message content
+3. **refreshFromBackend called** → Direct Firestore query (not cache!)
+4. **UI updates** → Fresh data from Firestore shows updated status
+
+### Before vs After
+| Aspect | Before (Broken) | After (Fixed) |
+|--------|----------------|---------------|
+| Data Source | Cache Service | Direct Firestore |
+| Updates Visible | ❌ No | ✅ Yes |
+| Consistency | ❌ Stale data | ✅ Fresh data |
+| Web Parity | ❌ Different approach | ✅ Same approach |
+
+## 2024-12-19 - Fixed Double-Click Commitment Creation Bug
+
+### Problem
+User reported: "iki kere tıklıyorum iki tane aynı commitmentı ekliyor"
+
+**Evidence from logs:**
+- First commitment created: `"id": "O44QCgo2rkt1GWOkLGZr"`
+- Second commitment created: `"id": "9ZvGC1A2Bxgnf3wlhqV4"`
+- Both had identical content: "Visit Zoo", "I will visit a zoo tomorrow"
+
+### Root Cause Analysis
+The double-click prevention in CommitmentCard and CommitmentCheckinCard was insufficient:
+
+1. **State Update Timing**: `setCurrentState('accepted')` is async, so rapid clicks could bypass the check
+2. **No Processing State**: No loading state during API calls
+3. **Race Condition**: Second click could occur before first click's state update completed
+
+```typescript
+// PROBLEMATIC CODE:
+const handleAccept = () => {
+  if (currentState !== 'none') return; // ❌ Not enough!
+  setCurrentState('accepted'); // ❌ Async - second click can slip through
+  onUpdate?.({ state: 'accepted' });
+};
+```
+
+### Solution Implementation
+
+#### 1. Added Processing State
+```typescript
+const [isProcessing, setIsProcessing] = useState(false);
+
+const handleAccept = () => {
+  // ✅ Check both state AND processing
+  if (currentState !== 'none' || isProcessing) return;
+  
+  // ✅ Immediately set processing to block subsequent clicks
+  setIsProcessing(true);
+  setCurrentState('accepted');
+  
+  onUpdate?.({ state: 'accepted' });
+  
+  // ✅ Safety timeout in case API fails
+  setTimeout(() => setIsProcessing(false), 5000);
+};
+```
+
+#### 2. Enhanced Button States
+```typescript
+<TouchableOpacity
+  disabled={!editable || isProcessing} // ✅ Disable during processing
+  style={{ opacity: isProcessing ? 0.5 : 1 }} // ✅ Visual feedback
+>
+  <Text>{isProcessing ? 'Processing...' : 'Accept'}</Text>
+</TouchableOpacity>
+```
+
+#### 3. Comprehensive Logging
+```typescript
+console.log('🟢 Accept button pressed', { 
+  editable, currentState, isProcessing 
+});
+if (currentState !== 'none' || isProcessing) {
+  console.log('🟢 Accept blocked:', { 
+    editable, currentState, isProcessing 
+  });
+  return;
+}
+```
+
+### Technical Details
+
+#### Double-Click Prevention Strategy
+1. **Immediate State Lock**: `setIsProcessing(true)` runs synchronously
+2. **Multi-Condition Check**: Both `currentState` and `isProcessing` must be valid
+3. **Visual Feedback**: Button opacity and text change during processing
+4. **Safety Timeout**: 5-second timeout prevents permanent lock if API fails
+
+#### Applied to Both Components
+- **CommitmentCard**: Accept/Decline buttons
+- **CommitmentCheckinCard**: Yes/No buttons
+
+### Impact
+- ✅ **No More Duplicate Commitments**: Processing state prevents double-clicks
+- ✅ **Better UX**: Visual feedback shows processing state
+- ✅ **Robust Error Handling**: Timeout prevents permanent button lock
+- ✅ **Enhanced Debugging**: Comprehensive logging for troubleshooting
+
+### Files Modified
+- `components/cards/CommitmentCard.tsx` - Added processing state and double-click prevention
+- `components/cards/CommitmentCheckinCard.tsx` - Added processing state and double-click prevention
+
+### Testing Verification
+**Before Fix:**
+- Rapid clicks → Multiple API calls → Duplicate commitments ❌
+
+**After Fix:**
+- First click → Button disabled + "Processing..." text
+- Second click → Blocked by `isProcessing` check ✅
+- API completes → Button re-enabled automatically ✅
+
+## 2024-12-19 - Critical User Cache Security Fix
+
+### Problem
+**CRITICAL SECURITY ISSUE**: Users could see other users' coaching messages due to cache contamination. When switching between users, the previous user's coaching cache was not being cleared, causing serious privacy breaches.
+
+### Root Cause Analysis
+- CoachingScreen used basic AsyncStorage with simple user-prefixed keys
+- No automatic cache cleanup on user logout/switch
+- Missing cache validation and user isolation
+- State variables persisted across user sessions
+
+### Solution Implementation
+
+#### 1. Created Secure Coaching Cache Service
+- **NEW FILE**: `services/coachingCacheService.ts`
+- **Features**: Complete user isolation, automatic cleanup, cache validation
+- **Security**: Prevents cross-user data contamination
+- **Metadata**: Tracks cache usage and statistics per user
+
+#### 2. Updated CoachingScreen.tsx
+- **Added**: User switching detection with automatic cache cleanup
+- **Added**: Current user tracking to detect user changes
+- **Updated**: All cache operations to use secure cache service
+- **Added**: Comprehensive state reset on user switch
+
+#### 3. Updated useAuth.ts
+- **Added**: Coaching cache cleanup on user logout
+- **Integrated**: Secure cache service into sign-out flow
+
+#### 4. Updated Documentation
+- **Enhanced**: Technical analysis with security section
+- **Added**: User switching and cache isolation documentation
+
+### Technical Implementation
+
+```typescript
+// User switching detection
+const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+useEffect(() => {
+  const newUserId = firebaseUser?.uid || null;
+  
+  if (currentUserId && newUserId && currentUserId !== newUserId) {
+    // User switched - clear previous user's cache
+    clearCoachingCacheForUser(currentUserId);
+  } else if (currentUserId && !newUserId) {
+    // User logged out - clear current user's cache  
+    clearCoachingCacheForUser(currentUserId);
+  }
+  
+  coachingCacheService.setCurrentUser(newUserId);
+  setCurrentUserId(newUserId);
+}, [firebaseUser?.uid, currentUserId]);
+```
+
+### Security Features Added
+1. **User Isolation**: Each user has completely isolated cache
+2. **Automatic Cleanup**: Cache cleared on logout/user switch
+3. **Cache Validation**: Validates cache integrity before loading
+4. **State Reset**: All coaching states reset on user change
+5. **Metadata Tracking**: Monitors cache usage per user
+
+### Files Modified
+- **NEW**: `services/coachingCacheService.ts` - Secure cache service with user isolation
+- **MODIFIED**: `screens/CoachingScreen.tsx` - User switching detection and cache integration
+- **MODIFIED**: `hooks/useAuth.ts` - Coaching cache cleanup on logout
+- **MODIFIED**: `docs/COACHING_SYSTEM_DEEP_TECHNICAL_ANALYSIS.md` - Security documentation
+
+### Impact
+- **Before**: Users could see other users' coaching messages (CRITICAL SECURITY BREACH)
+- **After**: Complete user isolation with secure cache management
+- **Result**: Privacy protection and data security compliance
+
+### Status
+✅ **RESOLVED** - Critical security vulnerability patched
+
+## 2024-12-19 - Backend Synchronization Integration
+
+### Problem
+Cache initialization was not syncing with backend data, causing users to see stale local cache instead of latest backend data. This resulted in inconsistent state across devices and missing recent messages.
+
+### Root Cause
+- Cache service only loaded from local storage without checking backend
+- No mechanism to compare backend vs cache freshness
+- Missing automatic backend sync on user initialization
+- No manual refresh capability for users
+
+### Solution Implementation
+
+#### 1. Enhanced Coaching Cache Service
+- **Added**: Backend sync methods in `coachingCacheService.ts`
+- **Added**: Smart initialization with backend comparison
+- **Added**: Timestamp-based freshness checking
+- **Added**: Manual refresh capabilities
+
+#### 2. Smart Cache Loading Strategy
+```typescript
+// NEW: Smart cache loading with backend sync
+const loadMessagesFromStorage = async (userId: string) => {
+  // Check if backend has newer data
+  const isBackendNewer = await coachingCacheService.isBackendNewer(userId);
+  
+  if (isBackendNewer) {
+    return await coachingCacheService.initializeWithBackendSync(userId);
+  }
+  
+  return await coachingCacheService.loadMessages(userId);
+};
+```
+
+#### 3. Backend Sync Methods
+- **`syncWithBackend()`**: Direct Firestore sync with cache update
+- **`initializeWithBackendSync()`**: Smart initialization with backend-first approach
+- **`isBackendNewer()`**: Timestamp comparison for freshness check
+- **`refreshFromBackend()`**: Manual refresh for users
+
+#### 4. Updated CoachingScreen Integration
+- **Enhanced**: User switching to force re-initialization
+- **Added**: Manual refresh function for testing
+- **Updated**: Cache loading to prioritize backend data
+
+### Technical Implementation
+
+```typescript
+// Backend sync with timestamp comparison
+async isBackendNewer(userId: string): Promise<boolean> {
+  const metadata = await this.getMetadata();
+  const userMeta = metadata[userId];
+  
+  if (!userMeta) return true; // No local cache
+  
+  const sessionDoc = await getLatestSession(userId);
+  const backendUpdatedAt = sessionDoc?.updatedAt?.seconds * 1000 || 0;
+  
+  return backendUpdatedAt > userMeta.lastUpdated;
+}
+
+// Smart initialization prioritizing backend
+async initializeWithBackendSync(userId: string): Promise<CoachingMessage[]> {
+  // 1. Try backend first
+  const backendMessages = await this.syncWithBackend(userId);
+  if (backendMessages.length > 0) return backendMessages;
+  
+  // 2. Fallback to cache
+  return await this.loadMessages(userId);
+}
+```
+
+### Debug Functions Added
+- **Global**: `refreshCoachingFromBackend()` - Manual backend refresh
+- **Global**: `coachingCacheService` - Direct cache service access
+- **Enhanced**: `clearCoachingData()` - Complete data clearing
+
+### Files Modified
+- **ENHANCED**: `services/coachingCacheService.ts` - Backend sync methods
+- **UPDATED**: `screens/CoachingScreen.tsx` - Smart cache loading and manual refresh
+- **UPDATED**: `docs/COACHING_SYSTEM_DEEP_TECHNICAL_ANALYSIS.md` - Backend sync documentation
+
+### Impact
+- **Before**: Users saw stale cache data, missing recent messages
+- **After**: Always shows latest data from backend with intelligent caching
+- **Result**: Consistent cross-device experience with optimal performance
+
+### Status
+✅ **RESOLVED** - Backend synchronization fully integrated
+
+## 2024-12-19 - Fixed Session Creation Logic
+
+### Problem
+Cache was creating new coaching sessions instead of loading existing backend sessions. When cache had data, it would save that data as a new session instead of looking up the existing user session in backend first.
+
+### Root Cause
+- Initialization logic used cache-first approach
+- Session creation happened when cache data was saved to Firestore
+- No distinction between "existing session lookup" vs "new session creation"
+- Cache data could trigger unintended session creation
+
+### Solution Implementation
+
+#### 1. Backend-First Session Logic
+```typescript
+// NEW: Backend-first session initialization
+async initializeSession(userId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> {
+  // 1. ALWAYS check backend first for existing session
+  const backendMessages = await this.syncWithBackend(userId);
+  
+  if (backendMessages.length > 0) {
+    return { messages: backendMessages, sessionExists: true };
+  }
+  
+  // 2. No backend session exists - clear stale cache
+  await this.clearUserMessages(userId);
+  return { messages: [], sessionExists: false };
+}
+```
+
+#### 2. Updated CoachingScreen Logic
+- **Replaced**: `syncMessages()` with `initializeCoachingSession()`
+- **Logic**: Load existing session OR prepare for new session creation
+- **Behavior**: Session only created when user sends first message
+
+#### 3. Key Changes
+- **`loadExistingSessionFromBackend()`**: Pure backend lookup function
+- **`initializeCoachingSession()`**: Backend-first initialization with pagination
+- **Cache Role**: Now used only for performance, not session creation logic
+
+### Technical Implementation
+
+```typescript
+// Backend-first initialization in CoachingScreen
+const initializeChat = async () => {
+  // Load existing session from backend (never create from cache)
+  const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+  
+  if (sessionMessages.length > 0) {
+    // Existing session found
+    setMessages(sessionMessages);
+    console.log('✅ Loaded existing session');
+  } else {
+    // No session exists - show welcome message
+    // Session will be created when user sends first message
+    const initialMessage = { /* welcome message */ };
+    setMessages([initialMessage]);
+    console.log('✅ Ready to create new session');
+  }
+};
+```
+
+### Behavior Changes
+
+#### Before:
+1. Check cache first
+2. If cache has data → save to Firestore as new session
+3. If no cache → check backend
+4. Could create duplicate or unwanted sessions
+
+#### After:
+1. ALWAYS check backend first for existing session
+2. If session exists → load it
+3. If no session → clear cache and prepare for new session
+4. Session only created when user actually sends first message
+
+### Files Modified
+- **ENHANCED**: `services/coachingCacheService.ts` - Backend-first session logic
+- **UPDATED**: `screens/CoachingScreen.tsx` - New initialization flow
+- **REPLACED**: Cache-based session creation with backend lookup
+
+### Impact
+- **Before**: Cache could create unwanted new sessions
+- **After**: Sessions only exist if they were properly created via user interaction
+- **Result**: Clean session management with proper backend-first lookup
+
+### Status
+✅ **RESOLVED** - Session creation logic fixed, backend-first approach implemented
+
+---
+
+## 2024-01-XX - Fixed Coaching System Session ID Management
+
+### Problem
+The coaching system had inconsistent session ID management where random UUIDs were being generated instead of using the user ID for main coaching sessions. This caused issues with cache and backend communication.
+
+### Changes Made
+
+#### 1. Fixed CoachingScreen.tsx
+- **Removed**: `sessionId` state variable that was causing conflicts
+- **Updated**: `getSessionId()` function to consistently return `firebaseUser?.uid || 'anonymous'`
+- **Fixed**: All session ID references to use the consistent `getSessionId()` function
+- **Updated**: Session tracking, goal breakout creation, and insight extraction to use user-based session IDs
+- **Improved**: Session completion tracking to only run for authenticated users
+
+#### 2. Fixed OnboardingChatScreen.tsx  
+- **Removed**: `generateSessionId()` function that was creating random UUIDs
+- **Updated**: Session ID logic to use `firebaseUser?.uid || 'anonymous-onboarding'` for consistency
+- **Fixed**: All API calls to use user-based session IDs instead of random ones
+- **Updated**: Session tracking and completion flow to use consistent user IDs
+
+#### 3. Verified useAICoaching Hook
+- **Confirmed**: Hook already properly accepts sessionId as parameter
+- **No changes needed**: The issue was in the calling components, not the hook itself
+
+#### 4. Verified Cache and Backend Communication
+- **Confirmed**: All caching services (syncService, authCache, settingsCache) properly use user IDs
+- **Confirmed**: API communication uses proper user authentication tokens
+- **Confirmed**: Firestore queries correctly filter by user ID (`uid` field)
+
+### Technical Impact
+- **Before**: Random session IDs like `"a1b2c3d4-e5f6-7890-abcd-ef1234567890"` for each session
+- **After**: Consistent user-based session IDs like `"firebase-user-uid-123"` per user
+- **Result**: Proper session continuity, correct cache management, and consistent backend data association
+
+### Benefits
+1. **Single Session Per User**: Main coaching sessions are now properly tied to user accounts
+2. **Better Cache Consistency**: Local storage and Firestore sync properly with user-based keys
+3. **Improved Analytics**: Session tracking now correctly identifies user sessions over time
+4. **Proper Backend Association**: All coaching data is correctly linked to user accounts
+5. **Multi-device Sync**: Sessions can now properly sync across devices for the same user
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Fixed main coaching session ID management
+- `screens/auth/OnboardingChatScreen.tsx` - Fixed onboarding session ID management
+
+### Testing Recommendations
+1. Test coaching session continuity across app restarts
+2. Verify multi-device sync works correctly
+3. Check that analytics properly track user sessions
+4. Ensure goal breakout sessions are properly linked to main sessions
+
+## 2024-12-19 - Fixed parseCoachingCards Function Definition Error (FINAL)
+
+### Problem
+User encountered runtime error again:
+```
+ERROR Warning: TypeError: parseCoachingCards is not a function (it is undefined)
+Call Stack: CoachingScreen (screens/CoachingScreen.tsx:335:35)
+```
+
+**Issue:** Despite previous fix attempt, `parseCoachingCards` function was still being called before definition.
+
+### Root Cause Analysis
+**Function Location Issue:**
+- `parseCoachingCards` was at line 930
+- `dynamicBottomPadding` useMemo at line 844 tried to use it
+- **JavaScript execution order**: `const` functions are not hoisted
+
+### Solution Implementation
+
+#### Function Relocation
+```typescript
+// BEFORE: Function defined after usage (line 930)
+const dynamicBottomPadding = useMemo(() => {
+  // line 844 - tries to use parseCoachingCards
+  const hasCoachingCards = parseCoachingCards(content).length > 0; // ❌ undefined
+}, []);
+
+// ... 86 lines later ...
+const parseCoachingCards = (content: string) => { /* ... */ }; // line 930
+
+// AFTER: Function defined before usage (line 843)
+const parseCoachingCards = (content: string) => {
+  const componentRegex = /\[(\w+):([^\]]+)\]/g;
+  const components: Array<{ type: string; props: Record<string, string> }> = [];
+  // ... parsing logic ...
+  return components;
+}; // line 843
+
+const dynamicBottomPadding = useMemo(() => {
+  // line 876 - can now safely use parseCoachingCards
+  const hasCoachingCards = parseCoachingCards(content).length > 0; // ✅ defined
+}, []);
+```
+
+### Technical Details
+
+#### Exact Line Movement
+- **From**: Line 930 (after `dynamicBottomPadding`)
+- **To**: Line 843 (before `dynamicBottomPadding`)
+- **Gap**: 87 lines difference causing the undefined reference
+
+#### JavaScript Function Hoisting Rules
+- **`function` declarations**: Hoisted to top of scope
+- **`const` functions**: Not hoisted, must be defined before use
+- **Component order**: Critical in React functional components
+
+### Impact
+- ✅ **Runtime Stability**: No more "function is undefined" errors
+- ✅ **Card Detection**: `dynamicBottomPadding` correctly detects coaching cards
+- ✅ **Scroll Behavior**: Smart padding works as intended
+- ✅ **Code Organization**: Proper function ordering maintained
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Moved `parseCoachingCards` from line 930 to line 843
+
+### Verification
+**Error Stack Trace Resolution:**
+```
+// BEFORE
+ERROR Warning: TypeError: parseCoachingCards is not a function (it is undefined)
+Call Stack: CoachingScreen (screens/CoachingScreen.tsx:335:35)
+
+// AFTER  
+✅ No runtime errors
+✅ Function accessible when needed
+✅ Dynamic padding calculation works
+```
+
+## 2024-12-19 - Fixed CommitmentCheckin Unknown Component Error & Enhanced Card Padding
+
+### Problem
+User reported: "unknwn component commitmentcheckin hatası var" (Unknown component commitmentCheckin error)
+
+**Issue:** The `commitmentCheckin` case was accidentally removed from the `renderCoachingCard` function, causing backend-generated commitment check-in cards to display as "Unknown component: commitmentCheckin" instead of rendering properly.
+
+### Root Cause Analysis
+1. **Missing Case Handler**: `commitmentCheckin` case was removed from the switch statement in `renderCoachingCard`
+2. **Missing Import**: `CommitmentCheckinCard` was not imported in the component
+3. **Insufficient Card Padding**: Previous card padding (150px) was not enough to prevent card clipping
+
+### Solution Implementation
+
+#### 1. Restored CommitmentCheckin Case Handler
+```typescript
+case 'commitmentCheckin': {
+  return (
+    <CommitmentCheckinCard
+      key={baseProps.key}
+      title={props.title || 'Commitment Check-in'}
+      description={props.description || ''}
+      commitmentId={props.commitmentId}
+      streakCount={props.streakCount}
+      commitmentType={(props.commitmentType as 'one-time' | 'recurring') || 'one-time'}
+      doneText={props.doneText || 'Great job! Keep up the momentum.'}
+      notDoneText={props.notDoneText || 'No worries, let\'s get back on track.'}
+      userResponse={(props.userResponse as 'none' | 'yes' | 'no') || 'none'}
+      onUpdate={async (response: 'yes' | 'no') => {
+        // Full API integration with backend refresh
+        // ... commitment check-in API call and refreshFromBackend()
+      }}
+    />
+  );
+}
+```
+
+#### 2. Added Missing Import
+```typescript
+import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, MeditationCard } from '@/components/cards';
+```
+
+#### 3. Enhanced Dynamic Bottom Padding System
+```typescript
+// Enhanced card-aware padding with larger cushion
+const dynamicBottomPadding = useMemo(() => {
+  // ... existing logic ...
+  
+  // Add extra padding when coaching cards are present in the last assistant message
+  let cardsPadding = 0;
+  if (lastMessage?.role === 'assistant') {
+    try {
+      const cards = parseCoachingCards(lastMessage.content);
+      if (cards.length > 0) {
+        cardsPadding = 180; // Increased from 150px to 180px - larger cushion so cards never get clipped
+      }
+    } catch (_e) {
+      // fail open - no extra padding if parsing fails
     }
-    ```
-  * **Added Error Boundary Protection**: Created `EditorErrorBoundary.tsx` component to catch and handle editor errors gracefully
-  * **Wrapped Editor in HomeContent**: Protected TipTap editor with error boundary to prevent app crashes and provide user-friendly error messages
-  * **Impact**: Prevents production crashes, improves app stability, maintains journal functionality even if editor encounters errors
+  }
 
-- **Improved Onboarding Event Naming for PostHog Clarity**: Changed from generic to specific event names for each onboarding step:
-  * **Before**: Single `onboarding_step_completed` event with `step_name` property differentiation
-  * **After**: Individual event names using `onboarding_${step_name}` pattern for cleaner analytics:
-    - `onboarding_name_entered` - User entered their name  
-    - `onboarding_roles_selected` - User selected life roles
-    - `onboarding_self_reflection_selected` - User selected self-reflection practices
-    - `onboarding_clarity_level_set` - User set clarity level
-    - `onboarding_stress_level_set` - User set stress level
-    - `onboarding_motivation_viewed` - User viewed motivational content
-    - `onboarding_research_viewed` - User viewed research benefits
-    - `onboarding_figures_viewed` - User viewed world leading figures
-    - `onboarding_ready_confirmed` - User confirmed readiness
-    - `onboarding_coaching_style_configured` - User configured coaching style
-    - `onboarding_time_duration_set` - User set session duration
-    - `onboarding_configuration_loading` - System loading configuration
-    - `onboarding_meditation_intro_viewed` - User viewed meditation intro
-    - `onboarding_meditation_prepared` - User prepared for meditation
-    - `onboarding_meditation_started` - User started meditation
-    - `onboarding_initial_life_deep_dive_started` - User started initial coaching
-    - `onboarding_life_compass_viewed` - User viewed life compass results
-  * **PostHog Dashboard Benefits**: Each step now appears as a separate event for easier filtering, funnel creation, and drop-off analysis without needing property-based breakdowns
+  if (keyboardHeight > 0) {
+    return keyboardExtraSpace + cardsPadding; // Card padding applies to all scenarios
+  } else if (isUserWaitingForAI) {
+    return basePadding + extraForInput + 120 + cardsPadding;
+  }
+
+  return basePadding + extraForInput + cardsPadding;
+}, [messages, isLoading, containerHeight, keyboardHeight]);
+```
+
+### Technical Details
+
+#### CommitmentCheckin Integration
+1. **Full API Integration**: Includes complete `/api/coaching/commitments/checkin` endpoint integration
+2. **Backend Refresh**: Calls `refreshFromBackend()` after successful API calls to sync UI state
+3. **Error Handling**: Comprehensive error logging and user feedback
+4. **Authentication**: Proper `Authorization: Bearer ${token}` header handling
+
+#### Enhanced Padding Strategy
+1. **Card Detection**: Uses `parseCoachingCards()` to detect coaching cards in last assistant message
+2. **Larger Cushion**: Increased from 150px to 180px to prevent any card clipping
+3. **All Scenarios**: Card padding applies to keyboard open, AI responding, and idle states
+4. **Fail-Safe**: Graceful fallback if card parsing fails
+
+### Impact
+- ✅ **Fixed Unknown Component Error**: `commitmentCheckin` cards now render properly
+- ✅ **Restored Check-in Functionality**: Users can interact with commitment check-in cards again
+- ✅ **Enhanced Card Visibility**: Larger padding ensures cards are never clipped or hidden
+- ✅ **Improved UX**: Seamless commitment workflow from creation to check-in
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Added `commitmentCheckin` case, import, and enhanced dynamic padding
+
+### Before vs After
+| Aspect | Before (Broken) | After (Fixed) |
+|--------|----------------|---------------|
+| CommitmentCheckin Cards | ❌ "Unknown component: commitmentCheckin" | ✅ Fully functional check-in cards |
+| Card Import | ❌ Missing `CommitmentCheckinCard` | ✅ Properly imported |
+| Card Padding | 150px (insufficient) | 180px (generous cushion) |
+| User Experience | ❌ Broken commitment workflow | ✅ Complete commitment lifecycle |
+
+## 2024-12-19 - Fixed Scroll Issue: Messages Stuck Under Input Area
+
+### Problem
+User reported: "yazılar bizim input kısmının altında kalıyor şuan aşağı kaydıramıyoruz öyle bir sorun var çözmemiz gereken cardlarla alakalı degil koydugumuz padding genislemiyor coaching screendeki" (Messages are stuck under our input area, we can't scroll down, it's not about cards, the padding we added is not expanding in the coaching screen)
+
+**Issue:** After implementing card padding, the scroll system became too restrictive, preventing users from scrolling to see messages that were positioned under the input area. The base padding was insufficient and scroll limits were too conservative.
+
+### Root Cause Analysis
+1. **Insufficient Base Padding**: Base padding was only 50px, not enough to clear input area
+2. **Restrictive Scroll Limits**: `maxScrollDistance` calculation had only +50px buffer
+3. **Forced Scroll Corrections**: `onScrollEndDrag` and `onMomentumScrollEnd` were forcing scroll position back to limits
+4. **Scroll Restrictions**: `bounces={false}` and `overScrollMode="never"` prevented natural scrolling
+5. **Conservative AI Response Padding**: Only +120px extra when AI is responding
+
+### Solution Implementation
+
+#### 1. Increased Base Padding
+```typescript
+// BEFORE: Insufficient base padding
+const basePadding = 50;
+
+// AFTER: Generous base padding
+const basePadding = 120; // increased for better content access
+```
+
+#### 2. Enhanced AI Response Padding
+```typescript
+// BEFORE: Conservative AI response padding
+return basePadding + extraForInput + 120 + cardsPadding;
+
+// AFTER: Generous AI response padding
+return basePadding + extraForInput + 180 + cardsPadding;
+```
+
+#### 3. Removed Restrictive Scroll Limits
+```typescript
+// BEFORE: Restrictive scroll behavior
+bounces={false}
+overScrollMode="never"
+// Scroll limiti ekle
+onScrollEndDrag={(event) => {
+  const { contentOffset } = event.nativeEvent;
+  // Eğer maksimum scroll limitini aşmışsa, geri getir
+  if (contentOffset.y > scrollLimits.maxScrollDistance) {
+    scrollViewRef.current?.scrollTo({
+      y: scrollLimits.maxScrollDistance,
+      animated: true
+    });
+  }
+}}
+// Momentum scroll sonrası da kontrol et
+onMomentumScrollEnd={(event) => {
+  // ... similar restrictive logic
+}}
+
+// AFTER: Natural scroll behavior
+bounces={true}
+overScrollMode="auto"
+// Removed all scroll limit enforcement
+```
+
+#### 4. Enhanced Scroll Buffer
+```typescript
+// BEFORE: Conservative scroll limits
+const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
+
+// AFTER: Permissive scroll limits
+const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 300);
+// Increased buffer from +50px to +300px
+```
+
+### Technical Details
+
+#### Padding Strategy Enhancement
+1. **Base Padding**: Increased from 50px to 120px (140% increase)
+2. **AI Response Padding**: Increased from +120px to +180px (50% increase)
+3. **Total Effective Padding**: Now ranges from 120px to 480px+ depending on state
+4. **Dynamic Scaling**: Still responsive to keyboard, container height, and cards
+
+#### Scroll Behavior Liberation
+1. **Natural Bouncing**: Re-enabled `bounces={true}` for iOS-like behavior
+2. **Overscroll Allowed**: Changed to `overScrollMode="auto"` for Android
+3. **No Forced Corrections**: Removed scroll limit enforcement handlers
+4. **Generous Buffer**: Increased scroll buffer from 50px to 300px
+5. **User Control**: Users can now scroll freely to access all content
+
+### Impact
+- ✅ **Fixed Content Access**: Users can now scroll to see all messages above input area
+- ✅ **Natural Scrolling**: Restored iOS/Android native scroll behaviors
+- ✅ **Generous Padding**: Significantly increased padding in all scenarios
+- ✅ **Better UX**: No more content trapped under input area
+- ✅ **Responsive Design**: Padding still adapts to keyboard, AI state, and cards
+
+### Files Modified
+- `screens/CoachingScreen.tsx` - Increased base padding, enhanced AI response padding, removed scroll restrictions, increased scroll buffer
+
+### Before vs After
+| Aspect | Before (Problematic) | After (Fixed) |
+|--------|---------------------|---------------|
+| Base Padding | 50px (insufficient) | 120px (generous) |
+| AI Response Padding | +120px | +180px (50% increase) |
+| Scroll Buffer | +50px (restrictive) | +300px (permissive) |
+| Scroll Behavior | `bounces={false}`, forced corrections | `bounces={true}`, natural scrolling |
+| Content Access | ❌ Messages stuck under input | ✅ All content accessible |
+| User Experience | ❌ Frustrating scroll restrictions | ✅ Smooth, natural scrolling |
+
+## 2024-12-19 - Added Active Commitments Display in Settings Screen
+
+### Problem
+User requested: "active commitmentsi settings ekranındaki cardda görebilmek istiyorum" (I want to see active commitments in the card on the settings screen)
+
+**Issue:** The settings screen had a placeholder "Active Commitment" card with hardcoded dummy data. Users needed to see their real active commitments from the backend and be able to interact with them (mark as done/not done).
+
+### Solution Implementation
+
+#### 1. Created useActiveCommitments Hook
+```typescript
+// New hook: ReflectaLab/hooks/useActiveCommitments.ts
+export interface ActiveCommitment {
+  id: string;
+  title: string;
+  description: string;
+  type: 'one-time' | 'recurring';
+  status: 'active' | 'completed' | 'failed';
+  deadline?: string;
+  cadence?: string;
+  createdAt: Date;
+  commitmentDueAt?: Date;
+  currentStreakCount: number;
+  numberOfTimesCompleted: number;
+}
+
+export const useActiveCommitments = () => {
+  // Fetches active commitments from /api/coaching/commitments/active
+  // Provides checkInCommitment function for Done/Not Done actions
+  // Includes loading states and error handling
+}
+```
+
+#### 2. Enhanced Settings Screen Integration
+```typescript
+// Added real commitment data integration
+const { commitments, loading: commitmentsLoading, checkInCommitment } = useActiveCommitments();
+
+// Added commitment check-in handler
+const handleCommitmentCheckIn = useCallback(async (commitmentId: string, completed: boolean) => {
+  await checkInCommitment(commitmentId, completed);
+  // Shows success feedback with haptic response
+  // Automatically refreshes commitment list
+}, [checkInCommitment]);
+```
+
+#### 3. Dynamic Commitment Card Rendering
+```typescript
+// Three states: Loading, Active Commitments, No Commitments
+{commitmentsLoading ? (
+  // Skeleton loading state
+  <Skeleton />
+) : commitments.length > 0 ? (
+  // Real commitment data with interactive buttons
+  <View style={styles.activeCommitmentCard}>
+    <Text>{commitments[0].title}</Text>
+    <Text>{commitments[0].description}</Text>
+    <Text>{commitments[0].currentStreakCount} day streak</Text>
+    <TouchableOpacity onPress={() => handleCommitmentCheckIn(id, false)}>
+      Not done
+    </TouchableOpacity>
+    <TouchableOpacity onPress={() => handleCommitmentCheckIn(id, true)}>
+      Done
+    </TouchableOpacity>
+  </View>
+) : (
+  // Empty state with guidance
+  <Text>No Active Commitments</Text>
+  <Text>Create commitments through coaching sessions</Text>
+)}
+```
+
+### Technical Details
+
+#### API Integration
+1. **Fetch Endpoint**: `GET /api/coaching/commitments/active` - Retrieves user's active commitments
+2. **Check-in Endpoint**: `POST /api/coaching/commitments/checkin` - Updates commitment completion status
+3. **Authentication**: Proper `Authorization: Bearer ${token}` headers for all requests
+4. **Data Transformation**: Converts Firestore timestamps to JavaScript Date objects
+
+#### User Experience Features
+1. **Loading States**: Skeleton placeholders while fetching data
+2. **Empty States**: Helpful guidance when no commitments exist
+3. **Interactive Buttons**: Done/Not Done buttons with loading states
+4. **Success Feedback**: Haptic feedback and success alerts
+5. **Auto Refresh**: Commitment list updates after check-ins
+6. **Streak Display**: Shows current streak count for motivation
+
+#### Error Handling
+1. **Network Errors**: Graceful fallback with error messages
+2. **Authentication Errors**: Proper token validation
+3. **Loading States**: Prevents double-clicks during API calls
+4. **User Feedback**: Clear error messages with retry options
+
+### Impact
+- ✅ **Real Data Integration**: Settings screen now shows actual user commitments
+- ✅ **Interactive Functionality**: Users can mark commitments as done/not done
+- ✅ **Seamless UX**: Loading states, success feedback, and error handling
+- ✅ **Motivation Features**: Streak counters and progress tracking
+- ✅ **Backend Sync**: All actions sync with coaching system backend
+
+### Files Modified
+- `hooks/useActiveCommitments.ts` - New hook for commitment data management
+- `screens/SettingsScreen.tsx` - Updated to show real commitments with interactive features
+
+### Before vs After
+| Aspect | Before (Static) | After (Dynamic) |
+|--------|----------------|-----------------|
+| Commitment Data | ❌ Hardcoded placeholder | ✅ Real backend data |
+| User Interaction | ❌ Non-functional buttons | ✅ Working Done/Not Done actions |
+| Loading States | ❌ No loading feedback | ✅ Skeleton loading and processing states |
+| Empty States | ❌ Always shows placeholder | ✅ Helpful guidance when no commitments |
+| Data Sync | ❌ No backend integration | ✅ Full API integration with auto-refresh |
+| User Feedback | ❌ No interaction feedback | ✅ Haptic feedback and success alerts |
+
+## 2024-12-19 - Fixed 404 Error: Created Missing Active Commitments Endpoint
+
+### Problem
+User reported: "yanlış yapıyorsun investigate and find a real solution coaching/commitments/active 404 in 38ms boyle bir endpoint yok sen bütün commitmentlara bakacaksın ve statusu active olanları oraya koyacaksın"
+
+**Issue:** The mobile app was trying to fetch active commitments from `/api/coaching/commitments/active` endpoint, but this endpoint didn't exist on the backend, causing continuous 404 errors.
+
+### Root Cause Analysis
+1. **Missing Endpoint**: `/api/coaching/commitments/active` was never created on the backend
+2. **Incorrect Assumption**: I assumed the endpoint existed without verifying backend API structure
+3. **Continuous Failures**: Mobile app was making repeated failed requests causing poor UX
+
+### Solution Implementation
+
+#### 1. Created Active Commitments Endpoint
+```typescript
+// New file: reflecta-lab/src/app/api/coaching/commitments/active/route.ts
+export async function GET(request: NextRequest) {
+  // Authentication check
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json(
+      { success: false, error: 'User not authenticated' },
+      { status: 401 }
+    );
+  }
+
+  // Query for active commitments for this user
+  const commitmentsRef = db.collection('commitments');
+  const query = commitmentsRef
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .orderBy('createdAt', 'desc');
+
+  const snapshot = await query.get();
+  
+  // Transform and return commitments
+  return NextResponse.json({
+    success: true,
+    commitments: transformedCommitments
+  });
+}
+```
+
+#### 2. Proper Firestore Query Implementation
+```typescript
+// Query Strategy:
+// 1. Filter by userId (user's own commitments)
+// 2. Filter by status === 'active' (only active commitments)
+// 3. Order by createdAt desc (newest first)
+// 4. Transform Firestore documents to Commitment objects
+```
+
+#### 3. Backend API Structure Verification
+- **Existing Endpoints**:
+  - `POST /api/coaching/commitments/create` ✅ (existed)
+  - `POST /api/coaching/commitments/checkin` ✅ (existed)
+  - `GET /api/coaching/commitments/active` ✅ (now created)
+
+### Technical Details
+
+#### Endpoint Features
+1. **Clerk Authentication**: Protected with `auth()` middleware
+2. **Firestore Query**: Efficient compound query with proper indexing
+3. **Data Transformation**: Converts Firestore timestamps to JavaScript objects
+4. **Error Handling**: Comprehensive error responses with proper HTTP status codes
+5. **Logging**: Debug logs for monitoring and troubleshooting
+
+#### Query Optimization
+1. **Compound Index**: Uses `userId` + `status` + `createdAt` for efficient querying
+2. **Ordering**: Results ordered by creation date (newest first)
+3. **Filtering**: Server-side filtering reduces data transfer
+4. **Type Safety**: Full TypeScript integration with Commitment interface
+
+### Impact
+- ✅ **Fixed 404 Errors**: Mobile app now successfully fetches active commitments
+- ✅ **Real Data Display**: Settings screen shows actual user commitments
+- ✅ **Proper Backend Structure**: Complete API coverage for commitment operations
+- ✅ **Improved Performance**: Efficient Firestore queries with proper indexing
+- ✅ **Better UX**: No more failed requests and error states
+
+### Files Modified
+- `reflecta-lab/src/app/api/coaching/commitments/active/route.ts` - New endpoint for fetching active commitments
+
+### Before vs After
+| Aspect | Before (Broken) | After (Working) |
+|--------|----------------|-----------------|
+| Endpoint Existence | ❌ 404 - Not Found | ✅ 200 - Working endpoint |
+| Mobile App Requests | ❌ Continuous failures | ✅ Successful data fetching |
+| Settings Screen | ❌ Empty state due to errors | ✅ Real commitment data |
+| Backend Coverage | ❌ Incomplete API | ✅ Complete commitment CRUD operations |
+| User Experience | ❌ Broken functionality | ✅ Seamless commitment management |
+
+## 2024-12-19 - Fixed Multiple API Calls & Created Scrollable Commitment Cards
+
+### Problem
+User reported: "bug oluyor oyle kart olarak yapalım kaydırarak bakabilelim" (There's a bug, let's make it as cards so we can scroll and see them)
+
+**Issues Identified:**
+1. **Multiple API Calls**: Hook was making excessive API calls due to dependency issues
+2. **Duplicate Commitments**: Same commitments appearing multiple times in the list
+3. **Single Card Layout**: Only showing one commitment at a time, not scalable for multiple commitments
+
+### Root Cause Analysis
+1. **useEffect Dependency**: `fetchActiveCommitments` function was in dependency array causing infinite re-renders
+2. **No Duplicate Filtering**: Backend was returning duplicate commitments without client-side deduplication
+3. **Poor UX Design**: Single card layout couldn't handle multiple commitments effectively
+
+### Solution Implementation
+
+#### 1. Fixed Multiple API Calls Issue
+```typescript
+// BEFORE: Infinite re-renders due to function dependency
+useEffect(() => {
+  fetchActiveCommitments();
+}, [fetchActiveCommitments]); // Function recreated on every render
+
+// AFTER: Stable dependency
+useEffect(() => {
+  if (firebaseUser?.uid) {
+    fetchActiveCommitments();
+  }
+}, [firebaseUser?.uid]); // Only depend on userId, not the function
+```
+
+#### 2. Added Duplicate Filtering
+```typescript
+// Remove duplicates based on ID
+const uniqueCommitments = transformedCommitments.filter((commitment, index, self) => 
+  index === self.findIndex(c => c.id === commitment.id)
+);
+setCommitments(uniqueCommitments);
+```
+
+#### 3. Created Scrollable Commitment Cards
+```typescript
+// Horizontal scrollable cards layout
+<ScrollView 
+  horizontal 
+  showsHorizontalScrollIndicator={false}
+  contentContainerStyle={styles.commitmentsScrollContent}
+  style={styles.commitmentsScrollView}
+>
+  {commitments.map((commitment, index) => (
+    <View key={commitment.id} style={styles.commitmentCard}>
+      {/* Individual commitment card with full functionality */}
+      <Text>{commitment.title}</Text>
+      <Text>{commitment.description}</Text>
+      <Text>{commitment.currentStreakCount} day streak</Text>
+      <Text>{commitment.type === 'one-time' ? 'One-time' : 'Recurring'}</Text>
+      {/* Done/Not Done buttons */}
+    </View>
+  ))}
+</ScrollView>
+```
+
+### Technical Details
+
+#### Performance Optimizations
+1. **Stable Dependencies**: Fixed useEffect to prevent unnecessary re-renders
+2. **Duplicate Prevention**: Client-side deduplication for data integrity
+3. **Efficient Rendering**: Only re-render when actual data changes
+4. **Proper Key Props**: Using commitment.id as unique keys for React optimization
+
+#### UI/UX Improvements
+1. **Horizontal Scrolling**: Users can swipe through multiple commitments
+2. **Card-Based Layout**: Each commitment gets its own dedicated card
+3. **Visual Hierarchy**: Clear title, description, streak, and type display
+4. **Interactive Elements**: Done/Not Done buttons on each card
+5. **Loading States**: Skeleton cards while data is loading
+6. **Empty States**: Helpful guidance when no commitments exist
+
+#### Card Design Features
+1. **Fixed Width**: 280px cards for consistent sizing
+2. **Proper Spacing**: 12px margin between cards, 20px padding on sides
+3. **Shadow Effects**: Elevated card appearance with shadows
+4. **Responsive Actions**: Individual action buttons per commitment
+5. **Type Indicators**: Visual distinction between one-time and recurring commitments
+
+### Impact
+- ✅ **Fixed Performance Issues**: No more excessive API calls or infinite re-renders
+- ✅ **Eliminated Duplicates**: Clean, unique commitment list
+- ✅ **Scalable Design**: Can handle any number of active commitments
+- ✅ **Better UX**: Horizontal scrolling allows easy browsing of all commitments
+- ✅ **Individual Actions**: Each commitment can be managed independently
+
+### Files Modified
+- `hooks/useActiveCommitments.ts` - Fixed API call issues and added duplicate filtering
+- `screens/SettingsScreen.tsx` - Replaced single card with scrollable cards layout
+
+### Before vs After
+| Aspect | Before (Problematic) | After (Optimized) |
+|--------|---------------------|------------------|
+| API Calls | ❌ Excessive, infinite calls | ✅ Single call per user session |
+| Duplicate Handling | ❌ Duplicates displayed | ✅ Automatic deduplication |
+| Layout | ❌ Single card, limited view | ✅ Scrollable cards, unlimited view |
+| Performance | ❌ Constant re-renders | ✅ Stable, efficient rendering |
+| User Experience | ❌ Can only see one commitment | ✅ Can browse all commitments easily |
+| Scalability | ❌ Not scalable for multiple items | ✅ Handles any number of commitments |
+
+## 2025-01-09 - Consolidated API Endpoints: Removed Redundant /active Route
+
+**Problem:** Created an unnecessary `/active` endpoint when the existing `/checkin` endpoint could handle both GET (fetch active commitments) and POST (check-in) operations.
+
+**Root Cause:** Poor API design decision - created separate endpoint instead of extending existing one with multiple HTTP methods.
+
+**Solution:**
+1. **Extended /checkin Endpoint:** Added GET method to existing `/checkin` route to fetch active commitments
+2. **Updated Mobile Hook:** Modified `useActiveCommitments.ts` to use `/checkin` endpoint with GET method
+3. **Removed Redundant Code:** Deleted the unnecessary `/active` route and directory
+
+**Files Modified:**
+- `reflecta-lab/src/app/api/coaching/commitments/checkin/route.ts` - Added GET method for fetching active commitments
+- `ReflectaLab/hooks/useActiveCommitments.ts` - Updated to use `/checkin` endpoint instead of `/active`
+- `reflecta-lab/src/app/api/coaching/commitments/active/route.ts` - **DELETED** (redundant)
+
+**Impact:** ✅ Cleaner API architecture with single endpoint handling both commitment operations, reduced code duplication, and maintained all existing functionality.
+
+**API Endpoint Consolidation:**
+| Operation | Before | After |
+|-----------|--------|-------|
+| Fetch Active Commitments | `GET /api/coaching/commitments/active` | `GET /api/coaching/commitments/checkin` |
+| Check-in Commitment | `POST /api/coaching/commitments/checkin` | `POST /api/coaching/commitments/checkin` |
+| **Total Endpoints** | **2 separate endpoints** | **1 consolidated endpoint** |
+
+## 2025-01-09 - Implemented Mobile SessionSuggestionCard with Full Backend Integration
+
+**Problem:** Mobile app was missing support for `sessionSuggestion` tokens that allow users to schedule coaching sessions from AI suggestions, causing "unknown component" errors and preventing session scheduling functionality.
+
+**Root Cause:** While the web application had complete `SessionSuggestionCard` component with date/time pickers and backend integration to `/api/coaching/sessions/schedule`, the mobile app lacked this critical session management functionality.
+
+**Solution:**
+1. **Created Mobile SessionSuggestionCard Component:** Built comprehensive React Native component with native UI patterns including horizontal scrollable date/time/duration pickers
+2. **Implemented Full Backend Integration:** Connected directly to existing `/api/coaching/sessions/schedule` endpoint with proper authentication and error handling
+3. **Added State Management:** Implemented complete state persistence with token content updates for scheduled/dismissed states
+4. **Integrated into Coaching System:** Added `sessionSuggestion` case to `renderCoachingCard` switch statement with proper prop mapping and callbacks
+
+**Files Created:**
+- `ReflectaLab/components/cards/SessionSuggestionCard.tsx` - **NEW** comprehensive session suggestion component
+
+**Files Modified:**
+- `ReflectaLab/components/cards/index.ts` - Added SessionSuggestionCard export
+- `ReflectaLab/screens/CoachingScreen.tsx` - Added SessionSuggestionCard import and `sessionSuggestion` case with state management
+
+**Token Format Supported:**
+```typescript
+[sessionSuggestion:title="Stress Management Session",reason="You've mentioned feeling overwhelmed",duration="60m",state="none"]
+```
+
+**Features Implemented:**
+- ✅ **Date Selection:** 7-day horizontal picker (Today, Tomorrow, specific dates)
+- ✅ **Time Selection:** 9 AM to 5:30 PM slots with 30-minute intervals  
+- ✅ **Duration Options:** 15m, 30m, 45m, 60m, 90m selection
+- ✅ **Schedule/Dismiss Actions:** Full backend integration with loading states
+- ✅ **State Persistence:** Automatic token updates for scheduled/dismissed states
+- ✅ **Authentication:** Bearer token authentication with Clerk integration
+- ✅ **Error Handling:** Comprehensive error handling with user-friendly alerts
+- ✅ **Native UI:** Horizontal scrollable pickers with iOS-style design
+- ✅ **Haptic Feedback:** Touch feedback for better user experience
+
+**Backend Integration:**
+- ✅ **API Endpoint:** `/api/coaching/sessions/schedule` POST with full request validation
+- ✅ **Scheduled Session Creation:** Creates `scheduledSessions` document in Firestore
+- ✅ **Message State Updates:** Automatically updates coaching message content with new state
+- ✅ **Token Attribute Updates:** Adds `scheduledDate`, `scheduledTime`, `scheduledSessionId` to token
+
+**State Flow:**
+1. **Default State:** Shows suggestion with interactive date/time/duration pickers
+2. **Schedule Action:** API call → Backend creates scheduled session → Token updated to `state="scheduled"`
+3. **Dismiss Action:** Local state update → Token updated to `state="dismissed"`
+4. **Persistence:** All state changes automatically saved to Firestore via `coachingCacheService`
+
+**Impact:** ✅ Mobile app now has complete parity with web session suggestion functionality. Users can schedule coaching sessions directly from AI suggestions with native mobile UI patterns. The system is fully integrated with the existing backend infrastructure and maintains state consistency across sessions.

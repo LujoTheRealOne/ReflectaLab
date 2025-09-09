@@ -418,6 +418,10 @@ export default function SettingsScreen() {
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', style: 'default', onPress: () => Linking.openSettings() }
         ] : [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }, [biometricLoading, isLoading, setBiometricEnabled]);
 
   const handleBack = () => {

@@ -28,7 +28,7 @@ export default function SwipeableScreens() {
   const onMomentumScrollEnd = useCallback((event: any) => {
     const page = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
     setCurrentPage(page);
-    // Ekran değişince klavyeyi kapat
+    // Close keyboard when screen changes
     Keyboard.dismiss();
   }, []);
 
@@ -51,7 +51,7 @@ export default function SwipeableScreens() {
     
     flatListRef.current?.scrollToIndex({ index: targetPage, animated: true });
     setCurrentPage(targetPage);
-    // Navbar ile ekran değişince klavyeyi kapat
+    // Close keyboard when screen changes via navbar
     Keyboard.dismiss();
   }, []);
 
@@ -93,7 +93,7 @@ export default function SwipeableScreens() {
         })}
         initialScrollIndex={0}
         removeClippedSubviews={false}
-        keyboardShouldPersistTaps="always" // Touch event'leri her zaman geçir
+        keyboardShouldPersistTaps="always" // Always pass through touch events
         keyboardDismissMode="interactive" // Interactive keyboard dismiss
         style={styles.flatList}
       />

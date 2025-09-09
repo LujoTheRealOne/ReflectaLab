@@ -796,10 +796,10 @@ export default function CoachingScreen() {
   const LINE_HEIGHT = 24;
   const MIN_LINES = 1;
   const MAX_LINES = 10;
-  const EXPANDED_MAX_LINES = 40; // Expand edilmiş durumda maksimum satır
+  const EXPANDED_MAX_LINES = 40; // Maximum lines when expanded
   const INPUT_PADDING_VERTICAL = 8;
-  const CONTAINER_BASE_HEIGHT = 90; // Minimum container yüksekliği
-  const CONTAINER_PADDING = 40; // Container'daki padding toplamı (8+20+12)
+  const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
+  const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
   // Dynamic content height calculation
   const dynamicContentHeight = useMemo(() => {
@@ -837,7 +837,7 @@ export default function CoachingScreen() {
     // Base padding when idle
     const basePadding = 50;
 
-    // Klavye açıksa ekstra alan ekle
+    // Add extra space if keyboard is open
     const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
 
     // Extra space for the growing input container to prevent overlap
@@ -848,7 +848,7 @@ export default function CoachingScreen() {
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
     
     if (keyboardHeight > 0) {
-      // Klavye açıkken - daha fazla alan ver
+      // When keyboard is open - give more space
       return keyboardExtraSpace;
     } else if (isUserWaitingForAI) {
       return basePadding + extraForInput + 120;
@@ -1717,31 +1717,31 @@ export default function CoachingScreen() {
   const handleTextChange = (text: string) => {
     setChatInput(text);
     
-    // Daha hassas hesaplama - kelime bazlı satır atlama
+    // More precise calculation - word-based line wrapping
     const containerWidth = 362; // chatInputWrapper width
     const containerPadding = 16; // 8px left + 8px right padding
     const textInputPadding = 8; // 4px left + 4px right padding
     
-    // İlk önce satır sayısını tahmini hesapla
+    // First estimate the line count
     const estimatedLines = Math.max(1, text.split('\n').length);
-    const isMultiLine = estimatedLines > 1 || text.length > 30; // Daha erken multi-line algılama
-    const expandButtonSpace = isMultiLine ? 36 : 0; // Expand butonu için alan
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
     const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
     
-    // Font boyutuna göre karakter genişliği (fontSize: 15, fontWeight: 400)
-    // Daha conservative hesaplama - kelimeler için fazladan margin
-    const baseCharsPerLine = isMultiLine ? 36 : 42; // Multi-line'da daha az karakter
+    // Character width based on font size (fontSize: 15, fontWeight: 400)
+    // More conservative calculation - extra margin for words
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
     const charsPerLine = baseCharsPerLine;
     
-    // Satır hesaplama - kelime kırılması dahil
+    // Line calculation - including word wrapping
     const textLines = text.split('\n');
     let totalLines = 0;
     
     textLines.forEach(line => {
       if (line.length === 0) {
-        totalLines += 1; // Boş satır
+        totalLines += 1; // Empty line
       } else {
-        // Kelime bazlı hesaplama - uzun kelimelerin satır atlama riski için
+        // Word-based calculation - for risk of long words wrapping
         const words = line.split(' ');
         let currentLineLength = 0;
         let linesForThisTextLine = 1;
@@ -1750,7 +1750,7 @@ export default function CoachingScreen() {
           const wordLength = word.length;
           const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
           
-          // Eğer bu kelime mevcut satıra sığmayacaksa, yeni satır
+          // If this word won't fit on current line, new line
           if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
             linesForThisTextLine++;
             currentLineLength = wordLength;
@@ -1763,20 +1763,20 @@ export default function CoachingScreen() {
       }
     });
     
-    // Satır sayısını kaydet
+    // Save line count
     setCurrentLineCount(totalLines);
     
-    // Min/Max sınırları - expand durumuna göre
+    // Min/Max limits - based on expand state
     const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
     const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
     
-    // Yükseklik hesaplama
+    // Height calculation
     const newInputHeight = actualLines * LINE_HEIGHT;
     
-    // Container yüksekliği - gerçek layout'a göre optimize
-    const topPadding = 12; // TextInput üst padding artırıldı
+    // Container height - optimized for real layout
+    const topPadding = 12; // TextInput top padding increased
     const bottomPadding = 8;
-    const buttonHeight = 32; // Voice/Send buton yüksekliği
+    const buttonHeight = 32; // Voice/Send button height
     const buttonTopPadding = 8; // Button container padding top
     
     const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
@@ -1789,21 +1789,21 @@ export default function CoachingScreen() {
   const handleContentSizeChange = (event: any) => {
     const { height } = event.nativeEvent.contentSize;
     
-    // Min/Max yükseklikleri hesapla
+    // Calculate Min/Max heights
     const minHeight = MIN_LINES * LINE_HEIGHT; // 24px
     const maxHeight = MAX_LINES * LINE_HEIGHT; // 240px
     
-    // Gerçek content yüksekliğini kullan ama LINE_HEIGHT'a yuvarla
+    // Use real content height but round to LINE_HEIGHT
     const rawHeight = Math.max(minHeight, Math.min(maxHeight, height));
     
-    // En yakın LINE_HEIGHT katına yuvarla (24px'in katları)
+    // Round to nearest LINE_HEIGHT multiple (multiples of 24px)
     const roundedLines = Math.round(rawHeight / LINE_HEIGHT);
     const newInputHeight = Math.max(MIN_LINES, Math.min(MAX_LINES, roundedLines)) * LINE_HEIGHT;
     
-    // Container yüksekliği - handleTextChange ile aynı hesaplama
-    const topPadding = 12; // TextInput üst padding artırıldı
+    // Container height - same calculation as handleTextChange
+    const topPadding = 12; // TextInput top padding increased
     const bottomPadding = 8;
-    const buttonHeight = 32; // Voice/Send buton yüksekliği
+    const buttonHeight = 32; // Voice/Send button height
     const buttonTopPadding = 8; // Button container padding top
     
     const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
@@ -1824,7 +1824,7 @@ export default function CoachingScreen() {
   const handleExpandToggle = () => {
     setIsInputExpanded(!isInputExpanded);
     
-    // Mevcut text'e göre yeniden hesapla
+    // Recalculate based on current text
     setTimeout(() => {
       handleTextChange(chatInput);
     }, 0);
@@ -1855,7 +1855,7 @@ export default function CoachingScreen() {
     const messageContent = chatInput.trim();
     setChatInput('');
     
-    // Input yüksekliğini ve expand durumunu sıfırla
+    // Reset input height and expand state
     setInputHeight(LINE_HEIGHT);
     setContainerHeight(CONTAINER_BASE_HEIGHT);
     setIsInputExpanded(false);
@@ -2228,7 +2228,7 @@ export default function CoachingScreen() {
               setContentHeight(contentSize.height);
             }}
             onLayout={(event) => {
-              // ScrollView height'ını kaydet
+              // Save ScrollView height
               const { height } = event.nativeEvent.layout;
               setScrollViewHeight(height);
             }}
@@ -2237,11 +2237,11 @@ export default function CoachingScreen() {
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
-            // Scroll limiti ekle
+            // Add scroll limit
             onScrollEndDrag={(event) => {
               const { contentOffset } = event.nativeEvent;
               
-              // Eğer maksimum scroll limitini aşmışsa, geri getir
+              // If exceeded maximum scroll limit, bring back
               if (contentOffset.y > scrollLimits.maxScrollDistance) {
                 scrollViewRef.current?.scrollTo({
                   y: scrollLimits.maxScrollDistance,
@@ -2249,7 +2249,7 @@ export default function CoachingScreen() {
                 });
               }
             }}
-            // Momentum scroll sonrası da kontrol et
+            // Also check after momentum scroll
             onMomentumScrollEnd={(event) => {
               const { contentOffset } = event.nativeEvent;
               
@@ -2475,14 +2475,14 @@ export default function CoachingScreen() {
                   styles.chatInput,
                     { 
                       color: colors.text,
-                      height: inputHeight, // Dinamik yükseklik
-                      width: currentLineCount > 1 ? '92%' : '100%', // Expand butonu için alan bırak (~28px az)
-                      paddingRight: currentLineCount > 1 ? 32 : 4, // Expand butonu için sağ padding
+                      height: inputHeight, // Dynamic height
+                      width: currentLineCount > 1 ? '92%' : '100%', // Leave space for expand button (~28px less)
+                      paddingRight: currentLineCount > 1 ? 32 : 4, // Right padding for expand button
                     }
                 ]}
                 value={chatInput}
-                  onChangeText={handleTextChange} // Ana controller
-                  onContentSizeChange={undefined} // Devre dışı - sadece handleTextChange kullan
+                  onChangeText={handleTextChange} // Main controller
+                  onContentSizeChange={undefined} // Disabled - only use handleTextChange
                 onFocus={() => setIsChatInputFocused(true)}
                 onBlur={() => setIsChatInputFocused(false)}
                   placeholder="Write how you think..."
@@ -2492,8 +2492,8 @@ export default function CoachingScreen() {
                 returnKeyType='default'
                 onSubmitEditing={handleSendMessage}
                 cursorColor={colors.tint}
-                  scrollEnabled={inputHeight >= (isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES) * LINE_HEIGHT} // Maksimum yükseklikte scroll aktif
-                  textBreakStrategy="balanced" // Kelime kırma stratejisi
+                  scrollEnabled={inputHeight >= (isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES) * LINE_HEIGHT} // Scroll active at maximum height
+                  textBreakStrategy="balanced" // Word breaking strategy
                 />
                 
                 {/* Button Container at the bottom - Voice + Send buttons side by side */}
@@ -2655,12 +2655,12 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 8,
     paddingHorizontal: 4,
-    minHeight: 32, // Sabit minimum height
+    minHeight: 32, // Fixed minimum height
   },
   
-  // Loading state'te message container için
+  // For message container in loading state
   loadingMessageContainer: {
-    minHeight: 60, // Loading indicator için sabit alan
+    minHeight: 60, // Fixed space for loading indicator
     justifyContent: 'center',
   },
   typingDot: {
@@ -2673,10 +2673,10 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     paddingTop: 0,
     position: 'absolute',
-    bottom: 0, // Navbar'dan 40px yukarıda
+    bottom: 0, // 40px above navbar
     left: 0,
     right: 0,
-    justifyContent: 'flex-end', // İçeriği alt kısma hizala (yukarı genişleme için)
+    justifyContent: 'flex-end', // Align content to bottom (for upward expansion)
     zIndex: 1000, // Base z-index
   },
   chatInputWrapper: {
@@ -2692,7 +2692,7 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 10,
     flexDirection: 'row',
-    alignItems: 'flex-end', // Butonları alt kısma hizala
+    alignItems: 'flex-end', // Align buttons to bottom
     justifyContent: 'flex-start',
     overflow: 'visible',
     opacity: 1,
@@ -2904,7 +2904,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 0, // Border kaldır, sadece ok
+    borderWidth: 0, // Remove border, only arrow
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -2913,16 +2913,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    zIndex: 999, // Input'tan düşük z-index
+    zIndex: 999, // Lower z-index than input
   },
   suggestionContainer: {
     position: 'absolute',
-    bottom: 210, // Input'un üstünde
+    bottom: 210, // Above input
     left: 0,
     right: 0,
     paddingHorizontal: 20,
     paddingBottom: 12,
-    zIndex: 1001, // Input'tan daha yüksek
+    zIndex: 1001, // Higher than input
   },
   suggestionScrollView: {
     flexGrow: 0,

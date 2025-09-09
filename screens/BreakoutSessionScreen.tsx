@@ -802,10 +802,10 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const LINE_HEIGHT = 24;
   const MIN_LINES = 1;
   const MAX_LINES = 10;
-  const EXPANDED_MAX_LINES = 40; // Expand edilmiş durumda maksimum satır
+  const EXPANDED_MAX_LINES = 40; // Maximum lines when expanded
   const INPUT_PADDING_VERTICAL = 8;
-  const CONTAINER_BASE_HEIGHT = 90; // Minimum container yüksekliği
-  const CONTAINER_PADDING = 40; // Container'daki padding toplamı (8+20+12)
+  const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
+  const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
   // Dynamic content height calculation
   const dynamicContentHeight = useMemo(() => {
@@ -843,7 +843,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     // Base padding when idle
     const basePadding = 50;
 
-    // Klavye açıksa ekstra alan ekle
+    // Add extra space if keyboard is open
     const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
 
     // Extra space for the growing input container to prevent overlap
@@ -854,7 +854,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
     
     if (keyboardHeight > 0) {
-      // Klavye açıkken - daha fazla alan ver
+      // When keyboard is open - give more space
       return keyboardExtraSpace;
     } else if (isUserWaitingForAI) {
       return basePadding + extraForInput + 120;
@@ -1673,15 +1673,15 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const handleTextChange = (text: string) => {
     setChatInput(text);
     
-    // Daha hassas hesaplama - kelime bazlı satır atlama
+    // More precise calculation - word-based line wrapping
     const containerWidth = 362; // chatInputWrapper width
     const containerPadding = 16; // 8px left + 8px right padding
     const textInputPadding = 8; // 4px left + 4px right padding
     
-    // İlk önce satır sayısını tahmini hesapla
+    // First estimate the line count
     const estimatedLines = Math.max(1, text.split('\n').length);
-    const isMultiLine = estimatedLines > 1 || text.length > 30; // Daha erken multi-line algılama
-    const expandButtonSpace = isMultiLine ? 36 : 0; // Expand butonu için alan
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
     const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
     
     // Font boyutuna göre karakter genişliği (fontSize: 15, fontWeight: 400)

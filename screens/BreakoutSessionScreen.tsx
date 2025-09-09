@@ -1,9 +1,9 @@
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown, ArrowLeft } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -15,7 +15,7 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
+import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -23,7 +23,8 @@ import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { coachingCacheService } from '@/services/coachingCacheService';
 
-type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
+type BreakoutSessionScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'BreakoutSession'>;
+type BreakoutSessionScreenProps = NativeStackScreenProps<AppStackParamList, 'BreakoutSession'>;
 
 // Spinning animation component
 const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
@@ -331,9 +332,9 @@ const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, co
   );
 };
 
-export default function CoachingScreen() {
-  const navigation = useNavigation<CoachingScreenNavigationProp>();
-  const route = useRoute();
+export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenProps) {
+  const navigation = useNavigation<BreakoutSessionScreenNavigationProp>();
+  const { sessionId, title, goal } = route.params;
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
@@ -362,31 +363,35 @@ export default function CoachingScreen() {
     }
   };
 
-  // Cache management using secure coaching cache service
-  const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], userId: string) => {
+  // Cache management using Firestore for breakout sessions
+  const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], sessionId: string) => {
     try {
-      await coachingCacheService.saveMessages(messages, userId);
-      debugLog(`💾 Saved ${messages.length} messages to secure cache for user:`, userId);
+      await saveMessagesToFirestore(messages, sessionId);
+      debugLog(`💾 Saved ${messages.length} messages to Firestore for breakout session:`, sessionId);
     } catch (error) {
-      console.error('Error saving messages to secure cache:', error);
+      console.error('Error saving messages to Firestore:', error);
     }
   }, []);
 
-  const loadExistingSessionFromBackend = useCallback(async (userId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> => {
+  const loadExistingSessionFromBackend = useCallback(async (sessionId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> => {
     try {
-      debugLog('🔍 Loading existing session from backend for user:', userId);
+      debugLog('🔍 Loading existing breakout session from backend:', sessionId);
       
-      // ALWAYS check backend first - never create session from cache
-      const sessionResult = await coachingCacheService.initializeSession(userId);
+      // Load messages directly from Firestore for breakout session
+      const { allMessages, totalCount } = await loadMessagesFromFirestore(sessionId);
       
-      debugLog(`📱 Session result:`, {
-        exists: sessionResult.sessionExists,
-        messageCount: sessionResult.messages.length
+      debugLog(`📱 Breakout session result:`, {
+        exists: allMessages.length > 0,
+        messageCount: allMessages.length,
+        totalCount
       });
       
-      return sessionResult;
+      return { 
+        messages: allMessages, 
+        sessionExists: allMessages.length > 0 
+      };
     } catch (error) {
-      console.error('Error loading session from backend:', error);
+      console.error('Error loading breakout session from backend:', error);
       return { messages: [], sessionExists: false };
     }
   }, []);
@@ -431,33 +436,24 @@ export default function CoachingScreen() {
     }
   }, []);
 
-  // Firestore direct access for coaching sessions
-  const loadMessagesFromFirestore = useCallback(async (userId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
+  // Firestore direct access for breakout sessions
+  const loadMessagesFromFirestore = useCallback(async (sessionId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
     try {
-      console.log('🔥 Loading messages from Firestore for user:', userId);
+      console.log('🔥 Loading messages from Firestore for breakout session:', sessionId);
       
       // Import Firestore dynamically to avoid SSR issues
       const { db } = await import('../lib/firebase');
-      const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
       
-      // Query for the user's default coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session'),
-        orderBy('createdAt', 'desc'),
-        limit(1)
-      );
+       // Query for the specific breakout session by sessionId
+       const { doc, getDoc } = await import('firebase/firestore');
+       const sessionDocRef = doc(db, 'coachingSessions', sessionId);
+       const sessionDoc = await getDoc(sessionDocRef);
       
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      if (!sessionSnapshot.empty) {
-        const sessionDoc = sessionSnapshot.docs[0];
-        const sessionData = sessionDoc.data();
-        const messages = sessionData.messages || [];
-        
-        console.log(`🔥 Found coaching session with ${messages.length} messages`);
+       if (sessionDoc.exists()) {
+         const sessionData = sessionDoc.data();
+         const messages = sessionData.messages || [];
+         
+         console.log(`🔥 Found breakout session with ${messages.length} messages`);
         
         // Convert to our message format
         const firestoreMessages: CoachingMessage[] = messages.map((msg: any, index: number) => ({
@@ -470,7 +466,7 @@ export default function CoachingScreen() {
         console.log(`✅ Successfully loaded ${firestoreMessages.length} messages from Firestore`);
         return { allMessages: firestoreMessages, totalCount: firestoreMessages.length };
       } else {
-        console.log('🔥 No coaching session found for user');
+        console.log('🔥 No breakout session found for sessionId:', sessionId);
         return { allMessages: [], totalCount: 0 };
       }
     } catch (error) {
@@ -479,23 +475,13 @@ export default function CoachingScreen() {
     }
   }, []);
 
-  const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], userId: string) => {
+  const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], sessionId: string) => {
     try {
-      console.log('🔥 Saving messages to Firestore for user:', userId);
+      console.log('🔥 Saving messages to Firestore for breakout session:', sessionId);
       
       // Import Firestore dynamically
       const { db } = await import('../lib/firebase');
-      const { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      
-      // Find existing coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session')
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
       
       // Convert messages to Firestore format (save all messages to backend)
       const firestoreMessages = messages.map((msg) => ({
@@ -505,42 +491,34 @@ export default function CoachingScreen() {
         timestamp: msg.timestamp
       }));
       
-      if (!sessionSnapshot.empty) {
-        // Update existing session
-        const sessionDoc = sessionSnapshot.docs[0];
-        await updateDoc(sessionDoc.ref, {
-          messages: firestoreMessages,
-          updatedAt: serverTimestamp()
-        });
-        console.log('🔥 Updated existing coaching session with messages');
-      } else {
-        // Create new session
-        const newSessionRef = doc(collection(db, 'coachingSessions'));
-        await setDoc(newSessionRef, {
-          userId: userId,
-          sessionType: 'default-session',
-          messages: firestoreMessages,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        console.log('🔥 Created new coaching session with messages');
-      }
+      // Save directly to the specific sessionId document
+      const sessionDocRef = doc(db, 'coachingSessions', sessionId);
+      await setDoc(sessionDocRef, {
+        sessionId: sessionId,
+        sessionType: 'breakout-session',
+        parentSessionId: firebaseUser?.uid, // Link to main user session
+        userId: firebaseUser?.uid,
+        messages: firestoreMessages,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }, { merge: true }); // Use merge to update existing or create new
       
+      console.log('🔥 Saved breakout session with messages');
       debugLog(`🔥 Successfully saved ${firestoreMessages.length} messages to Firestore`);
     } catch (error) {
       console.log('🔥 Firestore save failed:', error);
     }
-  }, []);
+  }, [firebaseUser?.uid]);
 
   // Multi-device sync strategy using Firestore
-  // Load existing coaching session (backend first - never create from cache)
-  const initializeCoachingSession = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
-    console.log('🔄 Initializing coaching session for user:', userId);
+  // Load existing breakout session (backend first - never create from cache)
+  const initializeCoachingSession = useCallback(async (sessionId: string): Promise<CoachingMessage[]> => {
+    console.log('🔄 Initializing breakout session:', sessionId);
     
     try {
-      // 1. Load existing session from backend (never from cache)
-      console.log('🔄 Step 1: Loading existing session from backend...');
-      const sessionResult = await loadExistingSessionFromBackend(userId);
+      // 1. Load existing breakout session from backend (never from cache)
+      console.log('🔄 Step 1: Loading existing breakout session from backend...');
+      const sessionResult = await loadExistingSessionFromBackend(sessionId);
       
       if (sessionResult.sessionExists) {
         console.log(`✅ Found existing session with ${sessionResult.messages.length} messages`);
@@ -557,83 +535,111 @@ export default function CoachingScreen() {
       } else {
         console.log('📝 No existing session found - ready to create new session on first message');
         
-        // No session exists - reset everything
+        // No breakout session exists - create initial message
         setAllMessages([]);
         setHasMoreMessages(false);
         setDisplayedMessageCount(0);
         
-        return [];
+        const initialMessage: CoachingMessage = {
+          id: '1',
+          content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+          role: 'assistant',
+          timestamp: new Date()
+        };
+        
+        return [initialMessage];
       }
     } catch (error) {
-      console.error('❌ Session initialization failed:', error);
+      console.error('❌ Breakout session initialization failed:', error);
       
-      // Reset on error
+      // Reset on error and provide fallback message
       setAllMessages([]);
       setHasMoreMessages(false);
       setDisplayedMessageCount(0);
       
-      return [];
+      const fallbackMessage: CoachingMessage = {
+        id: '1',
+        content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+        role: 'assistant',
+        timestamp: new Date()
+      };
+      
+      return [fallbackMessage];
     }
   }, [loadExistingSessionFromBackend]);
 
-  // Use the AI coaching hook
+  // Use the AI coaching hook (regular usage for now)
   const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
   
-  // Test function to clear all coaching data
+  // Initialize breakout session on mount
+  useEffect(() => {
+    const initializeSession = async () => {
+      if (!sessionId) return;
+      
+      console.log('🚀 Initializing breakout session on mount:', sessionId);
+      try {
+        const initialMessages = await initializeCoachingSession(sessionId);
+        setMessages(initialMessages);
+        console.log(`✅ Breakout session initialized with ${initialMessages.length} messages`);
+      } catch (error) {
+        console.error('❌ Failed to initialize breakout session:', error);
+        
+        // Fallback to welcome message
+        const welcomeMessage: CoachingMessage = {
+          id: '1',
+          content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+          role: 'assistant',
+          timestamp: new Date()
+        };
+        setMessages([welcomeMessage]);
+      }
+    };
+    
+    initializeSession();
+  }, [sessionId, title, goal, setMessages, initializeCoachingSession]);
+  
+  // Test function to clear breakout session data
   clearAllCoachingData = useCallback(async () => {
-    if (!firebaseUser?.uid) return;
+    if (!sessionId) return;
     
     try {
-      console.log('🧹 Clearing all coaching data...');
+      console.log('🧹 Clearing breakout session data...', sessionId);
       
-      // Clear secure cache
-      await coachingCacheService.clearUserMessages(firebaseUser.uid);
-      
-      // Clear Firestore coaching session
+      // Clear Firestore breakout session
       const { db } = await import('../lib/firebase');
-      const { collection, query, where, getDocs, deleteDoc } = await import('firebase/firestore');
+      const { doc, deleteDoc } = await import('firebase/firestore');
       
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', firebaseUser.uid),
-        where('sessionType', '==', 'default-session')
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      for (const doc of sessionSnapshot.docs) {
-        await deleteDoc(doc.ref);
-        console.log('🗑️ Deleted Firestore session:', doc.id);
-      }
+      const sessionDocRef = doc(db, 'coachingSessions', sessionId);
+      await deleteDoc(sessionDocRef);
+      console.log('🗑️ Deleted Firestore breakout session:', sessionId);
       
       // Reset messages to welcome message
       const initialMessage: CoachingMessage = {
         id: '1',
-        content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
+        content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
         role: 'assistant',
         timestamp: new Date()
       };
       setMessages([initialMessage]);
       
-      console.log('✅ All coaching data cleared successfully');
+      console.log('✅ Breakout session data cleared successfully');
     } catch (error) {
-      console.error('❌ Error clearing coaching data:', error);
+      console.error('❌ Error clearing breakout session data:', error);
     }
-  }, [firebaseUser, user?.firstName, setMessages]);
+  }, [sessionId, title, goal, setMessages]);
 
   // Manual refresh from backend
   refreshFromBackend = useCallback(async () => {
-    if (!firebaseUser?.uid) {
-      console.warn('⚠️ Cannot refresh from backend: no user');
+    if (!sessionId) {
+      console.warn('⚠️ Cannot refresh from backend: no sessionId');
       return;
     }
 
     try {
-      console.log('🔄 Manual refresh from backend requested for user:', firebaseUser.uid);
+      console.log('🔄 Manual refresh from backend requested for breakout session:', sessionId);
       
-      // Re-initialize session from backend
-      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+      // Re-initialize breakout session from backend
+      const sessionMessages = await initializeCoachingSession(sessionId);
       
       if (sessionMessages.length > 0) {
         setMessages(sessionMessages);
@@ -652,7 +658,7 @@ export default function CoachingScreen() {
     } catch (error) {
       console.error('❌ Error refreshing from backend:', error);
     }
-  }, [firebaseUser?.uid, setMessages, initializeCoachingSession, user?.firstName]);
+  }, [sessionId, setMessages, initializeCoachingSession]);
 
   // Expose functions globally for testing (remove in production)
   if (__DEV__) {
@@ -1126,15 +1132,19 @@ export default function CoachingScreen() {
             }}
             onStateChange={async (newState, additionalData) => {
               console.log('🎯 SessionSuggestion state change:', { newState, additionalData });
+              
+              // Update the message content with new state
               try {
                 const updatedMessages = messages.map((message) => {
                   if (message.role !== 'assistant') return message;
                   if (hostMessageId && message.id !== hostMessageId) return message;
+
                   const tokenRegex = /\[sessionSuggestion:([^\]]+)\]/g;
                   let occurrence = 0;
                   const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
                     if (occurrence !== index) { occurrence++; return match; }
                     occurrence++;
+
                     const existingProps: Record<string, string> = {};
                     const propRegex = /(\w+)="([^"]+)"/g;
                     let propMatch;
@@ -1142,9 +1152,12 @@ export default function CoachingScreen() {
                       const [, k, v] = propMatch;
                       existingProps[k] = v;
                     }
+                    
+                    // Update state and additional data
                     existingProps.state = newState;
                     if (additionalData?.scheduledDate) existingProps.scheduledDate = additionalData.scheduledDate;
                     if (additionalData?.scheduledTime) existingProps.scheduledTime = additionalData.scheduledTime;
+
                     const newPropsString = Object.entries(existingProps)
                       .map(([k, v]) => `${k}="${v}"`)
                       .join(',');
@@ -1152,9 +1165,14 @@ export default function CoachingScreen() {
                   });
                   return { ...message, content: updatedContent };
                 });
+
+                // Update messages in state
                 setMessages(updatedMessages);
-                await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
-                console.log('✅ SessionSuggestion state updated and saved');
+                
+                // Persist to breakout session Firestore (not main cache)
+                await saveMessagesToFirestore(updatedMessages, sessionId);
+                console.log('✅ SessionSuggestion state updated and saved to breakout session');
+                
               } catch (error) {
                 console.error('❌ Failed to update session suggestion state:', error);
               }
@@ -1178,10 +1196,13 @@ export default function CoachingScreen() {
             messageId={hostMessageId || 'unknown'}
             onReplaceWithSessionCard={async (sessionCardContent) => {
               console.log('🎯 Replacing session token with sessionCard token:', sessionCardContent);
+              
+              // Replace session token with sessionCard token in message
               try {
                 const updatedMessages = messages.map((message) => {
                   if (message.role !== 'assistant') return message;
                   if (hostMessageId && message.id !== hostMessageId) return message;
+
                   const tokenRegex = /\[session:([^\]]+)\]/g;
                   let occurrence = 0;
                   const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
@@ -1191,9 +1212,14 @@ export default function CoachingScreen() {
                   });
                   return { ...message, content: updatedContent };
                 });
+
+                // Update messages in state
                 setMessages(updatedMessages);
-                await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
-                console.log('✅ Session token replaced with sessionCard token and saved');
+                
+                // Persist to breakout session Firestore (not main cache)
+                await saveMessagesToFirestore(updatedMessages, sessionId);
+                console.log('✅ Session token replaced with sessionCard token and saved to breakout session');
+                
               } catch (error) {
                 console.error('❌ Failed to replace session token:', error);
               }
@@ -1215,24 +1241,6 @@ export default function CoachingScreen() {
             }}
             onContinueSession={(sessionId) => {
               console.log('✅ Continue session clicked:', sessionId);
-            }}
-          />
-        );
-      }
-      case 'insight': {
-        return (
-          <InsightCard
-            key={baseProps.key}
-            insight={{
-              type: 'insight',
-              title: props.title || 'Insight',
-              preview: props.preview || '',
-              fullContent: props.fullContent || ''
-            }}
-            onDiscuss={(fullInsight) => {
-              console.log('✅ Insight discussion requested:', fullInsight.substring(0, 100) + '...');
-              // TODO: Handle insight discussion - could navigate to a discussion screen
-              // or add the insight to the current conversation
             }}
           />
         );
@@ -1369,25 +1377,6 @@ export default function CoachingScreen() {
       // Reset completion flag when entering screen
       sessionCompletedRef.current = false;
       
-      // Refresh main session when focusing back from breakout session
-      const refreshMainSession = async () => {
-        if (firebaseUser?.uid) {
-          console.log('🔄 CoachingScreen focused - refreshing main session...');
-          try {
-            // Force reload main session from backend
-            const sessionResult = await coachingCacheService.initializeSession(firebaseUser.uid);
-            if (sessionResult.messages.length > 0) {
-              setMessages(sessionResult.messages);
-              console.log(`✅ Main session refreshed with ${sessionResult.messages.length} messages`);
-            }
-          } catch (error) {
-            console.error('❌ Failed to refresh main session:', error);
-          }
-        }
-      };
-      
-      refreshMainSession();
-      
       // Cleanup function that runs when leaving the screen
       return () => {
         const currentSessionId = getSessionId();
@@ -1422,7 +1411,7 @@ export default function CoachingScreen() {
           });
         }
       };
-    }, [firebaseUser?.uid, setMessages])
+    }, [firebaseUser?.uid])
   );
 
   // Session ID is derived from firebaseUser.uid - no useEffect needed
@@ -1454,53 +1443,20 @@ export default function CoachingScreen() {
     setCurrentUserId(newUserId);
   }, [firebaseUser?.uid, currentUserId, clearCoachingCacheForUser]);
   
-  useEffect(() => {
-    if (!firebaseUser || isInitialized) return;
-    
-    const initializeChat = async () => {
-      debugLog('🔄 Initializing chat for user:', firebaseUser.uid);
-      
-      // Load existing session from backend (never create from cache)
-      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
-      
-      if (sessionMessages.length > 0) {
-        // Existing session found - load recent messages
-        setMessages(sessionMessages);
-        console.log(`✅ Loaded existing session with ${sessionMessages.length} messages`);
-      } else {
-        // No existing session found - show welcome message (session will be created on first user message)
-        debugLog('📝 No existing session found, showing welcome message');
-        const initialMessage: CoachingMessage = {
-          id: '1',
-          content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
-          role: 'assistant',
-          timestamp: new Date()
-        };
-        setMessages([initialMessage]);
-        debugLog('✅ Ready to create new session - welcome message shown');
-      }
-      
-      setIsInitialized(true);
-    };
-    
-    initializeChat();
-  }, [firebaseUser, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
+  // Remove this useEffect - we don't want main session initialization in breakout session
 
-  // Save messages to both local storage and Firestore whenever messages change
+  // Save messages to Firestore whenever messages change (using sessionId)
   useEffect(() => {
-    if (firebaseUser?.uid && messages.length > 0) {
+    if (sessionId && messages.length > 0) {
       // Don't save just the welcome message
       if (messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant') {
         return;
       }
       
-      // Save to local storage (last 300 messages - rich cache)
-      saveMessagesToStorage(messages, firebaseUser.uid);
-      
-      // Save to Firestore (all messages - full backup)
-      saveMessagesToFirestore(messages, firebaseUser.uid);
+      // Save to Firestore using breakout sessionId
+      saveMessagesToFirestore(messages, sessionId);
     }
-  }, [messages, firebaseUser?.uid, saveMessagesToStorage, saveMessagesToFirestore]);
+  }, [messages, sessionId, saveMessagesToFirestore]);
 
   
 
@@ -1834,21 +1790,21 @@ export default function CoachingScreen() {
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    // Use userId as session ID (single session per user)
-    const currentSessionId = getSessionId();
+    // Use breakout sessionId
+    const currentSessionId = sessionId;
     
-    // Log coaching session (session is always the user ID)
-    console.log('🎯 [COACHING] User coaching session...', {
+    // Log breakout coaching session
+    console.log('🎯 [COACHING] Breakout coaching session...', {
       sessionId: currentSessionId,
       userId: firebaseUser?.uid,
-      sessionType: 'single-user-session',
+      sessionType: 'breakout-session',
       trigger: 'manual'
     });
     
-    // Track coaching session activity
+    // Track breakout coaching session activity
     trackCoachingSessionStarted({
       session_id: currentSessionId,
-      session_type: 'regular',
+      session_type: 'regular', // Use regular type for breakout sessions
       trigger: 'manual',
     });
 
@@ -2199,11 +2155,24 @@ export default function CoachingScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        {/* Header */}
+        {/* Header with back button and session info */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
-          <Text style={[styles.chatHeaderText, { color: colors.text }]}>
-            Coach
-          </Text>
+          <TouchableOpacity 
+            onPress={() => navigation.goBack()} 
+            style={styles.backButton}
+          >
+            <ArrowLeft size={24} color={colors.text} />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <Text style={[styles.chatHeaderText, { color: colors.text }]} numberOfLines={1}>
+              {title || 'Breakout Session'}
+            </Text>
+            {goal && (
+              <Text style={[styles.headerSubtitle, { color: colors.icon }]} numberOfLines={1}>
+                {goal}
+              </Text>
+            )}
+          </View>
         </View>
 
         {/* Messages */}
@@ -2604,11 +2573,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
-    alignItems: 'flex-start',
     borderBottomWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
@@ -2967,5 +2937,18 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     zIndex: 10,
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 12,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 16,
+    marginTop: 2,
   },
 }); 

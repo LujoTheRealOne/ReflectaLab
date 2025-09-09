@@ -1,5 +1,51 @@
 # LLM Activity Log
 
+## 2024-12-19 - InsightCard Integration in React Native App
+
+### Problem
+The user wanted to activate InsightCards in the React Native app by understanding how they work in the web version and implementing similar functionality for mobile coaching sessions.
+
+### Analysis
+1. **Web version analysis**: InsightCards in the web app (`reflecta-lab/src/components/cards/InsightCard.tsx`) show insights with title, preview, and click-to-expand full content modal
+2. **Token structure**: Uses `[insight:title="...",preview="...",fullContent="..."]` format in coaching messages
+3. **Integration pattern**: Cards are rendered in `CoachingMessage.tsx` using token parsing and card rendering functions
+
+### Implementation
+1. **Created InsightCard component** (`ReflectaLab/components/cards/InsightCard.tsx`):
+   - React Native implementation with TouchableOpacity card design
+   - Modal for full content display with native feel
+   - Lightbulb icon and "Insight" badge styling
+   - Dark/light theme support
+   - Haptic feedback for interactions
+   - Optional discussion callback for future features
+
+2. **Updated card exports** (`ReflectaLab/components/cards/index.ts`):
+   - Added InsightCard to the exported components
+
+3. **Integrated with CoachingScreen** (`ReflectaLab/screens/CoachingScreen.tsx`):
+   - Added InsightCard import
+   - Added 'insight' case to `renderCoachingCard()` function
+   - Maps token props (title, preview, fullContent) to component props
+   - Added placeholder discussion handler
+
+### Token Format
+```
+[insight:title="Key Insight Title",preview="Brief preview text...",fullContent="Full detailed insight content that shows in modal..."]
+```
+
+### Usage
+The InsightCard will automatically render when the coaching backend sends messages containing insight tokens. The card shows:
+- Insight badge with lightbulb icon
+- Title and preview text
+- "Tap to read full insight" footer
+- Modal overlay with full content when tapped
+- Optional discussion feature (TODO)
+
+### Files Modified
+- `ReflectaLab/components/cards/InsightCard.tsx` (created)
+- `ReflectaLab/components/cards/index.ts` (updated exports)
+- `ReflectaLab/screens/CoachingScreen.tsx` (integrated rendering)
+
 ## 2024-12-19 - Mobile Commitment System Integration
 
 ### Problem
@@ -1318,3 +1364,55 @@ setCommitments(uniqueCommitments);
 4. **Persistence:** All state changes automatically saved to Firestore via `coachingCacheService`
 
 **Impact:** ✅ Mobile app now has complete parity with web session suggestion functionality. Users can schedule coaching sessions directly from AI suggestions with native mobile UI patterns. The system is fully integrated with the existing backend infrastructure and maintains state consistency across sessions.
+
+## 2025-01-09 - Implemented Mobile ScheduledSessionCard with Breakout Session Creation
+
+**Problem:** Mobile app was showing "unknown component: session" errors for `session` tokens, preventing users from starting scheduled coaching sessions that were created via `sessionSuggestion` cards.
+
+**Root Cause:** While the web application had complete `ScheduledSessionCard` component that could create breakout sessions and navigate to them, the mobile app was missing both the component and the `session` case in the `renderCoachingCard` switch statement.
+
+**Solution:**
+1. **Created Mobile ScheduledSessionCard Component:** Built comprehensive React Native component with duration picker and session creation functionality
+2. **Implemented Breakout Session Creation:** Connected directly to existing `/api/coaching/sessions` endpoint for creating new coaching sessions
+3. **Added Token Replacement Logic:** Automatically replaces `session` token with `sessionCard` token after successful session creation
+4. **Fixed Missing SessionSuggestion Case:** Also discovered and fixed missing `sessionSuggestion` case in switch statement
+5. **Integrated Both Session Cards:** Added both `sessionSuggestion` and `session` cases to `renderCoachingCard` with proper state management
+
+**Files Created:**
+- `ReflectaLab/components/cards/ScheduledSessionCard.tsx` - **NEW** comprehensive scheduled session component
+
+**Files Modified:**
+- `ReflectaLab/components/cards/index.ts` - Added ScheduledSessionCard export
+- `ReflectaLab/screens/CoachingScreen.tsx` - Added ScheduledSessionCard import, `sessionSuggestion` case (was missing!), and `session` case with token replacement logic
+
+**Token Format Supported:**
+```typescript
+[session:title="Weekly Planning",goal="Review progress and set goals",duration="45m",question="How did last week go?"]
+```
+
+**Features Implemented:**
+- ✅ **Duration Selection:** 15m, 30m, 45m, 60m, 90m horizontal picker
+- ✅ **Start Session Button:** Full backend integration with loading states
+- ✅ **Breakout Session Creation:** Creates new coaching session in Firestore with initial question
+- ✅ **Token Replacement:** Automatically converts `session` → `sessionCard` token in message content
+- ✅ **Authentication:** Bearer token authentication with Clerk integration
+- ✅ **Error Handling:** Comprehensive error handling with user-friendly alerts
+- ✅ **State Management:** Proper started state with session confirmation display
+- ✅ **Navigation Placeholder:** Alert dialog ready for future breakout session navigation
+
+**Backend Integration:**
+- ✅ **API Endpoint:** `/api/coaching/sessions` POST with session creation request
+- ✅ **Breakout Session Creation:** Creates new `CoachingSession` document in Firestore with unique sessionId
+- ✅ **Parent Session Linking:** Links breakout session to main coaching session via `parentSessionId`
+- ✅ **Initial Question Setup:** Creates first assistant message with session's opening question
+- ✅ **Scheduled Session Completion:** Marks original scheduled session as completed if `scheduledSessionId` provided
+
+**Session Creation Flow:**
+1. **User Interaction:** User selects duration and clicks "Start Session"
+2. **API Call:** POST to `/api/coaching/sessions` with session details and auth token
+3. **Breakout Session Creation:** Backend creates new coaching session with unique ID and initial message
+4. **Token Replacement:** `[session:...]` token automatically replaced with `[sessionCard:...]` token
+5. **State Update:** Card shows "Session started" confirmation with session details
+6. **Future Navigation:** Placeholder for navigation to breakout session screen
+
+**Impact:** ✅ Mobile app now handles complete session workflow from suggestion to creation. Users can schedule sessions via `SessionSuggestionCard`, then start them via `ScheduledSessionCard`, with automatic token progression and breakout session creation. Both "unknown component: sessionSuggestion" and "unknown component: session" errors are completely resolved.

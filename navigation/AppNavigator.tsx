@@ -12,6 +12,7 @@ import CoachingScreen from '@/screens/CoachingScreen';
 import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
 import VoiceModeScreen from '@/screens/VoiceModeScreen';
+import BreakoutSessionScreen from '@/screens/BreakoutSessionScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useAuth } from '@/hooks/useAuth';
 import SwipeableScreens from '@/components/SwipeableScreens';
@@ -34,6 +35,11 @@ export type AppStackParamList = {
   };
   VoiceMode: {
     sessionId?: string;
+  };
+  BreakoutSession: {
+    sessionId: string;
+    title?: string;
+    goal?: string;
   };
 };
 
@@ -234,6 +240,17 @@ export default function AppNavigator() {
         }}
       >
         {() => <VoiceModeScreen />}
+      </Stack.Screen>
+      
+      <Stack.Screen
+        name="BreakoutSession"
+        options={{
+          gestureEnabled: true,
+          ...TransitionPresets.SlideFromRightIOS,
+          headerShown: false,
+        }}
+      >
+        {(props) => <BreakoutSessionScreen {...props} />}
       </Stack.Screen>
     </Stack.Navigator>
     

@@ -25,6 +25,7 @@ export interface UseSyncReturn {
   refreshEntries: () => Promise<void>;
   addEntry: (entry: Omit<CachedEntry, 'id' | '_syncStatus'>) => Promise<string>;
   updateEntry: (entryId: string, updates: Partial<CachedEntry>) => Promise<void>;
+  deleteEntry: (entryId: string) => Promise<void>;
   getEntryById: (entryId: string) => CachedEntry | undefined;
 }
 
@@ -335,6 +336,35 @@ export function useSyncSingleton(): UseSyncReturn {
     }
   }, [firebaseUser?.uid]);
 
+  const deleteEntry = useCallback(async (entryId: string): Promise<void> => {
+    if (!firebaseUser?.uid) {
+      throw new Error('No authenticated user');
+    }
+
+    console.log('🗑️ Deleting entry (direct Firestore + cache):', entryId);
+    
+    try {
+      // Import Firebase functions
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      
+      // Delete from Firestore
+      const entryRef = doc(db, 'journal_entries', entryId);
+      await deleteDoc(entryRef);
+      
+      console.log('✅ Entry deleted from Firestore:', entryId);
+      
+      // Also delete from cache and refresh UI
+      await syncService.deleteLocalEntry(firebaseUser.uid, entryId);
+      
+      console.log('✅ Entry deleted from cache (auto UI refresh via listener)');
+    } catch (err) {
+      console.error('❌ Delete entry failed:', err);
+      updateGlobalState({ error: err instanceof Error ? err.message : 'Delete entry failed' });
+      throw err;
+    }
+  }, [firebaseUser?.uid]);
+
   const getEntryById = useCallback((entryId: string): CachedEntry | undefined => {
     return globalEntries.find(entry => entry.id === entryId);
   }, []);
@@ -347,6 +377,7 @@ export function useSyncSingleton(): UseSyncReturn {
     refreshEntries,
     addEntry,
     updateEntry,
+    deleteEntry,
     getEntryById,
   };
 }

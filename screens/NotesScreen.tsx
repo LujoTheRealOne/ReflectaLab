@@ -23,7 +23,7 @@ export default function NotesScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { entries: cachedEntries, isLoading, refreshEntries } = useSyncSingleton();
+  const { entries: cachedEntries, isLoading, refreshEntries, deleteEntry } = useSyncSingleton();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Map cached entries to local shape with mock timestamp compat
@@ -117,6 +117,17 @@ export default function NotesScreen() {
     }
   }, [refreshEntries]);
 
+  // Handle note deletion
+  const handleDeleteNote = useCallback(async (entryId: string) => {
+    try {
+      console.log('🗑️ Deleting note:', entryId);
+      await deleteEntry(entryId);
+      console.log('✅ Note deleted successfully');
+    } catch (error) {
+      console.error('❌ Failed to delete note:', error);
+    }
+  }, [deleteEntry]);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}> 
       <View style={[styles.topSpacer, { height: insets.top + 12 }]} />
@@ -177,6 +188,7 @@ export default function NotesScreen() {
                   console.log('📝 Opening note for editing:', entry.id);
                   (navigation as any).navigate('NewNote', { selectedEntry: entry });
                 }}
+                onLongPress={() => handleDeleteNote(entry.id)}
               />
             ))}
           </>
@@ -201,6 +213,7 @@ export default function NotesScreen() {
                   console.log('📝 Opening note for editing:', entry.id);
                   (navigation as any).navigate('NewNote', { selectedEntry: entry });
                 }}
+                onLongPress={() => handleDeleteNote(entry.id)}
               />
             ))}
           </>

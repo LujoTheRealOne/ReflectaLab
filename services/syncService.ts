@@ -520,6 +520,31 @@ class SyncService {
     }
   }
 
+  async deleteLocalEntry(userId: string, entryId: string): Promise<void> {
+    console.log('🗑️ Deleting local entry:', entryId);
+
+    const cachedEntries = await this.getCachedEntries(userId);
+    const entryIndex = cachedEntries.findIndex(e => e.id === entryId);
+    
+    if (entryIndex === -1) {
+      console.warn(`⚠️ Entry ${entryId} not found in cache for deletion`);
+      return;
+    }
+    
+    // Remove entry from cache
+    const updatedEntries = cachedEntries.filter(e => e.id !== entryId);
+    await this.setCachedEntries(userId, updatedEntries);
+    console.log('🗑️ Deleted entry from cache');
+
+    // Remove from pending uploads if it was there
+    const syncState = await this.getSyncState(userId);
+    const updatedPendingUploads = syncState.pendingUploads.filter(id => id !== entryId);
+    await this.setSyncState(userId, {
+      ...syncState,
+      pendingUploads: updatedPendingUploads,
+    });
+  }
+
   // =====================
   // CLEANUP
   // =====================

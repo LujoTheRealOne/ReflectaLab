@@ -2754,7 +2754,7 @@ export default function CoachingScreen() {
                   placeholder="Write how you think..."
                   placeholderTextColor={colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.50)'}
                 multiline
-                maxLength={500}
+                maxLength={15000} // ~2000 words limit
                 returnKeyType='default'
                 onSubmitEditing={handleSendMessage}
                 cursorColor={colors.tint}

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Mic, X, Check, ArrowUp, ArrowDown, ArrowLeft } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown, ArrowLeft, Square } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
@@ -15,7 +15,7 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
+import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -569,7 +569,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   }, [loadExistingSessionFromBackend]);
 
   // Use the AI coaching hook (regular usage for now)
-  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
+  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration } = useAICoaching();
   
   // Initialize breakout session on mount
   useEffect(() => {
@@ -1245,6 +1245,24 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
           />
         );
       }
+      case 'insight': {
+        return (
+          <InsightCard
+            key={baseProps.key}
+            insight={{
+              type: 'insight',
+              title: props.title || 'Insight',
+              preview: props.preview || '',
+              fullContent: props.fullContent || ''
+            }}
+            onDiscuss={(fullInsight) => {
+              console.log('✅ Insight discussion requested:', fullInsight.substring(0, 100) + '...');
+              // TODO: Handle insight discussion - could navigate to a discussion screen
+              // or add the insight to the current conversation
+            }}
+          />
+        );
+      }
       case 'checkin':
         // Check-in cards are handled by the scheduling popup system
         return null;
@@ -1312,9 +1330,9 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
         ? `${existingText} ${transcription}` 
         : transcription;
       setChatInput(newText);
-      setTimeout(() => {
-        textInputRef.current?.focus();
-      }, 100);
+      // Trigger input field expansion for long transcriptions
+      handleTextChange(newText);
+      // No auto-focus after transcription - let user decide when to open keyboard
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
@@ -1811,6 +1829,11 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     const messageContent = chatInput.trim();
     setChatInput('');
     
+    // Close keyboard and blur input
+    textInputRef.current?.blur();
+    Keyboard.dismiss();
+    setIsChatInputFocused(false);
+    
     // Input yüksekliğini ve expand durumunu sıfırla
     setInputHeight(LINE_HEIGHT);
     setContainerHeight(CONTAINER_BASE_HEIGHT);
@@ -1826,6 +1849,17 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     await sendMessage(messageContent, currentSessionId, {
         sessionType: 'default-session'
     });
+  };
+
+  const handleStopGeneration = () => {
+    console.log('🛑 Stopping AI response generation');
+    if (stopGeneration) {
+      stopGeneration();
+    }
+    // Focus back to input after stopping
+    setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 100);
   };
 
   const handleMicrophonePress = () => {
@@ -2348,7 +2382,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
                   bottom: keyboardHeight > 0 
                     ? keyboardHeight + containerHeight - 300  // Keyboard + input height + margin
-                    : 280 + containerHeight - 90, // Normal position + input growth
+                    : 220 + containerHeight - 90, // Normal position + input growth (adjusted for lower input)
                 }
               ]}
               onPress={() => handleScrollToBottom(true)}
@@ -2363,7 +2397,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
         {/* Input */}
         <View style={[styles.chatInputContainer, { 
-          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 80, // If keyboard open: slightly overlapping, otherwise 80px above navbar
+          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 20, // If keyboard open: slightly overlapping, otherwise 20px above navbar
           paddingBottom: Math.max(insets.bottom, 0)
         }]} pointerEvents="box-none">
           <View
@@ -2465,16 +2499,29 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
                   <TouchableOpacity
                     style={[styles.sendButtonRound, { 
-                      backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                      backgroundColor: isLoading 
+                        ? (colorScheme === 'dark' ? '#404040' : '#E6E6E6') 
+                        : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
                       shadowColor: '#000',
                       shadowOffset: { width: 0, height: 2 },
                       shadowOpacity: 0.2,
                       shadowRadius: 4,
                       elevation: 3,
                     }]}
-                    onPress={chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress}
+                    onPress={
+                      isLoading 
+                        ? handleStopGeneration 
+                        : (chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress)
+                    }
                   >
-                    {chatInput.trim().length > 0 ? (
+                    {isLoading ? (
+                      <Square
+                        size={14}
+                        color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        fill={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        strokeWidth={0}
+                      />
+                    ) : chatInput.trim().length > 0 ? (
                       <ArrowUp
                         size={18}
                         color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}

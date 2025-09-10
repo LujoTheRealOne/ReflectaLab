@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   Image,
   Linking,
   SafeAreaView,
@@ -701,8 +702,8 @@ export default function SettingsScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.commitmentsScrollContent}
                 style={styles.commitmentsScrollView}
-                snapToInterval={292} // Card width (280) + margin (12)
-                snapToAlignment="center"
+                snapToInterval={Dimensions.get('window').width - 40} // Screen width minus content padding (20+20)
+                snapToAlignment="start"
                 decelerationRate="fast"
               >
                 {commitments.map((commitment, index) => (
@@ -1521,13 +1522,15 @@ const styles = StyleSheet.create({
   // Scrollable commitments styles
   commitmentsScrollView: {
     marginBottom: 20,
+    overflow: 'visible',
   },
   commitmentsScrollContent: {
-    paddingHorizontal: 20,
+    paddingLeft: 5, // Match compass grid padding left
+    paddingRight: 17, // Add extra padding for last card
     alignItems: 'center',
   },
   commitmentCard: {
-    width: 280,
+    width: Dimensions.get('window').width - 50, // Screen width minus content padding (20+20) and grid padding (5+5)
     height: 171,
     padding: 16,
     borderRadius: 24,
@@ -1540,7 +1543,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginRight: 12,
+    marginRight: 15, // Slightly increased for better spacing
   },
   emptyCommitmentsCard: {
     alignSelf: 'stretch',

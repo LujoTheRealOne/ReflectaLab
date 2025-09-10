@@ -924,7 +924,7 @@ export default function CoachingScreen() {
   const LINE_HEIGHT = 24;
   const MIN_LINES = 1;
   const MAX_LINES = 10;
-  const EXPANDED_MAX_LINES = 40; // Maximum lines when expanded
+  const EXPANDED_MAX_LINES = 18; // Maximum lines when expanded
   const INPUT_PADDING_VERTICAL = 8;
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
@@ -2683,8 +2683,8 @@ export default function CoachingScreen() {
                 {
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
                   bottom: keyboardHeight > 0 
-                    ? keyboardHeight + containerHeight - 300  // Keyboard + input height + margin
-                    : 280 + containerHeight - 90, // Normal position + input growth
+                    ? keyboardHeight + containerHeight + 50  // Keyboard + input height + margin
+                    : containerHeight + 140, // Input height + margin above input (80px input + 60px margin)
                 }
               ]}
               onPress={() => handleScrollToBottom(true)}

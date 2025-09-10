@@ -57,23 +57,30 @@ export default function SessionCard({ session, onContinueSession }: SessionCardP
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+    <View style={[
+      styles.container, 
+      { 
+        backgroundColor: colors.background,
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+      }
+    ]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+        <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
           Session
         </Text>
-        <Text style={[styles.title, { color: '#262626' }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {session.title}
         </Text>
-        <Text style={[styles.description, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={2}>
+        <Text style={[styles.description, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={2}>
           {session.goal}
         </Text>
       </View>
 
       {/* Session Info */}
-      <View style={[styles.infoContainer, { backgroundColor: '#F2F2F2' }]}>
-        <Text style={[styles.infoText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+      <View style={[styles.infoContainer, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
+        <Text style={[styles.infoText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
           Duration: <Text style={styles.infoBold}>{session.duration}</Text>
         </Text>
       </View>
@@ -83,14 +90,16 @@ export default function SessionCard({ session, onContinueSession }: SessionCardP
         style={[
           styles.button,
           { 
-            backgroundColor: isProcessing ? '#CCCCCC' : '#000000',
+            backgroundColor: isProcessing 
+              ? (colorScheme === 'dark' ? '#666666' : '#CCCCCC')
+              : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
             opacity: isProcessing ? 0.6 : 1
           }
         ]}
         onPress={handleContinueSession}
         disabled={isProcessing}
       >
-        <Text style={[styles.buttonText, { color: 'rgba(255, 255, 255, 0.91)' }]}>
+        <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }]}>
           {isProcessing ? 'Loading...' : 'Continue Session'}
         </Text>
       </TouchableOpacity>

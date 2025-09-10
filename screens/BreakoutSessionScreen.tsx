@@ -1674,7 +1674,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     setChatInput(text);
     
     // More precise calculation - word-based line wrapping
-    const containerWidth = 362; // chatInputWrapper width
+    const containerWidth = 380; // chatInputWrapper width
     const containerPadding = 16; // 8px left + 8px right padding
     const textInputPadding = 8; // 4px left + 4px right padding
     
@@ -2373,7 +2373,9 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
             {
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-                height: containerHeight // Dinamik yükseklik
+                height: containerHeight, // Dinamik yükseklik
+                shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
               }
             ]}
           >
@@ -2610,7 +2612,7 @@ const styles = StyleSheet.create({
   },
   chatInputWrapper: {
     alignSelf: 'center',
-    width: 362,
+    width: 380,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     borderTopWidth: 0.5,
@@ -2628,11 +2630,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 0,
+      height: 2,
     },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 15,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   mainInputContainer: {
     flex: 1,

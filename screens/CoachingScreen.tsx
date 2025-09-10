@@ -351,7 +351,9 @@ export default function CoachingScreen() {
 
   // Use userId as session ID (single session per user) - no state needed
   const getSessionId = (): string => {
-    return firebaseUser?.uid || 'anonymous';
+    const sessionId = firebaseUser?.uid || 'anonymous';
+    console.log('🔑 [SESSION ID] Current session ID:', sessionId);
+    return sessionId;
   };
 
   // Debug mode flag - set to false for production
@@ -479,9 +481,21 @@ export default function CoachingScreen() {
     }
   }, []);
 
+  // Prevent concurrent Firestore saves
+  const firestoreSaveInProgress = useRef(new Set<string>());
+  
   const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], userId: string) => {
+    // Prevent concurrent saves for the same user
+    if (firestoreSaveInProgress.current.has(userId)) {
+      console.log('⚠️ [FIRESTORE] Save already in progress for user, skipping:', userId);
+      return;
+    }
+    
+    firestoreSaveInProgress.current.add(userId);
+    
     try {
-      console.log('🔥 Saving messages to Firestore for user:', userId);
+      console.log('🔥 [FIRESTORE] Starting Firestore save for user:', userId);
+      console.log('🔥 [FIRESTORE] Messages to save:', messages.length);
       
       // Import Firestore dynamically
       const { db } = await import('../lib/firebase');
@@ -495,7 +509,14 @@ export default function CoachingScreen() {
         where('sessionType', '==', 'default-session')
       );
       
+      console.log('🔍 [FIRESTORE] Searching for existing session...');
       const sessionSnapshot = await getDocs(sessionQuery);
+      
+      console.log('🔍 [FIRESTORE] Query result:', {
+        isEmpty: sessionSnapshot.empty,
+        docCount: sessionSnapshot.docs.length,
+        userId: userId
+      });
       
       // Convert messages to Firestore format (save all messages to backend)
       const firestoreMessages = messages.map((msg) => ({
@@ -506,15 +527,25 @@ export default function CoachingScreen() {
       }));
       
       if (!sessionSnapshot.empty) {
-        // Update existing session
+        // Update existing session - NEVER CREATE NEW
         const sessionDoc = sessionSnapshot.docs[0];
+        const existingData = sessionDoc.data();
+        
+        console.log('🔍 [FIRESTORE] Found existing session:', {
+          sessionId: sessionDoc.id,
+          existingMessageCount: existingData.messages?.length || 0,
+          newMessageCount: firestoreMessages.length,
+          sessionType: existingData.sessionType
+        });
+        
         await updateDoc(sessionDoc.ref, {
           messages: firestoreMessages,
           updatedAt: serverTimestamp()
         });
-        console.log('🔥 Updated existing coaching session with messages');
+        console.log('✅ [FIRESTORE] Updated existing coaching session:', sessionDoc.id);
       } else {
-        // Create new session
+        // This should rarely happen - only for completely new users
+        console.log('📝 [FIRESTORE] No existing session found, creating new one...');
         const newSessionRef = doc(collection(db, 'coachingSessions'));
         await setDoc(newSessionRef, {
           userId: userId,
@@ -523,12 +554,22 @@ export default function CoachingScreen() {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
-        console.log('🔥 Created new coaching session with messages');
+        console.log('✅ [FIRESTORE] Created new coaching session:', newSessionRef.id);
       }
       
-      debugLog(`🔥 Successfully saved ${firestoreMessages.length} messages to Firestore`);
+      console.log(`✅ [FIRESTORE] Successfully saved ${firestoreMessages.length} messages to Firestore`);
     } catch (error) {
-      console.log('🔥 Firestore save failed:', error);
+      console.error('❌ [FIRESTORE] Firestore save failed:', error);
+      console.error('❌ [FIRESTORE] Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        userId: userId,
+        messageCount: messages.length
+      });
+    } finally {
+      // Always remove from in-progress set
+      firestoreSaveInProgress.current.delete(userId);
+      console.log('🔄 [FIRESTORE] Save completed for user:', userId);
     }
   }, []);
 
@@ -660,6 +701,92 @@ export default function CoachingScreen() {
     (global as any).clearCoachingData = clearAllCoachingData;
     (global as any).refreshCoachingFromBackend = refreshFromBackend;
     (global as any).coachingCacheService = coachingCacheService;
+    
+    // Debug function to check session persistence
+    (global as any).debugSessionPersistence = async () => {
+      if (!firebaseUser?.uid) {
+        console.log('❌ No user logged in');
+        return;
+      }
+      
+      console.log('🔍 [DEBUG] Session Persistence Check:');
+      console.log('🔍 [DEBUG] Current user ID:', firebaseUser.uid);
+      console.log('🔍 [DEBUG] Current messages count:', messages.length);
+      
+      // Check cache
+      const cachedMessages = await coachingCacheService.loadMessages(firebaseUser.uid);
+      console.log('🔍 [DEBUG] Cached messages count:', cachedMessages.length);
+      
+      // Check backend
+      const backendMessages = await coachingCacheService.syncWithBackend(firebaseUser.uid);
+      console.log('🔍 [DEBUG] Backend messages count:', backendMessages.length);
+      
+      // Check cache stats
+      const cacheStats = await coachingCacheService.getCacheStats();
+      console.log('🔍 [DEBUG] Cache stats:', cacheStats);
+      
+      return {
+        userId: firebaseUser.uid,
+        currentMessages: messages.length,
+        cachedMessages: cachedMessages.length,
+        backendMessages: backendMessages.length,
+        cacheStats
+      };
+    };
+    
+    // Debug function to check all Firestore sessions for user
+    (global as any).debugFirestoreSessions = async () => {
+      if (!firebaseUser?.uid) {
+        console.log('❌ No user logged in');
+        return;
+      }
+      
+      try {
+        console.log('🔍 [DEBUG] Checking all Firestore sessions for user:', firebaseUser.uid);
+        
+        const { db } = await import('../lib/firebase');
+        const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
+        
+        // Get ALL sessions for this user
+        const sessionsRef = collection(db, 'coachingSessions');
+        const allSessionsQuery = query(
+          sessionsRef,
+          where('userId', '==', firebaseUser.uid),
+          orderBy('updatedAt', 'desc')
+        );
+        
+        const allSessionsSnapshot = await getDocs(allSessionsQuery);
+        
+        console.log('🔍 [DEBUG] Total sessions found:', allSessionsSnapshot.docs.length);
+        
+        const sessions = allSessionsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            sessionType: data.sessionType,
+            messageCount: data.messages?.length || 0,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+            ...data
+          };
+        });
+        
+        sessions.forEach((session, index) => {
+          console.log(`🔍 [DEBUG] Session ${index + 1}:`, {
+            id: session.id,
+            sessionType: session.sessionType,
+            messageCount: session.messageCount,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt
+          });
+        });
+        
+        return sessions;
+      } catch (error) {
+        console.error('❌ [DEBUG] Error checking Firestore sessions:', error);
+        return [];
+      }
+    };
   }
   
   const [chatInput, setChatInput] = useState('');
@@ -1433,6 +1560,7 @@ export default function CoachingScreen() {
   
   // Load conversation history from local storage or show welcome message
   const [isInitialized, setIsInitialized] = useState(false);
+  const initializationInProgress = useRef(false);
   
   // Handle user switching - clear cache when user changes
   useEffect(() => {
@@ -1456,52 +1584,162 @@ export default function CoachingScreen() {
   }, [firebaseUser?.uid, currentUserId, clearCoachingCacheForUser]);
   
   useEffect(() => {
-    if (!firebaseUser || isInitialized) return;
+    if (!firebaseUser || isInitialized || initializationInProgress.current) return;
     
     const initializeChat = async () => {
-      debugLog('🔄 Initializing chat for user:', firebaseUser.uid);
+      // Prevent concurrent initialization
+      if (initializationInProgress.current) {
+        console.log('⚠️ [COACHING INIT] Initialization already in progress, skipping');
+        return;
+      }
       
-      // Load existing session from backend (never create from cache)
-      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+      initializationInProgress.current = true;
       
-      if (sessionMessages.length > 0) {
-        // Existing session found - load recent messages
-        setMessages(sessionMessages);
-        console.log(`✅ Loaded existing session with ${sessionMessages.length} messages`);
-      } else {
-        // No existing session found - show welcome message (session will be created on first user message)
-        debugLog('📝 No existing session found, showing welcome message');
-        const initialMessage: CoachingMessage = {
+      console.log('🔄 [COACHING INIT] Starting chat initialization for user:', firebaseUser.uid);
+      console.log('🔄 [COACHING INIT] User details:', {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        firstName: user?.firstName
+      });
+      
+      try {
+        // Load existing session from backend (never create from cache)
+        console.log('🔄 [COACHING INIT] Calling initializeCoachingSession...');
+        const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+        
+        console.log('🔄 [COACHING INIT] Session initialization result:', {
+          messageCount: sessionMessages.length,
+          hasMessages: sessionMessages.length > 0
+        });
+        
+        if (sessionMessages.length > 0) {
+          // Existing session found - load recent messages
+          console.log('✅ [COACHING INIT] Found existing session, loading messages...');
+          console.log('✅ [COACHING INIT] Message preview:', {
+            firstMessage: {
+              id: sessionMessages[0].id,
+              role: sessionMessages[0].role,
+              contentPreview: sessionMessages[0].content.substring(0, 100) + '...'
+            },
+            lastMessage: {
+              id: sessionMessages[sessionMessages.length - 1].id,
+              role: sessionMessages[sessionMessages.length - 1].role,
+              contentPreview: sessionMessages[sessionMessages.length - 1].content.substring(0, 100) + '...'
+            }
+          });
+          
+          setMessages(sessionMessages);
+          console.log(`✅ [COACHING INIT] Successfully loaded existing session with ${sessionMessages.length} messages`);
+        } else {
+          // No existing session found - show welcome message (session will be created on first user message)
+          console.log('📝 [COACHING INIT] No existing session found, creating welcome message');
+          const initialMessage: CoachingMessage = {
+            id: '1',
+            content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
+            role: 'assistant',
+            timestamp: new Date()
+          };
+          setMessages([initialMessage]);
+          console.log('✅ [COACHING INIT] Welcome message created - ready for new session');
+        }
+        
+        setIsInitialized(true);
+        console.log('✅ [COACHING INIT] Chat initialization completed successfully');
+        
+      } catch (error) {
+        console.error('❌ [COACHING INIT] Chat initialization failed:', error);
+        console.error('❌ [COACHING INIT] Error details:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        // Fallback: show welcome message even on error
+        const fallbackMessage: CoachingMessage = {
           id: '1',
           content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
           role: 'assistant',
           timestamp: new Date()
         };
-        setMessages([initialMessage]);
-        debugLog('✅ Ready to create new session - welcome message shown');
+        setMessages([fallbackMessage]);
+        setIsInitialized(true);
+        console.log('🔄 [COACHING INIT] Fallback initialization completed');
+      } finally {
+        // Always reset initialization flag
+        initializationInProgress.current = false;
       }
-      
-      setIsInitialized(true);
     };
     
     initializeChat();
   }, [firebaseUser, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
 
+  // Debounced save to prevent multiple rapid saves
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSaveRef = useRef<string>('');
+  
   // Save messages to both local storage and Firestore whenever messages change
   useEffect(() => {
     if (firebaseUser?.uid && messages.length > 0) {
-      // Don't save just the welcome message
-      if (messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant') {
+      // Create a hash of current messages to detect actual changes
+      const messageHash = `${firebaseUser.uid}-${messages.length}-${messages[messages.length - 1]?.id}`;
+      
+      console.log('💾 [SAVE] Message save triggered:', {
+        userId: firebaseUser.uid,
+        messageCount: messages.length,
+        messageHash: messageHash,
+        isWelcomeOnly: messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant',
+        isDuplicate: lastSaveRef.current === messageHash
+      });
+      
+      // Skip if this is the same state we just saved
+      if (lastSaveRef.current === messageHash) {
+        console.log('💾 [SAVE] Skipping save - no changes detected');
         return;
       }
       
-      // Save to local storage (last 300 messages - rich cache)
-      saveMessagesToStorage(messages, firebaseUser.uid);
+      // Don't save just the welcome message
+      if (messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant') {
+        console.log('💾 [SAVE] Skipping save - welcome message only');
+        return;
+      }
       
-      // Save to Firestore (all messages - full backup)
-      saveMessagesToFirestore(messages, firebaseUser.uid);
+      // Clear any pending save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      
+      // Debounce saves by 1 second
+      saveTimeoutRef.current = setTimeout(() => {
+        console.log('💾 [SAVE] Executing debounced save...');
+        
+        // Save to local storage (last 300 messages - rich cache)
+        saveMessagesToStorage(messages, firebaseUser.uid);
+        
+        // Save to Firestore (all messages - full backup)
+        saveMessagesToFirestore(messages, firebaseUser.uid);
+        
+        // Update last save hash
+        lastSaveRef.current = messageHash;
+        
+        console.log('💾 [SAVE] Save operations initiated');
+      }, 1000);
+      
+    } else {
+      console.log('💾 [SAVE] Save skipped:', {
+        hasUser: !!firebaseUser?.uid,
+        messageCount: messages.length
+      });
     }
   }, [messages, firebaseUser?.uid, saveMessagesToStorage, saveMessagesToFirestore]);
+  
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   
 
@@ -1743,7 +1981,7 @@ export default function CoachingScreen() {
     setChatInput(text);
     
     // More precise calculation - word-based line wrapping
-    const containerWidth = 362; // chatInputWrapper width
+    const containerWidth = 380; // chatInputWrapper width
     const containerPadding = 16; // 8px left + 8px right padding
     const textInputPadding = 8; // 4px left + 4px right padding
     
@@ -2471,7 +2709,9 @@ export default function CoachingScreen() {
             {
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-                height: containerHeight // Dinamik yükseklik
+                height: containerHeight, // Dinamik yükseklik
+                shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
               }
             ]}
           >
@@ -2731,7 +2971,7 @@ const styles = StyleSheet.create({
   },
   chatInputWrapper: {
     alignSelf: 'center',
-    width: 362,
+    width: 380,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     borderTopWidth: 0.5,
@@ -2749,11 +2989,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 0,
+      height: 2,
     },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 15,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   mainInputContainer: {
     flex: 1,

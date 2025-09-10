@@ -147,18 +147,25 @@ export default function ScheduledSessionCard({
 
   if (cardState === 'started') {
     return (
-      <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+      <View style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background,
+          shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+          shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+        }
+      ]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
             Scheduled Session
           </Text>
-          <Text style={[styles.title, { color: '#262626' }]}>
+          <Text style={[styles.title, { color: colors.text }]}>
             Session started
           </Text>
         </View>
 
-        <View style={[styles.infoContainer, { backgroundColor: '#F2F2F2' }]}>
-          <Text style={[styles.infoText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <View style={[styles.infoContainer, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
+          <Text style={[styles.infoText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             Started: <Text style={styles.infoBold}>{session.title} ({selectedDuration})</Text>
           </Text>
         </View>
@@ -167,23 +174,30 @@ export default function ScheduledSessionCard({
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+    <View style={[
+      styles.container, 
+      { 
+        backgroundColor: colors.background,
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+      }
+    ]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+        <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
           Scheduled Session
         </Text>
-        <Text style={[styles.title, { color: '#262626' }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {session.title}
         </Text>
-        <Text style={[styles.description, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
+        <Text style={[styles.description, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
           {session.goal}
         </Text>
       </View>
 
       {/* Duration Selection */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
           Suggested duration: {selectedDuration}
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
@@ -193,16 +207,16 @@ export default function ScheduledSessionCard({
               style={[
                 styles.optionButton,
                 selectedDuration === duration 
-                  ? { backgroundColor: '#000000' }
-                  : { backgroundColor: '#F2F2F2' }
+                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
+                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
               ]}
               onPress={() => handleDurationChange(duration)}
             >
               <Text style={[
                 styles.optionText,
                 selectedDuration === duration 
-                  ? { color: 'rgba(255, 255, 255, 0.91)' }
-                  : { color: 'rgba(0, 0, 0, 0.60)' }
+                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
+                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
               ]}>
                 {duration}
               </Text>
@@ -216,14 +230,16 @@ export default function ScheduledSessionCard({
         style={[
           styles.button,
           { 
-            backgroundColor: isLoading ? '#CCCCCC' : '#000000',
+            backgroundColor: isLoading 
+              ? (colorScheme === 'dark' ? '#666666' : '#CCCCCC')
+              : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
             opacity: isLoading ? 0.6 : 1
           }
         ]}
         onPress={handleStartSession}
         disabled={isLoading}
       >
-        <Text style={[styles.buttonText, { color: 'rgba(255, 255, 255, 0.91)' }]}>
+        <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }]}>
           {isLoading ? 'Creating session...' : `Start Session (${selectedDuration})`}
         </Text>
       </TouchableOpacity>

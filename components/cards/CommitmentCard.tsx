@@ -131,13 +131,15 @@ export default function CommitmentCard({
     <View style={[
       styles.card,
       {
-        backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+        backgroundColor: colors.background,
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
         opacity: currentState === 'rejected' ? 0.6 : 1,
       }
     ]}>
       {/* Header with state */}
       <View style={styles.header}>
-        <Text style={[styles.typeText, { color: colorScheme === 'dark' ? '#8E8E93' : '#8E8E93' }]}>
+        <Text style={[styles.typeText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
           {type === 'one-time' ? 'One-time commitment' : 'Recurring commitment'}
         </Text>
         {getStateBadge()}
@@ -150,7 +152,7 @@ export default function CommitmentCard({
         </Text>
         
         {description && (
-          <Text style={[styles.description, { color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280' }]}>
+          <Text style={[styles.description, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             {description}
           </Text>
         )}
@@ -159,7 +161,7 @@ export default function CommitmentCard({
         {(currentState === 'none' || currentState === 'accepted') && (
           <View style={styles.timeline}>
             <Text style={[styles.timelineText, { 
-              color: currentState === 'accepted' ? '#10B981' : (colorScheme === 'dark' ? '#8E8E93' : '#6B7280')
+              color: currentState === 'accepted' ? '#10B981' : (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)')
             }]}>
               {type === 'one-time' 
                 ? `Due in ${formatDeadline(selectedDeadline)}`
@@ -182,7 +184,7 @@ export default function CommitmentCard({
             disabled={!editable || isProcessing}
           >
             <Text style={[styles.buttonText, { 
-              color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280'
+              color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)'
             }]}>
               Decline
             </Text>
@@ -196,7 +198,7 @@ export default function CommitmentCard({
             disabled={!editable || isProcessing}
           >
             <Text style={[styles.buttonText, { 
-              color: colorScheme === 'dark' ? '#000000' : '#FFFFFF'
+              color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)'
             }]}>
               {isProcessing ? 'Processing...' : 'Accept'}
             </Text>

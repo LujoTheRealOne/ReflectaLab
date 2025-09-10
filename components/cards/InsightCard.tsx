@@ -44,7 +44,9 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
         style={[
           styles.card,
           {
-            backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+            backgroundColor: colors.background,
+            shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+            shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
           }
         ]}
         onPress={handleCardPress}
@@ -72,7 +74,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
           </Text>
           
           <Text style={[styles.preview, { 
-            color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280' 
+            color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' 
           }]} numberOfLines={3}>
             {insight.preview}
           </Text>
@@ -81,7 +83,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={[styles.footerText, { 
-            color: colorScheme === 'dark' ? '#8E8E93' : '#9CA3AF' 
+            color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' 
           }]}>
             Tap to read full insight
           </Text>
@@ -97,12 +99,12 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
       >
         <View style={[
           styles.modalContainer,
-          { backgroundColor: colorScheme === 'dark' ? '#000000' : '#FFFFFF' }
+          { backgroundColor: colors.background }
         ]}>
           {/* Modal Header */}
           <View style={[
             styles.modalHeader,
-            { borderBottomColor: colorScheme === 'dark' ? '#2C2C2E' : '#E5E7EB' }
+            { borderBottomColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }
           ]}>
             <View style={styles.modalHeaderLeft}>
               <View style={styles.badgeContainer}>
@@ -125,7 +127,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
             >
               <X 
                 size={20} 
-                color={colorScheme === 'dark' ? '#8E8E93' : '#6B7280'} 
+                color={colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)'} 
               />
             </TouchableOpacity>
           </View>
@@ -141,7 +143,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
             </Text>
             
             <Text style={[styles.modalText, { 
-              color: colorScheme === 'dark' ? '#E5E5E7' : '#374151' 
+              color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.80)' 
             }]}>
               {insight.fullContent}
             </Text>
@@ -151,7 +153,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
           {onDiscuss && (
             <View style={[
               styles.modalFooter,
-              { borderTopColor: colorScheme === 'dark' ? '#2C2C2E' : '#E5E7EB' }
+              { borderTopColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }
             ]}>
               <TouchableOpacity
                 style={[styles.discussButton, {
@@ -160,7 +162,7 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
                 onPress={handleDiscuss}
               >
                 <Text style={[styles.discussButtonText, {
-                  color: colorScheme === 'dark' ? '#000000' : '#FFFFFF'
+                  color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)'
                 }]}>
                   Discuss This Insight
                 </Text>

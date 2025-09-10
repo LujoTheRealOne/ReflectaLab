@@ -205,22 +205,29 @@ export default function SessionSuggestionCard({
 
   if (cardState === 'scheduled') {
     return (
-      <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+      <View style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background,
+          shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+          shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+        }
+      ]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
             Session Suggestion
           </Text>
-          <Text style={[styles.title, { color: '#262626' }]}>
+          <Text style={[styles.title, { color: colors.text }]}>
             Session scheduled
           </Text>
         </View>
 
-        <View style={[styles.scheduledInfo, { backgroundColor: '#F2F2F2' }]}>
-          <Text style={[styles.scheduledText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <View style={[styles.scheduledInfo, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
+          <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             Scheduled: <Text style={styles.scheduledBold}>{sessionSuggestion.title}</Text>
           </Text>
           {selectedDate && selectedTime && (
-            <Text style={[styles.scheduledText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+            <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
               {new Date(`${selectedDate}T${selectedTime}`).toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 month: 'short', 
@@ -238,18 +245,25 @@ export default function SessionSuggestionCard({
 
   if (cardState === 'dismissed') {
     return (
-      <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+      <View style={[
+        styles.container, 
+        { 
+          backgroundColor: colors.background,
+          shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+          shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+        }
+      ]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
             Session Suggestion
           </Text>
-          <Text style={[styles.title, { color: '#262626' }]}>
+          <Text style={[styles.title, { color: colors.text }]}>
             Suggestion dismissed
           </Text>
         </View>
 
-        <View style={[styles.scheduledInfo, { backgroundColor: '#F2F2F2' }]}>
-          <Text style={[styles.scheduledText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <View style={[styles.scheduledInfo, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
+          <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             Dismissed: <Text style={styles.scheduledBold}>{sessionSuggestion.title}</Text>
           </Text>
         </View>
@@ -258,23 +272,29 @@ export default function SessionSuggestionCard({
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+    <View style={[
+      styles.container, 
+      { 
+        backgroundColor: colors.background,
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+      }
+    ]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.badge, { color: 'rgba(0, 0, 0, 0.40)' }]}>
+        <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
           Session Suggestion
         </Text>
-        <Text style={[styles.title, { color: '#262626' }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {sessionSuggestion.title}
         </Text>
-        <Text style={[styles.reason, { color: 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
+        <Text style={[styles.reason, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
           {sessionSuggestion.reason}
         </Text>
       </View>
 
       {/* Duration Selection */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
           Duration: {selectedDuration}
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
@@ -284,16 +304,16 @@ export default function SessionSuggestionCard({
               style={[
                 styles.optionButton,
                 selectedDuration === duration 
-                  ? { backgroundColor: '#000000' }
-                  : { backgroundColor: '#F2F2F2' }
+                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
+                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
               ]}
               onPress={() => setSelectedDuration(duration)}
             >
               <Text style={[
                 styles.optionText,
                 selectedDuration === duration 
-                  ? { color: 'rgba(255, 255, 255, 0.91)' }
-                  : { color: 'rgba(0, 0, 0, 0.60)' }
+                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
+                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
               ]}>
                 {duration}
               </Text>
@@ -304,7 +324,7 @@ export default function SessionSuggestionCard({
 
       {/* Date Selection */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
           Date
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
@@ -314,16 +334,16 @@ export default function SessionSuggestionCard({
               style={[
                 styles.optionButton,
                 selectedDate === date.value 
-                  ? { backgroundColor: '#000000' }
-                  : { backgroundColor: '#F2F2F2' }
+                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
+                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
               ]}
               onPress={() => setSelectedDate(date.value)}
             >
               <Text style={[
                 styles.optionText,
                 selectedDate === date.value 
-                  ? { color: 'rgba(255, 255, 255, 0.91)' }
-                  : { color: 'rgba(0, 0, 0, 0.60)' }
+                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
+                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
               ]}>
                 {date.label}
               </Text>
@@ -334,7 +354,7 @@ export default function SessionSuggestionCard({
 
       {/* Time Selection */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
           Time
         </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
@@ -344,16 +364,16 @@ export default function SessionSuggestionCard({
               style={[
                 styles.optionButton,
                 selectedTime === time.value 
-                  ? { backgroundColor: '#000000' }
-                  : { backgroundColor: '#F2F2F2' }
+                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
+                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
               ]}
               onPress={() => setSelectedTime(time.value)}
             >
               <Text style={[
                 styles.optionText,
                 selectedTime === time.value 
-                  ? { color: 'rgba(255, 255, 255, 0.91)' }
-                  : { color: 'rgba(0, 0, 0, 0.60)' }
+                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
+                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
               ]}>
                 {time.label}
               </Text>
@@ -369,14 +389,14 @@ export default function SessionSuggestionCard({
             styles.button,
             styles.dismissButton,
             { 
-              backgroundColor: '#F2F2F2',
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2',
               opacity: isLoading ? 0.6 : 1
             }
           ]}
           onPress={handleDismiss}
           disabled={isLoading}
         >
-          <Text style={[styles.buttonText, { color: 'rgba(0, 0, 0, 0.60)' }]}>
+          <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             {isLoading ? 'Processing...' : 'Dismiss'}
           </Text>
         </TouchableOpacity>
@@ -386,14 +406,16 @@ export default function SessionSuggestionCard({
             styles.button,
             styles.scheduleButton,
             { 
-              backgroundColor: isLoading ? '#CCCCCC' : '#000000',
+              backgroundColor: isLoading 
+                ? (colorScheme === 'dark' ? '#666666' : '#CCCCCC')
+                : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
               opacity: isLoading || !selectedDate || !selectedTime ? 0.6 : 1
             }
           ]}
           onPress={handleSchedule}
           disabled={isLoading || !selectedDate || !selectedTime}
         >
-          <Text style={[styles.buttonText, { color: 'rgba(255, 255, 255, 0.91)' }]}>
+          <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }]}>
             {isLoading ? 'Scheduling...' : 'Schedule'}
           </Text>
         </TouchableOpacity>
@@ -409,10 +431,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
   },
   header: {
     marginBottom: 12,

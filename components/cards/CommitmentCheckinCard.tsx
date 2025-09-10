@@ -77,7 +77,9 @@ export default function CommitmentCheckinCard({
     <View style={[
       styles.card,
       {
-        backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+        backgroundColor: colors.background,
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
         borderColor: currentResponse !== 'none' ? getResponseColor() : 'transparent',
         borderWidth: currentResponse !== 'none' ? 1 : 0,
       }
@@ -86,7 +88,7 @@ export default function CommitmentCheckinCard({
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Target size={20} color={colors.text} />
-          <Text style={[styles.typeText, { color: colorScheme === 'dark' ? '#8E8E93' : '#8E8E93' }]}>
+          <Text style={[styles.typeText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
             Check-in
           </Text>
         </View>
@@ -107,7 +109,7 @@ export default function CommitmentCheckinCard({
         </Text>
         
         {description && (
-          <Text style={[styles.description, { color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280' }]}>
+          <Text style={[styles.description, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
             {description}
           </Text>
         )}
@@ -127,15 +129,15 @@ export default function CommitmentCheckinCard({
          <View style={styles.actions}>
            <TouchableOpacity
              style={[styles.button, styles.noButton, {
-               backgroundColor: colorScheme === 'dark' ? '#2C2C2E' : '#F3F4F6',
+               backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2',
                opacity: isProcessing ? 0.5 : 1,
              }]}
              onPress={() => handleResponse('no')}
              disabled={isProcessing}
            >
-             <XCircle size={18} color={colorScheme === 'dark' ? '#8E8E93' : '#6B7280'} />
+             <XCircle size={18} color={colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)'} />
              <Text style={[styles.buttonText, { 
-               color: colorScheme === 'dark' ? '#8E8E93' : '#6B7280'
+               color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)'
              }]}>
                No
              </Text>

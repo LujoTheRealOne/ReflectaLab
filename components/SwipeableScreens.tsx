@@ -22,7 +22,7 @@ export default function SwipeableScreens() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
-  const [currentPage, setCurrentPage] = useState(0); // 0: Notes, 1: Coaching, 2: Settings
+  const [currentPage, setCurrentPage] = useState(1); // 0: Notes, 1: Coaching, 2: Settings
 
   // Handle page change from swipe
   const onMomentumScrollEnd = useCallback((event: any) => {
@@ -91,7 +91,7 @@ export default function SwipeableScreens() {
           offset: screenWidth * index,
           index,
         })}
-        initialScrollIndex={0}
+        initialScrollIndex={1}
         removeClippedSubviews={false}
         keyboardShouldPersistTaps="always" // Always pass through touch events
         keyboardDismissMode="interactive" // Interactive keyboard dismiss

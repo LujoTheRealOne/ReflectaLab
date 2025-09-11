@@ -65,7 +65,7 @@ function AppContent() {
   }, [trackAppOpened]);
 
   // Show offline modal if there's no internet connection
-  const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
+  // const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
 
   return (
     <>
@@ -81,9 +81,6 @@ function AppContent() {
       >
         <Navigation />
       </PostHogProvider>
-      <NetworkStatusModal
-        visible={isOffline}
-      />
       <BiometricProtectionOverlay />
     </>
   );

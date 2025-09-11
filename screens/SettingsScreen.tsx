@@ -366,11 +366,6 @@ export default function SettingsScreen() {
       
       // Show success feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      Alert.alert(
-        'Success',
-        completed ? 'Great job! Your commitment has been marked as done.' : 'Thanks for the update. Keep going!',
-        [{ text: 'OK', style: 'default' }]
-      );
     } catch (error) {
       console.error('Error checking in commitment:', error);
       Alert.alert(

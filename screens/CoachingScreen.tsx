@@ -993,92 +993,50 @@ export default function CoachingScreen() {
     return totalHeight;
   }, [messages, isLoading, shouldShowLoadingIndicator]);
 
-  // ========================================================================
-  // FIXED BOTTOM PADDING SYSTEM
-  // ========================================================================
-  // Uses fixed padding values to prevent position drift during AI responses
-  // FIXED: No longer dependent on message count or dynamic calculations
-  // ========================================================================
-  const dynamicBottomPadding = useMemo(() => {
-    // Check if user is waiting for AI response (just sent message or AI is typing)
-    const lastMessage = messages[messages.length - 1];
-    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-
-    if (keyboardHeight > 0) {
-      // KEYBOARD OPEN STATE: Fixed space for keyboard + input + buffer
-      return keyboardHeight + containerHeight + 100;
-    } else if (isUserWaitingForAI) {
-      // USER MESSAGE POSITIONING STATE: Fixed generous space for positioning
-      // This ensures consistent positioning regardless of message count
-      // DEBUG: Log values to understand drift when keyboard is closed
-      const fixedPadding = 1000;
-      debugLog('🔧 [PADDING] User waiting for AI - keyboard closed:', {
-        fixedPadding,
-        keyboardHeight,
-        containerHeight,
-        messagesCount: messages.length
-      });
-      return fixedPadding;
-    } else {
-      // DEFAULT STATE: Fixed minimal padding with safe area and navigation consideration
-      const basePadding = 200; // Increased base padding for better scrolling
-      const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40;
-      const safeAreaPadding = Math.max(insets.bottom, 20); // Account for safe area
-      const navigationBarPadding = 80; // Account for navigation bar height
-      return basePadding + extraForInput + safeAreaPadding + navigationBarPadding;
-    }
-  }, [isLoading, containerHeight, keyboardHeight, insets.bottom]); // Added insets.bottom dependency
-
   // New state for content height tracking
   const [contentHeight, setContentHeight] = useState(0);
   const [scrollViewHeight, setScrollViewHeight] = useState(700); // Initialize with reasonable default instead of 0
 
   // ========================================================================
-  // ADAPTIVE SCROLL LIMITS CALCULATION
+  // SIMPLIFIED BOTTOM PADDING SYSTEM
   // ========================================================================
-  // Uses content-aware calculations that scale with actual message length
-  // FIXED: Now adapts to very long AI responses while maintaining stability
+  // Simplified padding calculation similar to working version
   // ========================================================================
-  const scrollLimits = useMemo(() => {
-    // Check if user message positioning is active
+  const dynamicBottomPadding = useMemo(() => {
+    const screenHeight = scrollViewHeight || 700; 
+    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
+    
+    // Check if user is waiting for AI response (just sent message or AI is typing)
     const lastMessage = messages[messages.length - 1];
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
     
-    // Calculate dynamic content height based on actual content + padding
-    let minContentHeight, maxScrollDistance;
-    
     if (isUserWaitingForAI) {
-      // USER MESSAGE POSITIONING: Generous values with content-based scaling
-      const baseHeight = 3000;
-      minContentHeight = Math.max(baseHeight, contentHeight + dynamicBottomPadding + 500);
-      maxScrollDistance = Math.max(2500, contentHeight + 1000);
-      
-      debugLog('🔧 [SCROLL LIMITS] User waiting for AI:', {
-        minContentHeight,
-        maxScrollDistance,
-        contentHeight,
-        dynamicBottomPadding,
-        keyboardHeight
-      });
+      // Positioning padding - enough space for precise positioning
+      return availableHeight + 100;
     } else {
-      // NORMAL STATE: Adaptive values based on actual content length
-      const baseHeight = 2000;
-      minContentHeight = Math.max(baseHeight, contentHeight + dynamicBottomPadding + 300);
-      maxScrollDistance = Math.max(1500, contentHeight + 500);
-      
-      debugLog('🔧 [SCROLL LIMITS] Normal state:', {
-        minContentHeight,
-        maxScrollDistance,
-        contentHeight,
-        dynamicBottomPadding
-      });
+      // Minimal padding - just bottom space
+      return 50;
     }
+  }, [messages, isLoading, scrollViewHeight]);
+
+  // ========================================================================
+  // SIMPLIFIED SCROLL LIMITS CALCULATION
+  // ========================================================================
+  // Uses simple, reliable scroll limits like the working version
+  // ========================================================================
+  const scrollLimits = useMemo(() => {
+    const screenHeight = scrollViewHeight || 700; 
+    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
+    
+    // Simple calculation like the working version
+    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
+    const maxScrollDistance = Math.max(0, minContentHeight - availableHeight + 50);
     
     return {
       minContentHeight,
       maxScrollDistance
     };
-  }, [isLoading, contentHeight, dynamicBottomPadding]); // Added contentHeight and dynamicBottomPadding dependencies
+  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
 
   // Enhanced scroll position tracking for scroll-to-bottom button
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -1979,7 +1937,7 @@ export default function CoachingScreen() {
                 (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
                   // Calculate exact position to maintain MESSAGE_TARGET_OFFSET
                   const isLongMessage = msgHeight > 100;
-                  let correctPosition;
+                  let correctPosition: number;
                   
                   if (isLongMessage) {
                     // For long messages: maintain END position at target offset
@@ -2002,10 +1960,12 @@ export default function CoachingScreen() {
                 () => {
                   // Fallback: use stored position
                   const maintainedPosition = targetScrollPosition.current;
-                  scrollViewRef.current?.scrollTo({
-                    y: maintainedPosition,
-                    animated: false
-                  });
+                  if (maintainedPosition !== null) {
+                    scrollViewRef.current?.scrollTo({
+                      y: maintainedPosition,
+                      animated: false
+                    });
+                  }
                 }
               );
             }
@@ -2036,7 +1996,7 @@ export default function CoachingScreen() {
                 (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
                   // Recalculate exact position to maintain MESSAGE_TARGET_OFFSET
                   const isLongMessage = msgHeight > 100;
-                  let correctPosition;
+                  let correctPosition: number;
                   
                   if (isLongMessage) {
                     correctPosition = Math.max(0, (msgY + msgHeight) - MESSAGE_TARGET_OFFSET - 60);
@@ -2061,12 +2021,14 @@ export default function CoachingScreen() {
                 () => {
                   // Fallback: use stored position
                   const maintainedPosition = targetScrollPosition.current;
-                  scrollViewRef.current?.scrollTo({
-                    y: maintainedPosition,
-                    animated: false
-                  });
-                  
-                  debugLog('🔧 Position maintained using stored value:', maintainedPosition);
+                  if (maintainedPosition !== null) {
+                    scrollViewRef.current?.scrollTo({
+                      y: maintainedPosition,
+                      animated: false
+                    });
+                    
+                    debugLog('🔧 Position maintained using stored value:', maintainedPosition);
+                  }
                 }
               );
             }
@@ -2770,13 +2732,28 @@ export default function CoachingScreen() {
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
-            // DISABLED: Scroll limit enforcement to prevent interference with positioning
+            // Scroll limit enforcement - prevent endless scrolling
             onScrollEndDrag={(event) => {
-              // Disabled to prevent position drift - let positioning system handle limits
+              const { contentOffset } = event.nativeEvent;
+              
+              // If scroll exceeds maximum limit, bring it back
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
             }}
-            // DISABLED: Momentum scroll limit enforcement to prevent position drift
+            // Momentum scroll limit enforcement
             onMomentumScrollEnd={(event) => {
-              // Disabled to prevent position drift - let positioning system handle limits
+              const { contentOffset } = event.nativeEvent;
+              
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
             }}
           >
             {/* Simple loading spinner */}

@@ -2381,8 +2381,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                 {
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
                   bottom: keyboardHeight > 0 
-                    ? keyboardHeight + containerHeight + 50  // Keyboard + input height + margin
-                    : containerHeight + 80, // Input height + margin above input
+                    ? containerHeight + 50  // When keyboard open: position above input container
+                    : containerHeight + 80, // When keyboard closed: position above input with margin
                 }
               ]}
               onPress={() => handleScrollToBottom(true)}

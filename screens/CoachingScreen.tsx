@@ -2683,8 +2683,8 @@ export default function CoachingScreen() {
                 {
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
                   bottom: keyboardHeight > 0 
-                    ? keyboardHeight + containerHeight + 50  // Keyboard + input height + margin
-                    : containerHeight + 140, // Input height + margin above input (80px input + 60px margin)
+                    ? containerHeight + 50  // When keyboard open: position above input container
+                    : containerHeight + 140, // When keyboard closed: give more space above input
                 }
               ]}
               onPress={() => handleScrollToBottom(true)}

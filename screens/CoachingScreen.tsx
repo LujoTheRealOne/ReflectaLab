@@ -825,29 +825,39 @@ export default function CoachingScreen() {
   const lastLoadTimeRef = useRef<number>(0);
   const LOAD_THROTTLE_MS = 1000; // 1 second between loads
 
-  // Load more messages for pagination
+  // ========================================================================
+  // PAGINATION SYSTEM - LOAD MORE MESSAGES
+  // ========================================================================
+  // Implements pull-to-refresh style pagination for loading older messages
+  // Loads messages in chunks when user scrolls to top of conversation
+  // ========================================================================
   const loadMoreMessages = useCallback(async () => {
+    // Prevent concurrent loading or loading when no more messages available
     if (isLoadingMore || !hasMoreMessages) return;
     
     setIsLoadingMore(true);
     console.log(`🔄 Starting to load ${MESSAGES_PER_PAGE} more messages...`);
     
     try {
-      // Add a small delay so user can see the loading indicator
+      // Add delay for user feedback (shows loading spinner)
       await new Promise(resolve => setTimeout(resolve, 800));
       
+      // Calculate new message count (current + page size, but not exceeding total)
       const newCount = Math.min(displayedMessageCount + MESSAGES_PER_PAGE, allMessages.length);
+      
+      // Get messages from the end (newest first display, so slice from end)
       const messagesToShow = allMessages.slice(-newCount);
       
+      // Update state with new message set
       setMessages(messagesToShow);
       setDisplayedMessageCount(newCount);
-      setHasMoreMessages(newCount < allMessages.length);
+      setHasMoreMessages(newCount < allMessages.length); // Check if more messages exist
       
       console.log(`✅ Loaded ${MESSAGES_PER_PAGE} more messages (${newCount}/${allMessages.length} total)`);
     } catch (error) {
       console.error('Error loading more messages:', error);
     } finally {
-      // Add a small delay before hiding loading indicator
+      // Brief delay before hiding loading indicator for smooth UX
       setTimeout(() => {
         setIsLoadingMore(false);
       }, 200);
@@ -913,12 +923,17 @@ export default function CoachingScreen() {
   // Enhanced loading indicator logic
   const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
 
-  //POWERFUL MESSAGE POSITIONING SYSTEM
+  // ========================================================================
+  // POWERFUL MESSAGE POSITIONING SYSTEM
+  // ========================================================================
+  // This system handles precise positioning of user messages after sending,
+  // ensuring they appear at optimal viewing positions relative to the header
+  // ========================================================================
 
-  // 1. Define constant values
+  // 1. Define constant values for positioning calculations
   const HEADER_HEIGHT = 120;
   const INPUT_HEIGHT = 160;
-  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header
+  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header to position user messages
   
   // Dynamic input constants
   const LINE_HEIGHT = 24;
@@ -929,76 +944,128 @@ export default function CoachingScreen() {
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
-  // Dynamic content height calculation
+  // ========================================================================
+  // DYNAMIC CONTENT HEIGHT CALCULATION
+  // ========================================================================
+  // Calculates the total height of all messages to determine scroll boundaries
+  // This ensures proper scrolling behavior and prevents over-scrolling
+  // ========================================================================
   const dynamicContentHeight = useMemo(() => {
-    let totalHeight = 12; // paddingTop
+    let totalHeight = 12; // paddingTop - Initial spacing from top
     
+    // Calculate height for each message
     messages.forEach((message, index) => {
       const contentLength = message.content.length;
+      // Estimate lines based on character count (44 chars per line average)
       const lines = Math.max(1, Math.ceil(contentLength / 44));
-      let messageHeight = lines * 22 + 32;
+      let messageHeight = lines * 22 + 32; // line height * lines + padding
       
+      // Add extra height for AI messages (coaching cards, buttons, etc.)
       if (message.role === 'assistant') {
         const isLastMessage = index === messages.length - 1;
         const isCurrentlyStreaming = isLastMessage && isLoading;
         
         if (isCurrentlyStreaming) {
-          messageHeight += 200;
+          messageHeight += 200; // Extra space for streaming animation
         } else {
-          messageHeight += 80;
+          // FIXED: All AI messages get same padding as long messages
+          messageHeight += 200; // Increased from 80 to 200 for consistency
         }
       }
       
-      totalHeight += messageHeight + 16;
+      totalHeight += messageHeight + 16; // Add message height + bottom margin
     });
     
-    // Add loading indicator height
+    // Add space for loading indicator when AI is responding
     if (shouldShowLoadingIndicator) {
       totalHeight += 60;
+    }
+    
+    // DEBUG: Log content height changes during AI response
+    if (isLoading) {
+      debugLog('🔧 [CONTENT HEIGHT] During AI response:', {
+        totalHeight,
+        messagesCount: messages.length,
+        shouldShowLoadingIndicator
+      });
     }
     
     return totalHeight;
   }, [messages, isLoading, shouldShowLoadingIndicator]);
 
-  // 2. Dynamic bottom padding - account for live input container height so last lines stay visible
+  // ========================================================================
+  // FIXED BOTTOM PADDING SYSTEM
+  // ========================================================================
+  // Uses fixed padding values to prevent position drift during AI responses
+  // FIXED: No longer dependent on message count or dynamic calculations
+  // ========================================================================
   const dynamicBottomPadding = useMemo(() => {
-    // Base padding when idle
-    const basePadding = 50;
-
-    // Add extra space if keyboard is open
-    const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
-
-    // Extra space for the growing input container to prevent overlap
-    const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40; // small cushion
-
-    // If the AI is responding or user just sent a message, add more for positioning
+    // Check if user is waiting for AI response (just sent message or AI is typing)
     const lastMessage = messages[messages.length - 1];
     const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (keyboardHeight > 0) {
-      // When keyboard is open - give more space
-      return keyboardExtraSpace;
-    } else if (isUserWaitingForAI) {
-      return basePadding + extraForInput + 120;
-    }
 
-    return basePadding + extraForInput;
-  }, [messages, isLoading, containerHeight, keyboardHeight]);
+    if (keyboardHeight > 0) {
+      // KEYBOARD OPEN STATE: Fixed space for keyboard + input + buffer
+      return keyboardHeight + containerHeight + 100;
+    } else if (isUserWaitingForAI) {
+      // USER MESSAGE POSITIONING STATE: Fixed generous space for positioning
+      // This ensures consistent positioning regardless of message count
+      // DEBUG: Log values to understand drift when keyboard is closed
+      const fixedPadding = 1000;
+      debugLog('🔧 [PADDING] User waiting for AI - keyboard closed:', {
+        fixedPadding,
+        keyboardHeight,
+        containerHeight,
+        messagesCount: messages.length
+      });
+      return fixedPadding;
+    } else {
+      // DEFAULT STATE: Fixed minimal padding
+      const basePadding = 150; // Fixed base padding
+      const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40;
+      return basePadding + extraForInput;
+    }
+  }, [isLoading, containerHeight, keyboardHeight]); // Removed messages dependency
 
   // New state for content height tracking
   const [contentHeight, setContentHeight] = useState(0);
-  const [scrollViewHeight, setScrollViewHeight] = useState(0);
+  const [scrollViewHeight, setScrollViewHeight] = useState(700); // Initialize with reasonable default instead of 0
 
-  // Scroll limits calculation - simplified
+  // ========================================================================
+  // COMPLETELY FIXED SCROLL LIMITS CALCULATION
+  // ========================================================================
+  // Uses completely static calculations to prevent ANY scroll drift
+  // FIXED: Independent of content height and dynamic calculations
+  // ========================================================================
   const scrollLimits = useMemo(() => {
-    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
-    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
+    // Check if user message positioning is active
+    const lastMessage = messages[messages.length - 1];
+    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
+    
+    // Use completely fixed values to prevent any drift
+    let minContentHeight, maxScrollDistance;
+    
+    if (isUserWaitingForAI) {
+      // USER MESSAGE POSITIONING: Completely fixed values
+      minContentHeight = 3000; // Fixed generous content height
+      maxScrollDistance = 2500; // Fixed generous scroll distance
+      
+      debugLog('🔧 [SCROLL LIMITS] User waiting for AI:', {
+        minContentHeight,
+        maxScrollDistance,
+        keyboardHeight
+      });
+    } else {
+      // NORMAL STATE: Fixed standard values  
+      minContentHeight = 2000; // Fixed normal content height
+      maxScrollDistance = 1500; // Fixed normal scroll distance
+    }
     
     return {
       minContentHeight,
       maxScrollDistance
     };
-  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
+  }, [isLoading]); // Only dependency on loading state
 
   // Enhanced scroll position tracking for scroll-to-bottom button
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -1757,13 +1824,20 @@ export default function CoachingScreen() {
   // One-time initial auto-scroll flag
   const didInitialAutoScroll = useRef<boolean>(false);
   
-    // 3. Completely rewrite scrollToShowLastMessage:
+  // ========================================================================
+  // USER MESSAGE POSITIONING SYSTEM
+  // ========================================================================
+  // Automatically positions user messages at optimal viewing position after sending
+  // Places messages at a fixed offset below header for consistent UX
+  // Handles both short and long messages with different positioning strategies
+  // ========================================================================
   const scrollToShowLastMessage = useCallback(() => {
+    // Early returns for invalid states
     if (!scrollViewRef.current || messages.length === 0) return;
     
     const lastMessage = messages[messages.length - 1];
     
-    // Only position user messages
+    // Only position user messages (AI messages position themselves)
     if (lastMessage.role !== 'user') return;
     
     debugLog('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
@@ -1771,29 +1845,30 @@ export default function CoachingScreen() {
     // Target position: MESSAGE_TARGET_OFFSET pixels below header
     const targetFromTop = MESSAGE_TARGET_OFFSET;
     
-    // Get user message ref
+    // Get reference to the user message element
     const lastMessageRef = messageRefs.current[lastMessage.id];
     
     if (lastMessageRef) {
-      // Measure current position of the message
+      // Wait for layout stabilization before measuring
+      // Increased timeout for better reliability on initial messages
       setTimeout(() => {
         lastMessageRef.measureLayout(
           scrollViewRef.current as any,
           (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-            // For long messages, show the end of the message instead of the beginning
+            // Determine if this is a long message requiring special handling
             const isLongMessage = msgHeight > 100; // Messages taller than 100px are considered long
             
             let targetScrollY;
             if (isLongMessage) {
-              // For long messages: position the END of the message at target position
-              // This leaves room for AI response below
+              // LONG MESSAGE STRATEGY: Position the END of the message at target position
+              // This ensures the most recent content is visible and leaves room for AI response
               targetScrollY = Math.max(0, (msgY + msgHeight) - targetFromTop - 60); // 60px buffer for AI response
             } else {
-              // For short messages: position the START of the message at target position  
+              // SHORT MESSAGE STRATEGY: Position the START of the message at target position  
               targetScrollY = Math.max(0, msgY - targetFromTop);
             }
             
-            debugLog('📐 Measurement:', {
+            debugLog('📐 Measurement results:', {
               messageY: msgY,
               messageHeight: msgHeight,
               isLongMessage,
@@ -1801,25 +1876,25 @@ export default function CoachingScreen() {
               targetScrollY
             });
             
-            // Perform scroll
+            // Execute the scroll animation
             scrollViewRef.current?.scrollTo({
               y: targetScrollY,
               animated: true
             });
             
-            // Save position
+            // Store position for maintaining scroll during AI response
             targetScrollPosition.current = targetScrollY;
             hasUserScrolled.current = false;
             
             debugLog('✅ User message positioned at scroll:', targetScrollY);
           },
           () => {
-            debugLog('❌ Measurement failed, using estimation');
+            debugLog('❌ Measurement failed, using estimation fallback');
             
-            // Fallback: estimate message position
+            // FALLBACK STRATEGY: Estimate message position when measurement fails
             let estimatedY = 12; // paddingTop
             
-            // Sum up height of all previous messages
+            // Calculate cumulative height of all previous messages
             for (let i = 0; i < messages.length - 1; i++) {
               const msg = messages[i];
               const lines = Math.max(1, Math.ceil(msg.content.length / 40));
@@ -1827,7 +1902,7 @@ export default function CoachingScreen() {
               estimatedY += msgHeight + 16; // marginBottom
             }
             
-            // Estimate last message height
+            // Estimate height of the last message
             const lastMsg = messages[messages.length - 1];
             const lastMsgLines = Math.max(1, Math.ceil(lastMsg.content.length / 40));
             const lastMsgHeight = lastMsgLines * 22 + 48;
@@ -1842,16 +1917,18 @@ export default function CoachingScreen() {
               targetScrollY = Math.max(0, estimatedY - targetFromTop);
             }
             
+            // Execute fallback scroll
             scrollViewRef.current?.scrollTo({
               y: targetScrollY,
               animated: true
             });
             
+            // Store fallback position
             targetScrollPosition.current = targetScrollY;
             hasUserScrolled.current = false;
           }
         );
-      }, 150); // Wait for layout to stabilize
+      }, 200); // Increased timeout for better reliability on initial messages
     }
   }, [messages]);
   
@@ -1862,36 +1939,152 @@ export default function CoachingScreen() {
       setTimeout(() => {
         scrollToShowLastMessage();
         scrollToNewMessageRef.current = false;
-      }, 100);
+      }, 150); // Increased delay for better reliability
     }
   }, [messages.length, scrollToShowLastMessage]);
 
-  // 5. Remove position maintenance during AI response - too complex
-  // Instead, adjust position once when AI response starts:
+  // ========================================================================
+  // POSITION MAINTENANCE DURING AI RESPONSE
+  // ========================================================================
+  // Maintains user message position while AI is typing to prevent scroll drift
+  // FIXED: Recalculates position to maintain exact MESSAGE_TARGET_OFFSET
+  // ========================================================================
   useEffect(() => {
-    if (isLoading && targetScrollPosition.current !== null) {
-      // Adjust position once when AI response starts
-      const maintainedPosition = targetScrollPosition.current;
+    if (isLoading && targetScrollPosition.current !== null && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
       
-      setTimeout(() => {
-        if (scrollViewRef.current && !hasUserScrolled.current) {
-          scrollViewRef.current.scrollTo({
-            y: maintainedPosition,
-            animated: false
-          });
+      // Only maintain position for user messages, not during AI response expansion
+      if (lastMessage?.role === 'user') {
+        const lastMessageRef = messageRefs.current[lastMessage.id];
+        
+        if (lastMessageRef) {
+          setTimeout(() => {
+            if (scrollViewRef.current && !hasUserScrolled.current) {
+              // Re-measure and recalculate position to maintain exact offset
+              lastMessageRef.measureLayout(
+                scrollViewRef.current as any,
+                (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
+                  // Calculate exact position to maintain MESSAGE_TARGET_OFFSET
+                  const isLongMessage = msgHeight > 100;
+                  let correctPosition;
+                  
+                  if (isLongMessage) {
+                    // For long messages: maintain END position at target offset
+                    correctPosition = Math.max(0, (msgY + msgHeight) - MESSAGE_TARGET_OFFSET - 60);
+                  } else {
+                    // For short messages: maintain START position at target offset
+                    correctPosition = Math.max(0, msgY - MESSAGE_TARGET_OFFSET);
+                  }
+                  
+                  scrollViewRef.current?.scrollTo({
+                    y: correctPosition,
+                    animated: false // No animation to prevent jarring
+                  });
+                  
+                  // Update stored position
+                  targetScrollPosition.current = correctPosition;
+                  
+                  debugLog('🔧 Position maintained during AI response:', correctPosition);
+                },
+                () => {
+                  // Fallback: use stored position
+                  const maintainedPosition = targetScrollPosition.current;
+                  scrollViewRef.current?.scrollTo({
+                    y: maintainedPosition,
+                    animated: false
+                  });
+                }
+              );
+            }
+          }, 100); // Shorter timeout for responsiveness
         }
-      }, 100);
+      }
     }
-  }, [isLoading]);
+  }, [isLoading, messages]);
 
-  // 6. Clear when progress reaches 100%:
+  // ========================================================================
+  // ROBUST POSITION MAINTENANCE DURING AI STREAMING
+  // ========================================================================
+  // Enhanced maintenance for keyboard closed scenarios
+  // ========================================================================
+  useEffect(() => {
+    if (isLoading && targetScrollPosition.current !== null && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      
+      if (lastMessage?.role === 'user') {
+        const lastMessageRef = messageRefs.current[lastMessage.id];
+        
+        if (lastMessageRef) {
+          // Multiple adjustments to combat drift, especially when keyboard is closed
+          const maintainPosition = () => {
+            if (scrollViewRef.current && !hasUserScrolled.current) {
+              lastMessageRef.measureLayout(
+                scrollViewRef.current as any,
+                (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
+                  // Recalculate exact position to maintain MESSAGE_TARGET_OFFSET
+                  const isLongMessage = msgHeight > 100;
+                  let correctPosition;
+                  
+                  if (isLongMessage) {
+                    correctPosition = Math.max(0, (msgY + msgHeight) - MESSAGE_TARGET_OFFSET - 60);
+                  } else {
+                    correctPosition = Math.max(0, msgY - MESSAGE_TARGET_OFFSET);
+                  }
+                  
+                  scrollViewRef.current?.scrollTo({
+                    y: correctPosition,
+                    animated: false
+                  });
+                  
+                  // Update stored position
+                  targetScrollPosition.current = correctPosition;
+                  
+                  debugLog('🔧 Position recalculated and maintained:', {
+                    correctPosition,
+                    keyboardHeight,
+                    isLongMessage
+                  });
+                },
+                () => {
+                  // Fallback: use stored position
+                  const maintainedPosition = targetScrollPosition.current;
+                  scrollViewRef.current?.scrollTo({
+                    y: maintainedPosition,
+                    animated: false
+                  });
+                  
+                  debugLog('🔧 Position maintained using stored value:', maintainedPosition);
+                }
+              );
+            }
+          };
+          
+          // Initial adjustment
+          setTimeout(maintainPosition, 100);
+          
+          // Additional adjustment for keyboard closed scenarios
+          if (keyboardHeight === 0) {
+            setTimeout(maintainPosition, 300);
+            setTimeout(maintainPosition, 600);
+          }
+        }
+      }
+    }
+  }, [isLoading, keyboardHeight]); // Added keyboardHeight dependency
+
+  // ========================================================================
+  // POSITIONING CLEANUP AFTER AI RESPONSE
+  // ========================================================================
+  // Clears positioning system after AI response completes
+  // SIMPLIFIED: No timer management needed with fixed padding system
+  // ========================================================================
   useEffect(() => {
     if (progress === 100) {
       setTimeout(() => {
         targetScrollPosition.current = null;
         hasUserScrolled.current = false;
-        debugLog('🧹 Positioning cleared after AI response');
-      }, 1000);
+        debugLog('🧹 Positioning cleared after AI response completion');
+      }, 1000); // Wait 1 second after completion before clearing
     }
   }, [progress]);
 
@@ -2198,28 +2391,36 @@ export default function CoachingScreen() {
     }
   };
 
+  // ========================================================================
+  // SCROLL-TO-BOTTOM FUNCTIONALITY
+  // ========================================================================
+  // Intelligently scrolls to show the most recent message
+  // Handles different strategies for short vs long messages
+  // ========================================================================
   const handleScrollToBottom = (animated: boolean = true) => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       const lastMessageRef = messageRefs.current[lastMessage.id];
       
       if (lastMessageRef) {
+        // PRECISE POSITIONING: Use actual message dimensions
         lastMessageRef.measureLayout(
           scrollViewRef.current as any,
           (x, y, width, height) => {
-            // Check if it's a long AI response
+            // Determine scroll strategy based on message characteristics
             const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
             
             if (isLongResponse) {
-              // For long responses: scroll to the very end of the message
-              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
+              // LONG MESSAGE STRATEGY: Show the end of the message
+              // This ensures user sees the conclusion and any coaching cards
+              const targetY = Math.max(0, y + height - 100); // Show end with 100px buffer
               scrollViewRef.current?.scrollTo({
                 y: targetY,
                 animated
               });
             } else {
-              // For short responses: scroll to show the message with minimal space below
-              const targetY = Math.max(0, y - 20); // Small offset
+              // SHORT MESSAGE STRATEGY: Show the entire message with minimal offset
+              const targetY = Math.max(0, y - 20); // Small offset from top
               scrollViewRef.current?.scrollTo({
                 y: targetY,
                 animated
@@ -2227,7 +2428,8 @@ export default function CoachingScreen() {
             }
           },
           () => {
-            // Fallback: scroll to a position that shows the last message
+            // FALLBACK STRATEGY: Estimation-based positioning
+            // Used when measurement fails (rare edge cases)
             const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
             scrollViewRef.current?.scrollTo({
               y: estimatedPosition,
@@ -2236,7 +2438,7 @@ export default function CoachingScreen() {
           }
         );
       } else {
-        // Fallback: scroll to a position that shows the last message
+        // SECONDARY FALLBACK: When message ref is not available
         const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
         scrollViewRef.current?.scrollTo({
           y: estimatedPosition,
@@ -2244,7 +2446,8 @@ export default function CoachingScreen() {
         });
       }
     } else {
-    scrollViewRef.current?.scrollToEnd({ animated });
+      // EMPTY STATE: Basic scroll to end when no messages
+      scrollViewRef.current?.scrollToEnd({ animated });
     }
   };
 
@@ -2261,51 +2464,83 @@ export default function CoachingScreen() {
         handleScrollToBottom(false);
         didInitialAutoScroll.current = true;
       }
-    }, 100);
+    }, 300); // Increased timeout for initial auto-scroll reliability
   }, [isInitialized, messages.length]);
 
-  // 7. Simplify handleScroll with pagination:
+  // ========================================================================
+  // SCROLL EVENT HANDLER - MAIN SCROLL LOGIC
+  // ========================================================================
+  // Handles all scroll-related events including:
+  // 1. Manual scroll detection (clears auto-positioning)
+  // 2. Pull-to-refresh pagination (loads older messages)
+  // 3. Scroll-to-bottom button visibility
+  // ========================================================================
   const handleScroll = (event: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const scrollY = contentOffset.y;
     
-    // User scroll detection
+    // ====================================================================
+    // MANUAL SCROLL DETECTION
+    // ====================================================================
+    // Detects when user manually scrolls away from auto-positioned location
+    // Clears positioning system to prevent interference with user intent
+    // ====================================================================
     if (targetScrollPosition.current !== null) {
       const savedPosition = targetScrollPosition.current;
       const scrollDifference = Math.abs(scrollY - savedPosition);
       
-      if (scrollDifference > 50) { // Larger threshold
+      // If user scrolled more than 50px from saved position, consider it manual
+      if (scrollDifference > 50) { // Larger threshold to avoid false positives
         debugLog('👆 User scrolled manually, clearing positioning');
         hasUserScrolled.current = true;
         targetScrollPosition.current = null;
       }
     }
     
-    // Pagination: Load more messages when pulling to very top (like pull-to-refresh)
+    // ====================================================================
+    // PULL-TO-REFRESH PAGINATION
+    // ====================================================================
+    // Triggers loading of older messages when user pulls to very top
+    // Implements throttling to prevent rapid consecutive loads
+    // ====================================================================
     const isAtVeryTop = scrollY <= 10; // Must be within 10px of absolute top
     const isPullingUp = scrollY < 0; // Negative scroll (over-scroll/bounce)
     const now = Date.now();
     const timeSinceLastLoad = now - lastLoadTimeRef.current;
     
-    if ((isAtVeryTop || isPullingUp) && hasMoreMessages && !isLoadingMore && !isLoading && timeSinceLastLoad > LOAD_THROTTLE_MS) {
+    // Check all conditions for pagination trigger
+    if ((isAtVeryTop || isPullingUp) && 
+        hasMoreMessages && 
+        !isLoadingMore && 
+        !isLoading && 
+        timeSinceLastLoad > LOAD_THROTTLE_MS) {
       console.log('📄 User pulled to top, loading more messages...');
       lastLoadTimeRef.current = now;
       loadMoreMessages();
     }
     
-    // Scroll to bottom button - show when content is scrollable and not at bottom
-    const hasMessages = messages.length > 0;
-    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
-    const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
-    
-    if (isAIResponseComplete) {
-      const contentHeight = contentSize.height;
-      const screenHeight = layoutMeasurement.height;
-      const distanceFromBottom = contentHeight - screenHeight - scrollY;
-      setShowScrollToBottom(distanceFromBottom > 200);
-    } else {
-      setShowScrollToBottom(false);
-    }
+     // ====================================================================
+     // SCROLL-TO-BOTTOM BUTTON VISIBILITY
+     // ====================================================================
+     // Shows button when user can scroll down to see more content
+     // Only shows after AI responses are complete and not during positioning
+     // ====================================================================
+     const hasMessages = messages.length > 0;
+     const lastMessage = hasMessages ? messages[messages.length - 1] : null;
+     const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
+     const isPositioningActive = targetScrollPosition.current !== null;
+     
+     if (isAIResponseComplete && !isPositioningActive) {
+       const contentHeight = contentSize.height;
+       const screenHeight = layoutMeasurement.height;
+       const distanceFromBottom = contentHeight - screenHeight - scrollY;
+       
+       // Show button when user is more than 200px from bottom
+       setShowScrollToBottom(distanceFromBottom > 200);
+     } else {
+       // Hide button during AI responses, positioning, or when no messages
+       setShowScrollToBottom(false);
+     }
   };
 
   const handleConversationStarterPress = (starter: string) => {
@@ -2522,28 +2757,13 @@ export default function CoachingScreen() {
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
-            // Add scroll limit
+            // DISABLED: Scroll limit enforcement to prevent interference with positioning
             onScrollEndDrag={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              // If exceeded maximum scroll limit, bring back
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
+              // Disabled to prevent position drift - let positioning system handle limits
             }}
-            // Also check after momentum scroll
+            // DISABLED: Momentum scroll limit enforcement to prevent position drift
             onMomentumScrollEnd={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
+              // Disabled to prevent position drift - let positioning system handle limits
             }}
           >
             {/* Simple loading spinner */}

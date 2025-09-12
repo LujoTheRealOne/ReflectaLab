@@ -20,7 +20,9 @@ export function ErrorMessage({
         style={[
           styles.retryButton,
           {
-            backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+            borderWidth: colorScheme === 'dark' ? 0 : 0.5,
+            borderColor: colorScheme === 'dark' ? 'transparent' : 'rgba(0, 0, 0, 0.1)',
             opacity: isRetrying ? 0.6 : 1,
           }
         ]}
@@ -29,7 +31,7 @@ export function ErrorMessage({
       >
         <RefreshCw 
           size={16} 
-          color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'} 
+          color={colorScheme === 'dark' ? '#FFFFFF' : '#555555'} 
         />
       </TouchableOpacity>
     </View>

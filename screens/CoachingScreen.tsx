@@ -1,6 +1,6 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
+import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Mic, X, Check, ArrowUp, ArrowDown, Square } from 'lucide-react-native';
@@ -15,12 +15,11 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
-import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
-import { loadMessagesFromFirestore, saveMessagesToFirestore, syncCommitmentStatesWithBackend, initializeCoachingSession } from '@/services/coachingFirestore';
+import { loadMessagesFromFirestore, saveMessagesToFirestore, initializeCoachingSession } from '@/services/coachingFirestore';
 import { useCoachingScroll } from '@/hooks/useCoachingScroll';
 import { SpinningAnimation } from '@/components/coaching/ui/SpinningAnimation';
 import { ModernSpinner } from '@/components/coaching/ui/ModernSpinner';
@@ -28,9 +27,9 @@ import { DateSeparator } from '@/components/coaching/ui/DateSeparator';
 import { AnimatedTypingIndicator } from '@/components/coaching/ui/AnimatedTypingIndicator';
 import { AudioLevelIndicator } from '@/components/coaching/ui/AudioLevelIndicator';
 import { RecordingTimer } from '@/components/coaching/ui/RecordingTimer';
-import { MessageItem } from '@/components/coaching/ui/MessageItem';
 import { ErrorMessage } from '@/components/coaching/ui/ErrorMessage';
 import CoachingErrorBoundary from '@/components/coaching/CoachingErrorBoundary';
+import { betterStackLogger } from '@/services/betterStackLogger';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -49,9 +48,7 @@ export default function CoachingScreen() {
   } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
-  // Get route parameters for existing session
-  const routeSessionId = (route.params as any)?.sessionId;
-  const routeSessionType = (route.params as any)?.sessionType;
+  // Route parameters not used in current implementation
 
   // Use userId as session ID (single session per user) - no state needed
   const getSessionId = (): string => {
@@ -88,7 +85,7 @@ export default function CoachingScreen() {
 
   // Use the AI coaching hook
   const coachingHook = useAICoaching();
-  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration, resendMessage } = coachingHook;
+  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration, resendMessage, error } = coachingHook;
   
   // Test function to clear all coaching data
   const clearAllCoachingData = useCallback(async () => {
@@ -169,86 +166,10 @@ export default function CoachingScreen() {
     }
   }, [firebaseUser?.uid, setMessages, initializeCoachingSession, user?.firstName]);
 
-  // Expose functions globally for testing (remove in production)
+  // Debug functions available in development
   if (__DEV__) {
     (global as any).clearCoachingData = clearAllCoachingData;
     (global as any).refreshCoachingFromFirestore = refreshFromFirestore;
-    
-    // Debug function to check session persistence
-    (global as any).debugSessionPersistence = async () => {
-      if (!firebaseUser?.uid) {
-        console.log('❌ No user logged in');
-        return;
-      }
-      
-      console.log('🔍 [DEBUG] Session Persistence Check:');
-      console.log('🔍 [DEBUG] Current user ID:', firebaseUser.uid);
-      console.log('🔍 [DEBUG] Current messages count:', messages.length);
-      
-      // Check Firestore
-      const firestoreResult = await loadMessagesFromFirestore(firebaseUser.uid);
-      console.log('🔍 [DEBUG] Firestore messages count:', firestoreResult.allMessages.length);
-      
-      return {
-        userId: firebaseUser.uid,
-        currentMessages: messages.length,
-        firestoreMessages: firestoreResult.allMessages.length,
-      };
-    };
-    
-    // Debug function to check all Firestore sessions for user
-    (global as any).debugFirestoreSessions = async () => {
-      if (!firebaseUser?.uid) {
-        console.log('❌ No user logged in');
-        return;
-      }
-      
-      try {
-        console.log('🔍 [DEBUG] Checking all Firestore sessions for user:', firebaseUser.uid);
-        
-        const { db } = await import('../lib/firebase');
-        const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
-        
-        // Get ALL sessions for this user
-        const sessionsRef = collection(db, 'coachingSessions');
-        const allSessionsQuery = query(
-          sessionsRef,
-          where('userId', '==', firebaseUser.uid),
-          orderBy('updatedAt', 'desc')
-        );
-        
-        const allSessionsSnapshot = await getDocs(allSessionsQuery);
-        
-        console.log('🔍 [DEBUG] Total sessions found:', allSessionsSnapshot.docs.length);
-        
-        const sessions = allSessionsSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            sessionType: data.sessionType,
-            messageCount: data.messages?.length || 0,
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-            ...data
-          };
-        });
-        
-        sessions.forEach((session, index) => {
-          console.log(`🔍 [DEBUG] Session ${index + 1}:`, {
-            id: session.id,
-            sessionType: session.sessionType,
-            messageCount: session.messageCount,
-            createdAt: session.createdAt,
-            updatedAt: session.updatedAt
-          });
-        });
-        
-        return sessions;
-      } catch (error) {
-        console.error('❌ [DEBUG] Error checking Firestore sessions:', error);
-        return [];
-      }
-    };
   }
   
   const [chatInput, setChatInput] = useState('');
@@ -278,6 +199,25 @@ export default function CoachingScreen() {
 
   // Error handling state
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+
+  // Log AI errors to BetterStack (only actual errors, not session events)
+  useEffect(() => {
+    if (error) {
+      console.error('🚨 AI error detected:', error);
+      
+      // Only log actual errors to BetterStack
+      betterStackLogger.logInfo('AI response error occurred', {
+        userId: firebaseUser?.uid,
+        sessionId: getSessionId(),
+        category: 'AIError',
+        metadata: {
+          error: error,
+          platform: 'mobile'
+        }
+      });
+    }
+  }, [error]);
+
 
   // Pagination state for message loading
   const [allMessages, setAllMessages] = useState<CoachingMessage[]>([]);
@@ -475,6 +415,8 @@ export default function CoachingScreen() {
           trigger: 'manual',
         });
 
+        // Session start logging removed - only errors go to BetterStack
+
         // Clear input immediately
         setChatInput('');
         setInputHeight(24); // Reset to minimum height
@@ -605,6 +547,8 @@ export default function CoachingScreen() {
             insights_generated: 0,
             session_type: 'regular',
           });
+
+          // Session completion logging removed - only errors go to BetterStack
         }
       };
     }, [firebaseUser?.uid, setMessages])
@@ -912,7 +856,7 @@ export default function CoachingScreen() {
     };
   }, []);
 
-  // Klavye yüksekliğini izle
+  // Monitor keyboard height
   useEffect(() => {
     const keyboardWillShow = (event: any) => {
       setKeyboardHeight(event.endCoordinates.height);
@@ -1054,10 +998,11 @@ export default function CoachingScreen() {
     }, 0);
   };
 
-  // 8. Set flag correctly in handleSendMessage:
   
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
+
+    const messageContent = chatInput.trim();
 
     // Use userId as session ID (single session per user)
     const currentSessionId = getSessionId();
@@ -1077,7 +1022,7 @@ export default function CoachingScreen() {
       trigger: 'manual',
     });
 
-    const messageContent = chatInput.trim();
+    // Session start logging removed - only errors go to BetterStack
     setChatInput('');
     
     // Close keyboard and blur input
@@ -1299,6 +1244,7 @@ export default function CoachingScreen() {
      }
   };
 
+  // Conversation starters removed - function kept for potential future use
   const handleConversationStarterPress = (starter: string) => {
     setChatInput(starter);
     textInputRef.current?.focus();
@@ -1311,14 +1257,40 @@ export default function CoachingScreen() {
     console.log('🔄 [ERROR RETRY] Retrying message:', messageId);
     setRetryingMessageId(messageId);
     
+    // Find the original error message for context
+    const errorMessage = messages.find(msg => msg.id === messageId && msg.isError);
+    
     try {
       const currentSessionId = getSessionId();
+      
+      // Retry attempt logging removed - only errors go to BetterStack
+      
       await resendMessage(messageId, currentSessionId, {
         sessionType: 'default-session'
       });
+      
       console.log('✅ [ERROR RETRY] Message retry successful');
+      
+      // Retry success logging removed - only errors go to BetterStack
+      
     } catch (error) {
       console.error('❌ [ERROR RETRY] Message retry failed:', error);
+      
+      // Log failed retry to BetterStack
+      if (error instanceof Error) {
+        betterStackLogger.logCoachingError(error, {
+          userId: firebaseUser.uid,
+          sessionId: getSessionId(),
+          messageId,
+          errorType: 'retry_failed',
+          userMessage: errorMessage?.originalUserMessage,
+          metadata: {
+            isRetryAttempt: true,
+            originalError: errorMessage?.content,
+            platform: 'mobile'
+          }
+        });
+      }
     } finally {
       setRetryingMessageId(null);
     }
@@ -1488,15 +1460,32 @@ export default function CoachingScreen() {
     }
   };
 
+
   return (
     <CoachingErrorBoundary 
       colorScheme={colorScheme ?? 'light'}
       onError={(error, errorInfo) => {
         console.error('🚨 [COACHING ERROR BOUNDARY] Coaching screen error:', error, errorInfo);
-        // Here you could add error reporting to your analytics service
+        
+        // Log to BetterStack
+        betterStackLogger.logErrorBoundary(error, errorInfo, {
+          userId: firebaseUser?.uid,
+          sessionId: getSessionId(),
+          componentStack: errorInfo.componentStack,
+          metadata: {
+            messagesCount: messages.length,
+            isInitialized,
+            isLoading,
+            platform: 'mobile',
+            screen: 'CoachingScreen'
+          }
+        });
       }}
       onRetry={() => {
         console.log('🔄 [COACHING ERROR BOUNDARY] Restarting coaching session');
+        
+        // Error boundary retry logging removed - only errors go to BetterStack
+        
         // Clear any error states and reinitialize
         setIsInitialized(false);
         setMessages([]);
@@ -1720,8 +1709,6 @@ export default function CoachingScreen() {
           )}
         </View>
 
-        {/* Suggestion Buttons - Temporarily hidden */}
-        {/* TODO: Re-enable suggestions later if needed */}
 
         {/* Input */}
         <View style={[styles.chatInputContainer, { 
@@ -1735,7 +1722,7 @@ export default function CoachingScreen() {
             {
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-                height: containerHeight, // Dinamik yükseklik
+                height: containerHeight, // Dynamic height
                 shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
                 shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
               }
@@ -1997,7 +1984,7 @@ const styles = StyleSheet.create({
   mainInputContainer: {
     flex: 1,
     paddingHorizontal: 8,
-    paddingTop: 12, // Üst padding artırıldı
+    paddingTop: 12, // Top padding increased
     paddingBottom: 8,
     flexDirection: 'column',
     justifyContent: 'space-between',
@@ -2008,7 +1995,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '400',
     lineHeight: 24,
-    minHeight: 24, // Minimum yükseklik
+    minHeight: 24, // Minimum height
     paddingVertical: 0,
     paddingHorizontal: 4,
     backgroundColor: 'transparent',
@@ -2190,7 +2177,6 @@ const styles = StyleSheet.create({
     elevation: 2,
     zIndex: 999, // Lower z-index than input
   },
-  // Suggestion styles moved to components/old/PromptSuggestions.tsx
   expandButton: {
     position: 'absolute',
     top: 8,
@@ -2209,21 +2195,5 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     zIndex: 10,
-  },
-  conversationStartersContainer: {
-    paddingBottom: 12,
-    width: '100%',
-  },
-  startersScrollView: {
-    maxHeight: 50,
-  },
-  startersScrollContent: {
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  starterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
   },
 }); 

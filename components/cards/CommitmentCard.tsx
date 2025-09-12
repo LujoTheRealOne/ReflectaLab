@@ -103,6 +103,7 @@ export default function CommitmentCard({
   };
 
   const formatDeadline = (deadline: string) => {
+    // First try the original mapping for backward compatibility
     const map: Record<string, string> = {
       'tomorrow': 'Tomorrow',
       '2d': '2 days',
@@ -110,7 +111,41 @@ export default function CommitmentCard({
       '2w': '2 weeks',
       '1m': '1 month'
     };
-    return map[deadline] || deadline;
+    
+    if (map[deadline]) {
+      return map[deadline];
+    }
+    
+    // Handle Date objects or ISO strings
+    try {
+      const date = new Date(deadline);
+      if (!isNaN(date.getTime())) {
+        const now = new Date();
+        const diffTime = date.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 0) {
+          return 'Today';
+        } else if (diffDays === 1) {
+          return 'Tomorrow';
+        } else if (diffDays > 1 && diffDays <= 7) {
+          return `${diffDays} days`;
+        } else if (diffDays > 7 && diffDays <= 30) {
+          const weeks = Math.ceil(diffDays / 7);
+          return weeks === 1 ? '1 week' : `${weeks} weeks`;
+        } else if (diffDays > 30) {
+          const months = Math.ceil(diffDays / 30);
+          return months === 1 ? '1 month' : `${months} months`;
+        } else {
+          return 'Overdue';
+        }
+      }
+    } catch (error) {
+      // Fall back to original string if parsing fails
+      console.warn('Failed to parse deadline as date:', deadline);
+    }
+    
+    return deadline;
   };
 
   const formatCadence = (cadence: string) => {

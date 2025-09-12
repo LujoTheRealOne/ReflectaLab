@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { CheckCircle, XCircle, Target, Zap } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
@@ -31,6 +31,14 @@ export default function CommitmentCheckinCard({
   
   const [currentResponse, setCurrentResponse] = useState(userResponse);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Update local state when props change (important for persistence across app restarts)
+  useEffect(() => {
+    if (userResponse !== currentResponse) {
+      console.log('🔄 CommitmentCheckinCard userResponse prop changed:', { from: currentResponse, to: userResponse });
+      setCurrentResponse(userResponse);
+    }
+  }, [userResponse, currentResponse]);
 
   const handleResponse = (response: 'yes' | 'no') => {
     console.log('🎯 CommitmentCheckinCard response:', response, { currentResponse, isProcessing });

@@ -15,21 +15,75 @@ export interface ActiveCommitment {
   numberOfTimesCompleted: number;
 }
 
+// Global state to persist across component mounts
+let globalCommitments: ActiveCommitment[] = [];
+let globalLoading = true;
+let globalError: string | null = null;
+let globalListeners: Set<() => void> = new Set();
+let currentUserId: string | null = null;
+let isInitialized = false;
+
+// Notify all listeners about state changes
+function notifyListeners() {
+  globalListeners.forEach(listener => listener());
+}
+
+// Update global state
+function updateGlobalState(updates: {
+  commitments?: ActiveCommitment[];
+  loading?: boolean;
+  error?: string | null;
+}) {
+  let hasChanges = false;
+  
+  if (updates.commitments !== undefined && updates.commitments !== globalCommitments) {
+    globalCommitments = updates.commitments;
+    hasChanges = true;
+  }
+  if (updates.loading !== undefined && updates.loading !== globalLoading) {
+    globalLoading = updates.loading;
+    hasChanges = true;
+  }
+  if (updates.error !== undefined && updates.error !== globalError) {
+    globalError = updates.error;
+    hasChanges = true;
+  }
+  
+  if (hasChanges) {
+    notifyListeners();
+  }
+}
+
+// Clear state when user changes
+function clearCommitmentsData() {
+  updateGlobalState({
+    commitments: [],
+    loading: true,
+    error: null
+  });
+  currentUserId = null;
+  isInitialized = false;
+}
+
 export const useActiveCommitments = () => {
-  const [commitments, setCommitments] = useState<ActiveCommitment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { getToken, firebaseUser } = useAuth();
+  const [, forceUpdate] = useState({});
+
+  // Force re-render when global state changes
+  useEffect(() => {
+    const listener = () => forceUpdate({});
+    globalListeners.add(listener);
+    return () => globalListeners.delete(listener);
+  }, []);
 
   const fetchActiveCommitments = useCallback(async () => {
     if (!firebaseUser?.uid) {
-      setLoading(false);
+      updateGlobalState({ loading: false });
       return;
     }
 
     try {
-      setLoading(true);
-      setError(null);
+      updateGlobalState({ loading: true, error: null });
 
       const token = await getToken();
       if (!token) {
@@ -73,13 +127,15 @@ export const useActiveCommitments = () => {
         index === self.findIndex(c => c.id === commitment.id)
       );
 
-      setCommitments(uniqueCommitments);
+      updateGlobalState({ commitments: uniqueCommitments });
     } catch (err) {
       console.error('❌ Error fetching active commitments:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch commitments');
-      setCommitments([]);
+      updateGlobalState({ 
+        error: err instanceof Error ? err.message : 'Failed to fetch commitments',
+        commitments: []
+      });
     } finally {
-      setLoading(false);
+      updateGlobalState({ loading: false });
     }
   }, [firebaseUser?.uid, getToken]);
 
@@ -127,17 +183,31 @@ export const useActiveCommitments = () => {
     }
   }, [firebaseUser?.uid, getToken, fetchActiveCommitments]);
 
-  // Fetch commitments when user changes or component mounts
+  // Initialize commitments when user changes
   useEffect(() => {
     if (firebaseUser?.uid) {
-      fetchActiveCommitments();
+      // If user changed, reset state and fetch
+      if (currentUserId !== firebaseUser.uid) {
+        clearCommitmentsData();
+        currentUserId = firebaseUser.uid;
+        isInitialized = false;
+      }
+      
+      // Fetch if not already initialized for this user
+      if (!isInitialized) {
+        fetchActiveCommitments().then(() => {
+          isInitialized = true;
+        });
+      }
+    } else {
+      clearCommitmentsData();
     }
-  }, [firebaseUser?.uid]); // Only depend on userId, not the function
+  }, [firebaseUser?.uid, fetchActiveCommitments]);
 
   return {
-    commitments,
-    loading,
-    error,
+    commitments: globalCommitments,
+    loading: globalLoading,
+    error: globalError,
     refetch: fetchActiveCommitments,
     checkInCommitment,
   };

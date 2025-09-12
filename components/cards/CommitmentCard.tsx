@@ -34,10 +34,27 @@ export default function CommitmentCard({
   const [selectedCadence, setSelectedCadence] = useState(cadence || 'daily');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Sync local state with prop changes (important for when commitment state is loaded from backend)
+  // Update local state when props change (important for persistence across app restarts)
   useEffect(() => {
-    setCurrentState(state);
-  }, [state]);
+    if (state !== currentState) {
+      console.log('🔄 [CARD] CommitmentCard state prop changed:', { 
+        title: title.substring(0, 30) + '...', 
+        from: currentState, 
+        to: state,
+        commitmentId 
+      });
+      setCurrentState(state);
+    }
+  }, [state, currentState, title, commitmentId]);
+
+  // Debug log when component renders (disabled to reduce noise)
+  // console.log('🎯 [CARD] CommitmentCard rendered:', { 
+  //   title: title.substring(0, 30) + '...', 
+  //   propState: state, 
+  //   currentState, 
+  //   commitmentId,
+  //   editable 
+  // });
 
   // Debug logging (disabled)
   // console.log('🎯 CommitmentCard props:', { state, currentState, editable, title });

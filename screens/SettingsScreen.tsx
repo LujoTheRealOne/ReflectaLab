@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Alert,
   Dimensions,
@@ -26,7 +26,7 @@ import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useSettingsCache } from '@/hooks/useSettingsCache';
 import { useActiveCommitments } from '@/hooks/useActiveCommitments';
 import { useBiometricAuth } from '@/hooks/useBiometricAuth';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
@@ -66,7 +66,11 @@ export default function SettingsScreen() {
   const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
 
   // Active commitments hook
-  const { commitments, loading: commitmentsLoading, checkInCommitment } = useActiveCommitments();
+  const { commitments, loading: commitmentsLoading, checkInCommitment, refetch: refetchCommitments } = useActiveCommitments();
+  
+  // Use ref to store the refetch function to avoid dependency issues
+  const refetchCommitmentsRef = useRef(refetchCommitments);
+  refetchCommitmentsRef.current = refetchCommitments;
   
   const {
     isSupported: biometricSupported,
@@ -275,6 +279,16 @@ export default function SettingsScreen() {
       checkPermissions();
     }, 100); // Small delay to ensure UI renders first
   }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
+
+  // Refresh commitments when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      console.log('⚙️ Settings screen focused - refreshing commitments');
+      if (firebaseUser?.uid) {
+        refetchCommitmentsRef.current();
+      }
+    }, [firebaseUser?.uid])
+  );
 
   // Handle push notification toggle
   const handlePushNotificationToggle = useCallback(async (newValue: boolean) => {

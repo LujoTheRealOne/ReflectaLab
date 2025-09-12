@@ -1220,7 +1220,9 @@ export default function CoachingScreen() {
                 // 2. Update messages state
                 setMessages(updatedMessages);
                 
-                // 3. Let outer effect persist updates to avoid duplicate saves
+                // 3. Explicitly save to both cache and Firestore
+                await coachingCacheService.saveMessages(updatedMessages, firebaseUser.uid);
+                await saveMessagesToFirestore(updatedMessages, firebaseUser.uid);
                 
                 // 4. If accepted, create commitment via API
                 if (data.state === 'accepted') {
@@ -1318,9 +1320,15 @@ export default function CoachingScreen() {
                   });
                   return { ...message, content: updatedContent };
                 });
+                
+                // Update messages state
                 setMessages(updatedMessages);
+                
+                // Save to both cache and Firestore - same as normal message saving
                 await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
-                console.log('✅ SessionSuggestion state updated and saved');
+                await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
+                
+                console.log('✅ SessionSuggestion state updated and saved to both cache and Firestore');
               } catch (error) {
                 console.error('❌ Failed to update session suggestion state:', error);
               }
@@ -1359,7 +1367,8 @@ export default function CoachingScreen() {
                 });
                 setMessages(updatedMessages);
                 await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
-                console.log('✅ Session token replaced with sessionCard token and saved');
+                await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
+                console.log('✅ Session token replaced with sessionCard token and saved to both cache and Firestore');
               } catch (error) {
                 console.error('❌ Failed to replace session token:', error);
               }
@@ -2388,7 +2397,7 @@ export default function CoachingScreen() {
             if (isLongResponse) {
               // LONG MESSAGE STRATEGY: Show the end of the message
               // This ensures user sees the conclusion and any coaching cards
-              const targetY = Math.max(0, y + height - 100); // Show end with 100px buffer
+              const targetY = Math.max(0, y + height - 300); // Show end with 100px buffer
               scrollViewRef.current?.scrollTo({
                 y: targetY,
                 animated

@@ -774,14 +774,14 @@ export default function OnboardingScreen() {
           try {
             const onboardingDuration = Math.floor((Date.now() - onboardingStartTime) / 1000);
             
-            // Update user account in Firestore with onboarding data and completion status
+            // Update user account in Firestore with onboarding data (but NOT completion status)
             await FirestoreService.updateUserAccount(firebaseUser.uid, {
-              // Mark onboarding as completed
               // Store all onboarding data for future reference
-              firstName:name,
+              firstName: name,
               onboardingData: {
-                onboardingCompleted: true,
-                onboardingCompletedAt: Date.now(),
+                // DO NOT mark onboarding as completed here - only when user clicks "Enter App" in deep dive
+                onboardingCompleted: false,
+                onboardingCompletedAt: 0,
                 whatDoYouDoInLife: selectedRoles,
                 selfReflectionPracticesTried: selectedSelfReflection,
                 clarityInLife: clarityLevel,
@@ -799,11 +799,11 @@ export default function OnboardingScreen() {
               userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             });
             
-            // Track onboarding completion
-            trackOnboardingCompleted({
-              onboarding_duration: onboardingDuration,
-              steps_completed: 13, // Steps 1-12 completed at this point
-              user_responses: selectedRoles.length + selectedSelfReflection.length + 4, // roles + reflections + clarity + stress + coaching style + time
+            // Track onboarding step completion (not full completion yet)
+            trackOnboardingStep({
+              step_name: 'time_duration_set',
+              step_number: 12,
+              time_spent: onboardingDuration,
             });
           } catch (error) {
             console.error('Failed to save onboarding data:', error);
@@ -814,6 +814,11 @@ export default function OnboardingScreen() {
       setIsLoading(true);
       
       try {
+        // IMPORTANT: Stop meditation audio before navigating to prevent audio leak
+        console.log('🔇 Stopping meditation audio before navigating to OnboardingChat...');
+        stopMeditationAudio();
+        deactivateKeepAwake();
+        
         // Clear onboarding progress since we're completing it
         await clearProgress();
         

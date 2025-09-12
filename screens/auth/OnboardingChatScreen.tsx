@@ -284,6 +284,30 @@ export default function OnboardingChatScreen() {
       timeDuration
     });
     
+    // CRITICAL: Ensure onboarding is NOT marked as completed in Firestore
+    // This fixes cases where user was previously marked as completed but is still in deep dive
+    const ensureOnboardingNotCompleted = async () => {
+      if (firebaseUser?.uid) {
+        try {
+          console.log('🔄 Ensuring onboarding is not marked as completed in Firestore...');
+          await FirestoreService.updateUserAccount(firebaseUser.uid, {
+            onboardingData: {
+              onboardingCompleted: false,
+              onboardingCompletedAt: 0,
+              whatDoYouDoInLife: selectedRoles,
+              selfReflectionPracticesTried: selectedSelfReflection,
+              clarityInLife: clarityLevel,
+              stressInLife: stressLevel,
+            },
+            updatedAt: new Date(),
+          });
+          console.log('✅ Onboarding completion status reset in Firestore');
+        } catch (error) {
+          console.error('❌ Failed to reset onboarding completion status:', error);
+        }
+      }
+    };
+    
     // Immediately save progress to ensure consistency
     const progressData = {
       currentStep: 17, // Special step for OnboardingChat
@@ -301,10 +325,14 @@ export default function OnboardingChatScreen() {
     
     console.log('💾 Saving progress data:', progressData);
     
-    saveProgress(progressData).then(() => {
-      console.log('✅ OnboardingChatScreen - Progress saved successfully as step 17');
+    // Run both operations
+    Promise.all([
+      saveProgress(progressData),
+      ensureOnboardingNotCompleted()
+    ]).then(() => {
+      console.log('✅ OnboardingChatScreen - Progress saved and completion status reset');
     }).catch(error => {
-      console.error('❌ Failed to save OnboardingChat progress:', error);
+      console.error('❌ Failed to save OnboardingChat progress or reset completion:', error);
     });
   }, []); // Only run once when component mounts
   
@@ -433,28 +461,52 @@ export default function OnboardingChatScreen() {
     return components;
   };
 
-  // Function to parse coaching completion data between finish tokens
+  // Function to parse coaching completion data between finish tokens or from sessionEnd
   const parseCoachingCompletion = (content: string) => {
+    // Check for traditional finish tokens first
     const finishStartIndex = content.indexOf('[finish-start]');
     const finishEndIndex = content.indexOf('[finish-end]');
     
-    if (finishStartIndex === -1 || finishEndIndex === -1) {
-      return { components: [], rawData: '' };
+    if (finishStartIndex !== -1 && finishEndIndex !== -1) {
+      // Extract content between finish tokens
+      const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
+      const components = parseCoachingCards(finishContent);
+      
+      console.log('🎯 Parsed coaching completion (finish tokens):', { 
+        componentsCount: components.length, 
+        components,
+        rawFinishContent: finishContent
+      });
+      
+      return { components, rawData: finishContent };
     }
     
-    // Extract content between finish tokens
-    const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
+    // Check for sessionEnd format
+    const sessionEndMatch = content.match(/\[sessionEnd:([^\]]+)\]/);
+    if (sessionEndMatch) {
+      // Parse sessionEnd as a completion component
+      const sessionEndProps: Record<string, string> = {};
+      const propsString = sessionEndMatch[1];
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+      
+      while ((propMatch = propRegex.exec(propsString)) !== null) {
+        const [, key, value] = propMatch;
+        sessionEndProps[key] = value;
+      }
+      
+      const components = [{ type: 'sessionEnd', props: sessionEndProps }];
+      
+      console.log('🎯 Parsed coaching completion (sessionEnd):', { 
+        componentsCount: components.length, 
+        components,
+        rawSessionEnd: sessionEndMatch[0]
+      });
+      
+      return { components, rawData: sessionEndMatch[0] };
+    }
     
-    // Use the general parsing function
-    const components = parseCoachingCards(finishContent);
-    
-    console.log('🎯 Parsed coaching completion:', { 
-      componentsCount: components.length, 
-      components,
-      rawFinishContent: finishContent
-    });
-    
-    return { components, rawData: finishContent };
+    return { components: [], rawData: '' };
   };
 
   // Function to call coaching chat API for coaching blocks
@@ -964,10 +1016,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     if (progress >= 100 && !showCompletionForMessage) {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
-      // Find the final AI message that contains finish tokens
+      // Find the final AI message that contains finish tokens (including sessionEnd)
       const lastAIMessage = [...messages].reverse().find(msg => 
         msg.role === 'assistant' && 
-        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
+        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]') || msg.content.includes('[sessionEnd:'))
       );
       
       if (lastAIMessage) {
@@ -1419,6 +1471,17 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       const result = await completeOnboarding();
       console.log('✅ Onboarding completion finished successfully', result);
       
+      // Track onboarding completion analytics
+      const sessionEndTime = new Date();
+      const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
+      const onboardingDuration = Math.floor(sessionDurationMs / 1000);
+      
+      trackOnboardingCompleted({
+        onboarding_duration: onboardingDuration,
+        steps_completed: 17, // All steps including deep dive completed
+        user_responses: completionStats.words,
+      });
+      
       // Clear onboarding progress from AsyncStorage
       console.log('🗑️ Clearing onboarding progress from AsyncStorage...');
       await clearProgress();
@@ -1813,7 +1876,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   placeholder="Share whats on your mind..."
                   placeholderTextColor={`${colors.text}66`}
                   multiline
-                  maxLength={500}
+                  maxLength={20000}
                   returnKeyType='default'
                   onSubmitEditing={handleSendMessage}
                   cursorColor={colors.tint}

@@ -641,10 +641,37 @@ export function useAuth() {
   }, [firebaseUser?.uid]);
 
   const completeOnboarding = useCallback(async () => {
-    const result = await refreshUserAccount();
-    console.log('🧭 Onboarding completion - user account refreshed:', result);
-    return result;
-  }, [refreshUserAccount]);
+    if (!firebaseUser?.uid) {
+      throw new Error('No authenticated user found');
+    }
+
+    try {
+      console.log('🚀 Marking onboarding as completed in Firestore...');
+      
+      // Mark onboarding as completed in Firestore
+      await FirestoreService.updateUserAccount(firebaseUser.uid, {
+        onboardingData: {
+          onboardingCompleted: true,
+          onboardingCompletedAt: Date.now(),
+          whatDoYouDoInLife: userAccount?.onboardingData?.whatDoYouDoInLife || [],
+          selfReflectionPracticesTried: userAccount?.onboardingData?.selfReflectionPracticesTried || [],
+          clarityInLife: userAccount?.onboardingData?.clarityInLife || 0.5,
+          stressInLife: userAccount?.onboardingData?.stressInLife || 0.5,
+        },
+        updatedAt: new Date(),
+      });
+
+      console.log('✅ Onboarding marked as completed in Firestore');
+
+      // Refresh user account to get updated data
+      const result = await refreshUserAccount();
+      console.log('🧭 Onboarding completion - user account refreshed:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Error completing onboarding:', error);
+      throw error;
+    }
+  }, [firebaseUser?.uid, userAccount?.onboardingData, refreshUserAccount]);
 
   // Computed auth states for better navigation decisions
   const isFullyAuthenticated = isSignedIn && !!firebaseUser;

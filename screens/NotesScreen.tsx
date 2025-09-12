@@ -77,24 +77,49 @@ export default function NotesScreen() {
   const groupedEntries = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Calculate start of this week (Monday)
+    const dayOfWeek = now.getDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = 0, so Sunday is 6 days from Monday
+    const startOfWeek = new Date(today.getTime() - daysFromMonday * 24 * 60 * 60 * 1000);
+    
+    // Calculate 30 days ago
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const thisWeek: JournalEntry[] = [];
-    const last7Days: JournalEntry[] = [];
+    const todayEntries: JournalEntry[] = [];
+    const thisWeekEntries: JournalEntry[] = [];
+    const last30DaysEntries: JournalEntry[] = [];
+    const olderEntries: JournalEntry[] = [];
 
     entries.forEach(entry => {
       if (!entry.timestamp) return;
       const entryDate = entry.timestamp.toDate ? entry.timestamp.toDate() : new Date(entry.timestamp);
       const entryDateOnly = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
 
-      if (entryDateOnly >= today) {
-        thisWeek.push(entry);
-      } else if (entryDateOnly >= weekAgo) {
-        last7Days.push(entry);
+      if (entryDateOnly.getTime() === today.getTime()) {
+        todayEntries.push(entry);
+      } else if (entryDateOnly >= startOfWeek) {
+        thisWeekEntries.push(entry);
+      } else if (entryDateOnly >= thirtyDaysAgo) {
+        last30DaysEntries.push(entry);
+      } else {
+        olderEntries.push(entry);
       }
     });
 
-    return { thisWeek, last7Days };
+    // Sort each group by timestamp (newest first)
+    const sortByTimestamp = (a: JournalEntry, b: JournalEntry) => {
+      const dateA = a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+      const dateB = b.timestamp.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+      return dateB.getTime() - dateA.getTime();
+    };
+
+    return {
+      today: todayEntries.sort(sortByTimestamp),
+      thisWeek: thisWeekEntries.sort(sortByTimestamp),
+      last30Days: last30DaysEntries.sort(sortByTimestamp),
+      older: olderEntries.sort(sortByTimestamp)
+    };
   }, [entries]);
 
   const contentContainerStyle = useMemo(() => ({
@@ -177,10 +202,35 @@ export default function NotesScreen() {
           <Text style={{ color: colors.text, opacity: 0.6 }}>No entries yet.</Text>
         )}
 
+        {/* Today section */}
+        {!shouldShowSkeleton && groupedEntries.today.length > 0 && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
+                Today
+              </Text>
+            </View>
+            {groupedEntries.today.map((entry) => (
+              <NoteCard
+                key={entry.id}
+                title={getEntryTitle(entry)}
+                subtitle=""
+                preview={extractPreview(entry.content)}
+                date={formatDate(entry.timestamp)}
+                onPress={() => {
+                  console.log('📝 Opening note for editing:', entry.id);
+                  (navigation as any).navigate('NewNote', { selectedEntry: entry });
+                }}
+                onLongPress={() => handleDeleteNote(entry.id)}
+              />
+            ))}
+          </>
+        )}
+
         {/* This week section */}
         {!shouldShowSkeleton && groupedEntries.thisWeek.length > 0 && (
           <>
-            <View style={styles.sectionHeader}>
+            <View style={[styles.sectionHeader, { marginTop: groupedEntries.today.length > 0 ? 20 : 0 }]}>
               <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
                 This week
               </Text>
@@ -202,15 +252,40 @@ export default function NotesScreen() {
           </>
         )}
 
-        {/* Last 7 days section */}
-        {!shouldShowSkeleton && groupedEntries.last7Days.length > 0 && (
+        {/* Last 30 days section */}
+        {!shouldShowSkeleton && groupedEntries.last30Days.length > 0 && (
           <>
-            <View style={[styles.sectionHeader, { marginTop: groupedEntries.thisWeek.length > 0 ? 20 : 0 }]}>
+            <View style={[styles.sectionHeader, { marginTop: (groupedEntries.today.length > 0 || groupedEntries.thisWeek.length > 0) ? 20 : 0 }]}>
               <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
-                Last 7 days
+                Last 30 days
               </Text>
             </View>
-            {groupedEntries.last7Days.map((entry) => (
+            {groupedEntries.last30Days.map((entry) => (
+              <NoteCard
+                key={entry.id}
+                title={getEntryTitle(entry)}
+                subtitle=""
+                preview={extractPreview(entry.content)}
+                date={formatDate(entry.timestamp)}
+                onPress={() => {
+                  console.log('📝 Opening note for editing:', entry.id);
+                  (navigation as any).navigate('NewNote', { selectedEntry: entry });
+                }}
+                onLongPress={() => handleDeleteNote(entry.id)}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Older section */}
+        {!shouldShowSkeleton && groupedEntries.older.length > 0 && (
+          <>
+            <View style={[styles.sectionHeader, { marginTop: (groupedEntries.today.length > 0 || groupedEntries.thisWeek.length > 0 || groupedEntries.last30Days.length > 0) ? 20 : 0 }]}>
+              <Text style={[styles.sectionHeaderText, { color: colors.text, opacity: 0.4 }]}>
+                Older
+              </Text>
+            </View>
+            {groupedEntries.older.map((entry) => (
               <NoteCard
                 key={entry.id}
                 title={getEntryTitle(entry)}

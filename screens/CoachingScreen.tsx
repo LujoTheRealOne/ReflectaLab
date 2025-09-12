@@ -14,12 +14,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
+import { loadMessagesFromFirestore, saveMessagesToFirestore, syncCommitmentStatesWithBackend, initializeCoachingSession } from '@/services/coachingFirestore';
+import { useCoachingScroll } from '@/hooks/useCoachingScroll';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -354,13 +356,6 @@ export default function CoachingScreen() {
     return sessionId;
   };
 
-  // Debug mode flag - set to false for production
-  const DEBUG_LOGS = __DEV__ && false; // Disabled for production
-  const debugLog = (message: string, ...args: any[]) => {
-    if (DEBUG_LOGS) {
-      console.log(message, ...args);
-    }
-  };
 
   // Clear coaching data for specific user with full state reset
   const clearCoachingDataForUser = useCallback(async (userId: string) => {
@@ -383,324 +378,9 @@ export default function CoachingScreen() {
     }
   }, []);
 
-  // Firestore direct access for coaching sessions
-  const loadMessagesFromFirestore = useCallback(async (userId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
-    try {
-      console.log('🔥 Loading messages from Firestore for user:', userId);
-      
-      // Import Firestore dynamically to avoid SSR issues
-      const { db } = await import('../lib/firebase');
-      const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
-      
-      // Query for the user's default coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session'),
-        orderBy('createdAt', 'desc'),
-        limit(1)
-      );
-      
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      if (!sessionSnapshot.empty) {
-        const sessionDoc = sessionSnapshot.docs[0];
-        const sessionData = sessionDoc.data();
-        const messages = sessionData.messages || [];
-        
-        console.log(`🔥 Found coaching session with ${messages.length} messages`);
-        
-        // Convert to our message format
-        const firestoreMessages: CoachingMessage[] = messages.map((msg: any, index: number) => ({
-          id: msg.id || `msg_${index}`,
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content || '',
-          timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
-        }));
-        
-        console.log(`✅ Successfully loaded ${firestoreMessages.length} messages from Firestore`);
-        return { allMessages: firestoreMessages, totalCount: firestoreMessages.length };
-      } else {
-        console.log('🔥 No coaching session found for user');
-        return { allMessages: [], totalCount: 0 };
-      }
-    } catch (error) {
-      console.log('🔥 Firestore loading failed:', error);
-      return { allMessages: [], totalCount: 0 };
-    }
-  }, []);
 
-  // Prevent concurrent Firestore saves
-  const firestoreSaveInProgress = useRef(new Set<string>());
-  
-  const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], userId: string) => {
-    // Prevent concurrent saves for the same user
-    if (firestoreSaveInProgress.current.has(userId)) {
-      console.log('⚠️ [FIRESTORE] Save already in progress for user, skipping:', userId);
-      return;
-    }
-    
-    firestoreSaveInProgress.current.add(userId);
-    
-    try {
-      console.log('🔥 [FIRESTORE] Starting Firestore save for user:', userId);
-      console.log('🔥 [FIRESTORE] Messages to save:', messages.length);
-      
-      // Import Firestore dynamically
-      const { db } = await import('../lib/firebase');
-      const { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      
-      // Find existing coaching session
-      const sessionsRef = collection(db, 'coachingSessions');
-      const sessionQuery = query(
-        sessionsRef,
-        where('userId', '==', userId),
-        where('sessionType', '==', 'default-session')
-      );
-      
-      console.log('🔍 [FIRESTORE] Searching for existing session...');
-      const sessionSnapshot = await getDocs(sessionQuery);
-      
-      console.log('🔍 [FIRESTORE] Query result:', {
-        isEmpty: sessionSnapshot.empty,
-        docCount: sessionSnapshot.docs.length,
-        userId: userId
-      });
-      
-      // Convert messages to Firestore format (save all messages to backend)
-      const firestoreMessages = messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp
-      }));
-      
-      if (!sessionSnapshot.empty) {
-        // Update existing session - NEVER CREATE NEW
-        const sessionDoc = sessionSnapshot.docs[0];
-        const existingData = sessionDoc.data();
-        
-        console.log('🔍 [FIRESTORE] Found existing session:', {
-          sessionId: sessionDoc.id,
-          existingMessageCount: existingData.messages?.length || 0,
-          newMessageCount: firestoreMessages.length,
-          sessionType: existingData.sessionType
-        });
-        
-        await updateDoc(sessionDoc.ref, {
-          messages: firestoreMessages,
-          updatedAt: serverTimestamp()
-        });
-        console.log('✅ [FIRESTORE] Updated existing coaching session:', sessionDoc.id);
-      } else {
-        // This should rarely happen - only for completely new users
-        console.log('📝 [FIRESTORE] No existing session found, creating new one...');
-        const newSessionRef = doc(collection(db, 'coachingSessions'));
-        await setDoc(newSessionRef, {
-          userId: userId,
-          sessionType: 'default-session',
-          messages: firestoreMessages,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        console.log('✅ [FIRESTORE] Created new coaching session:', newSessionRef.id);
-      }
-      
-      console.log(`✅ [FIRESTORE] Successfully saved ${firestoreMessages.length} messages to Firestore`);
-    } catch (error) {
-      console.error('❌ [FIRESTORE] Firestore save failed:', error);
-      console.error('❌ [FIRESTORE] Error details:', {
-        name: error instanceof Error ? error.name : 'Unknown',
-        message: error instanceof Error ? error.message : String(error),
-        userId: userId,
-        messageCount: messages.length
-      });
-    } finally {
-      // Always remove from in-progress set
-      firestoreSaveInProgress.current.delete(userId);
-      console.log('🔄 [FIRESTORE] Save completed for user:', userId);
-    }
-  }, []);
 
-  // Load existing coaching session directly from Firestore
-  const initializeCoachingSession = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
-    console.log('🔄 Initializing coaching session for user:', userId);
-    
-    try {
-      // Load existing session from Firestore
-      console.log('🔄 Loading existing session from Firestore...');
-      const firestoreResult = await loadMessagesFromFirestore(userId);
-      
-      if (firestoreResult.allMessages.length > 0) {
-        console.log(`✅ Found existing session with ${firestoreResult.allMessages.length} messages`);
-        
-        // Set up pagination for existing session
-        setAllMessages(firestoreResult.allMessages);
-        setHasMoreMessages(firestoreResult.allMessages.length > 300);
-        setDisplayedMessageCount(Math.min(300, firestoreResult.allMessages.length));
-        
-        // Return last 30 messages for display
-        const displayMessages = firestoreResult.allMessages.slice(-30);
-        console.log(`✅ Session loaded with ${displayMessages.length} display messages`);
-        
-        // Sync commitment states with backend in background (non-blocking)
-        console.log('🔄 Starting background commitment sync...');
-        syncCommitmentStatesWithBackend(firestoreResult.allMessages, userId).then((syncedMessages) => {
-          console.log('🔄 Background sync completed, updating messages...');
-          setAllMessages(syncedMessages);
-          setMessages(syncedMessages.slice(-30));
-        }).catch((error) => {
-          console.error('❌ Background commitment sync failed:', error);
-        });
-        
-        return displayMessages;
-      } else {
-        console.log('📝 No existing session found - ready to create new session on first message');
-        
-        // No session exists - reset everything
-        setAllMessages([]);
-        setHasMoreMessages(false);
-        setDisplayedMessageCount(0);
-        
-        return [];
-      }
-    } catch (error) {
-      console.error('❌ Session initialization failed:', error);
-      
-      // Reset on error
-      setAllMessages([]);
-      setHasMoreMessages(false);
-      setDisplayedMessageCount(0);
-      
-      return [];
-    }
-  }, [loadMessagesFromFirestore]);
 
-  // Sync commitment states with backend commitments
-  const syncCommitmentStatesWithBackend = useCallback(async (messages: CoachingMessage[], userId: string): Promise<CoachingMessage[]> => {
-    try {
-      console.log('🔄 Starting commitment state sync with backend...');
-      
-      const token = await getToken();
-      if (!token) {
-        console.warn('⚠️ No auth token available for commitment sync');
-        return messages;
-      }
-
-      // Get all commitments from backend
-      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn('⚠️ Failed to fetch backend commitments for sync');
-        return messages;
-      }
-
-      const data = await response.json();
-      const backendCommitments = data.commitments || [];
-      console.log(`🔄 Found ${backendCommitments.length} commitments in backend`);
-
-      if (backendCommitments.length === 0) {
-        return messages;
-      }
-
-      // Create a map of backend commitments by title for matching
-      const commitmentMap = new Map();
-      backendCommitments.forEach((commitment: any) => {
-        const key = `${commitment.title}_${commitment.description}_${commitment.type}`;
-        commitmentMap.set(key, commitment);
-        console.log(`🗂️ Backend commitment mapped:`, {
-          title: commitment.title,
-          description: commitment.description,
-          type: commitment.type,
-          id: commitment.id,
-          key
-        });
-      });
-
-      // Update messages with backend commitment states
-      let updatedCount = 0;
-      const syncedMessages = messages.map((message, messageIndex) => {
-        if (message.role !== 'assistant') return message;
-
-        // Check if message has commitment tokens
-        const commitmentRegex = /\[commitmentDetected:([^\]]+)\]/g;
-        const commitmentMatches = message.content.match(commitmentRegex);
-        
-        if (commitmentMatches) {
-          console.log(`🔍 Message ${messageIndex} has ${commitmentMatches.length} commitment(s):`, commitmentMatches);
-        }
-        
-        let hasUpdates = false;
-        
-        const updatedContent = message.content.replace(commitmentRegex, (match, propsString) => {
-          const props: Record<string, string> = {};
-          const propRegex = /(\w+)="([^"]+)"/g;
-          let propMatch;
-          
-          while ((propMatch = propRegex.exec(propsString)) !== null) {
-            const [, key, value] = propMatch;
-            props[key] = value;
-          }
-
-          // Try to match with backend commitment
-          const matchKey = `${props.title}_${props.description}_${props.type}`;
-          const backendCommitment = commitmentMap.get(matchKey);
-          
-          console.log(`🔍 Trying to match commitment:`, {
-            title: props.title,
-            description: props.description,
-            type: props.type,
-            currentState: props.state,
-            currentCommitmentId: props.commitmentId,
-            matchKey,
-            foundInBackend: !!backendCommitment
-          });
-          
-          if (backendCommitment) {
-            // Update with backend data
-            props.state = 'accepted';
-            props.commitmentId = backendCommitment.id;
-            hasUpdates = true;
-            updatedCount++;
-            
-            console.log(`✅ Synced commitment: ${props.title} → state=accepted, id=${backendCommitment.id}`);
-          } else {
-            console.log(`❌ No matching commitment found in backend for: ${props.title}`);
-          }
-
-          const newPropsString = Object.entries(props)
-            .map(([k, v]) => `${k}="${v}"`)
-            .join(',');
-          return `[commitmentDetected:${newPropsString}]`;
-        });
-
-        return hasUpdates ? { ...message, content: updatedContent } : message;
-      });
-
-      if (updatedCount > 0) {
-        console.log(`✅ Updated ${updatedCount} commitment states from backend`);
-        
-        // Save synced messages to Firestore
-        await saveMessagesToFirestore(syncedMessages, userId);
-        
-        console.log('✅ Synced messages saved to Firestore');
-      } else {
-        console.log('ℹ️ No commitment states needed syncing');
-      }
-
-      return syncedMessages;
-    } catch (error) {
-      console.error('❌ Error syncing commitment states:', error);
-      return messages; // Return original messages on error
-    }
-  }, [getToken, saveMessagesToFirestore]);
 
   // Use the AI coaching hook
   const coachingHook = useAICoaching();
@@ -757,7 +437,14 @@ export default function CoachingScreen() {
       console.log('🔄 Manual refresh from Firestore requested for user:', firebaseUser.uid);
       
       // Re-initialize session from Firestore
-      const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+      const sessionMessages = await initializeCoachingSession(
+        firebaseUser.uid,
+        setAllMessages,
+        setHasMoreMessages,
+        setDisplayedMessageCount,
+        setMessages,
+        getToken
+      );
       
       if (sessionMessages.length > 0) {
         setMessages(sessionMessages);
@@ -993,18 +680,6 @@ export default function CoachingScreen() {
 
   // Enhanced loading indicator logic
   const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
-
-  // ========================================================================
-  // POWERFUL MESSAGE POSITIONING SYSTEM
-  // ========================================================================
-  // This system handles precise positioning of user messages after sending,
-  // ensuring they appear at optimal viewing positions relative to the header
-  // ========================================================================
-
-  // 1. Define constant values for positioning calculations
-  const HEADER_HEIGHT = 120;
-  const INPUT_HEIGHT = 160;
-  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header to position user messages
   
   // Dynamic input constants
   const LINE_HEIGHT = 24;
@@ -1015,642 +690,47 @@ export default function CoachingScreen() {
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
-  // ========================================================================
-  // DYNAMIC CONTENT HEIGHT CALCULATION
-  // ========================================================================
-  // Calculates the total height of all messages to determine scroll boundaries
-  // This ensures proper scrolling behavior and prevents over-scrolling
-  // ========================================================================
-  const dynamicContentHeight = useMemo(() => {
-    let totalHeight = 12; // paddingTop - Initial spacing from top
-    
-    // Calculate height for each message
-    messages.forEach((message, index) => {
-      const contentLength = message.content.length;
-      // Estimate lines based on character count (44 chars per line average)
-      const lines = Math.max(1, Math.ceil(contentLength / 44));
-      let messageHeight = lines * 22 + 32; // line height * lines + padding
-      
-      // Add extra height for AI messages (coaching cards, buttons, etc.)
-      if (message.role === 'assistant') {
-        const isLastMessage = index === messages.length - 1;
-        const isCurrentlyStreaming = isLastMessage && isLoading;
-        
-        if (isCurrentlyStreaming) {
-          messageHeight += 200; // Extra space for streaming animation
-        } else {
-          // FIXED: All AI messages get same padding as long messages
-          messageHeight += 200; // Increased from 80 to 200 for consistency
-        }
-      }
-      
-      totalHeight += messageHeight + 16; // Add message height + bottom margin
-    });
-    
-    // Add space for loading indicator when AI is responding
-    if (shouldShowLoadingIndicator) {
-      totalHeight += 60;
-    }
-    
-    // DEBUG: Log content height changes during AI response
-    if (isLoading) {
-      debugLog('🔧 [CONTENT HEIGHT] During AI response:', {
-        totalHeight,
-        messagesCount: messages.length,
-        shouldShowLoadingIndicator
-      });
-    }
-    
-    return totalHeight;
-  }, [messages, isLoading, shouldShowLoadingIndicator]);
+  // Use the coaching scroll hook
+  const scrollHook = useCoachingScroll({
+    messages,
+    isLoading,
+    shouldShowLoadingIndicator,
+    progress
+  });
 
-  // New state for content height tracking
-  const [contentHeight, setContentHeight] = useState(0);
-  const [scrollViewHeight, setScrollViewHeight] = useState(700); // Initialize with reasonable default instead of 0
+  const {
+    contentHeight,
+    scrollViewHeight,
+    showScrollToBottom,
+    scrollViewRef,
+    messageRefs,
+    scrollToNewMessageRef,
+    targetScrollPosition,
+    hasUserScrolled,
+    didInitialAutoScroll,
+    dynamicContentHeight,
+    dynamicBottomPadding,
+    scrollLimits,
+    setContentHeight,
+    setScrollViewHeight,
+    setShowScrollToBottom,
+    scrollToShowLastMessage,
+    handleScrollToBottom: hookHandleScrollToBottom,
+    handleScroll: hookHandleScroll,
+    debugLog
+  } = scrollHook;
 
-  // ========================================================================
-  // SIMPLIFIED BOTTOM PADDING SYSTEM
-  // ========================================================================
-  // Simplified padding calculation similar to working version
-  // ========================================================================
-  const dynamicBottomPadding = useMemo(() => {
-    const screenHeight = scrollViewHeight || 700; 
-    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
-    
-    // Check if user is waiting for AI response (just sent message or AI is typing)
-    const lastMessage = messages[messages.length - 1];
-    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (isUserWaitingForAI) {
-      // Positioning padding - enough space for precise positioning
-      return availableHeight + 100;
-    } else {
-      // Minimal padding - just bottom space
-      return 50;
-    }
-  }, [messages, isLoading, scrollViewHeight]);
-
-  // ========================================================================
-  // SIMPLIFIED SCROLL LIMITS CALCULATION
-  // ========================================================================
-  // Uses simple, reliable scroll limits like the working version
-  // ========================================================================
-  const scrollLimits = useMemo(() => {
-    const screenHeight = scrollViewHeight || 700; 
-    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
-    
-    // Simple calculation like the working version
-    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
-    const maxScrollDistance = Math.max(0, minContentHeight - availableHeight + 50);
-    
-    return {
-      minContentHeight,
-      maxScrollDistance
-    };
-  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
-
-  // Enhanced scroll position tracking for scroll-to-bottom button
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-
-  // Function to parse coaching completion data between finish tokens
-  const parseCoachingCompletion = (content: string) => {
-    const finishStartIndex = content.indexOf('[finish-start]');
-    const finishEndIndex = content.indexOf('[finish-end]');
-    
-    if (finishStartIndex === -1 || finishEndIndex === -1) {
-      return { components: [], rawData: '' };
-    }
-    
-    // Extract content between finish tokens
-    const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
-    
-    // Parse component markers like [focus:focus="...",context="..."]
-    const componentRegex = /\[(\w+):([^\]]+)\]/g;
-    const components: Array<{ type: string; props: Record<string, string> }> = [];
-    
-    let match;
-    while ((match = componentRegex.exec(finishContent)) !== null) {
-      const componentType = match[1];
-      const propsString = match[2];
-      
-      // Parse props from key="value" format
-      const props: Record<string, string> = {};
-      const propRegex = /(\w+)="([^"]+)"/g;
-      let propMatch;
-      
-      while ((propMatch = propRegex.exec(propsString)) !== null) {
-        const [, key, value] = propMatch;
-        props[key] = value;
-      }
-      
-      components.push({ type: componentType, props });
-    }
-    
-    console.log('🎯 Parsed coaching completion:', { 
-      componentsCount: components.length, 
-      components,
-      rawFinishContent: finishContent
-    });
-    
-    return { components, rawData: finishContent };
+  // Coaching card renderer props
+  const coachingCardRendererProps: CoachingCardRendererProps = {
+    messages,
+    setMessages,
+    firebaseUser,
+    getToken,
+    saveMessagesToFirestore
   };
 
-  // Function to parse coaching cards from any content
-  const parseCoachingCards = (content: string) => {
-    // Parse component markers like [focus:focus="...",context="..."]
-    const componentRegex = /\[(\w+):([^\]]+)\]/g;
-    const components: Array<{ type: string; props: Record<string, string> }> = [];
-    
-    let match;
-    while ((match = componentRegex.exec(content)) !== null) {
-      const componentType = match[1];
-      const propsString = match[2];
-      
-      // Parse props from key="value" format
-      const props: Record<string, string> = {};
-      const propRegex = /(\w+)="([^"]+)"/g;
-      let propMatch;
-      
-      while ((propMatch = propRegex.exec(propsString)) !== null) {
-        const [, key, value] = propMatch;
-        props[key] = value;
-      }
-      
-      components.push({ type: componentType, props });
-      
-      // Debug logging for commitment cards (disabled)
-      // if (componentType === 'commitmentDetected') {
-      //   console.log('🎯 Parsed commitmentDetected token:', { props, state: props.state });
-      // }
-    }
-    
-    return components;
-  };
 
-  // Function to render a coaching card based on type and props
-  const renderCoachingCard = (type: string, props: Record<string, string>, index: number, hostMessageId?: string) => {
-    const baseProps = {
-      key: `coaching-card-${type}-${index}`,
-            editable: true, // Enable commitment card interactions
-    };
 
-    switch (type) {
-      case 'meditation':
-        return (
-          <MeditationCard
-            {...baseProps}
-            title={props.title || 'Guided Meditation'}
-            duration={parseInt(props.duration || '300')}
-            description={props.description}
-            type={(props.type as 'breathing' | 'mindfulness' | 'body-scan') || 'breathing'}
-          />
-        );
-      case 'focus':
-        // Handle both expected format (focus/context) and AI output format (headline/explanation)
-        const focusText = props.focus || props.headline || 'Main focus not specified';
-        const contextText = props.context || props.explanation;
-        
-        return (
-          <FocusCard
-            {...baseProps}
-            focus={focusText}
-            context={contextText}
-          />
-        );
-      case 'blockers':
-        const blockers = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
-        return (
-          <BlockersCard
-            {...baseProps}
-            blockers={blockers}
-            title={props.title}
-          />
-        );
-      case 'actions':
-        const actions = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
-        return (
-          <ActionPlanCard
-            {...baseProps}
-            actions={actions}
-            title={props.title}
-          />
-        );
-      case 'commitmentDetected': {
-        // IMPORTANT: Always start commitments in 'none' state to require user confirmation
-        // LLM sometimes sends state='accepted' directly, but we need user interaction
-        // Only keep 'accepted'/'rejected' if there's a valid commitmentId (meaning user already confirmed)
-        const isValidCommitmentId = (id: string | undefined): boolean => {
-          if (!id) return false;
-          // Valid commitmentId should be from our API, not LLM-generated
-          // LLM often generates fake IDs like "commitment_1757635966483"
-          // Real IDs from API are different format
-          return id.startsWith('commitment_') && 
-                 id.length > 20 && // Real IDs are longer
-                 !id.includes('1757635966483') && // Filter specific fake ID
-                 !id.match(/commitment_\d{13}$/); // Filter timestamp-based fake IDs
-        };
-        
-        const hasValidCommitmentId = isValidCommitmentId(props.commitmentId);
-        const normalizedState = hasValidCommitmentId 
-          ? ((props.state as 'none' | 'accepted' | 'rejected') || 'none')
-          : 'none'; // Always start fresh commitments in 'none' state
-        return (
-          <CommitmentCard
-            key={baseProps.key}
-            editable={baseProps.editable}
-            title={props.title || 'Commitment'}
-            description={props.description || ''}
-            type={(props.type as 'one-time' | 'recurring') || 'one-time'}
-            deadline={props.deadline}
-            cadence={props.cadence}
-            state={normalizedState}
-            commitmentId={hasValidCommitmentId ? props.commitmentId : undefined}
-            onUpdate={async (data) => {
-              console.log('🎯 CommitmentCard onUpdate called:', data);
-              
-              if (!firebaseUser?.uid) {
-                console.error('❌ No authenticated user for commitment update');
-                return;
-              }
-
-              try {
-                // 1. Update the message content with new state
-                const updatedMessages = messages.map((message) => {
-                  if (message.role !== 'assistant') return message;
-                  if (hostMessageId && message.id !== hostMessageId) return message;
-
-                  const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                  let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                    if (occurrence !== index) { occurrence++; return match; }
-                    occurrence++;
-
-                    const existingProps: Record<string, string> = {};
-                    const propRegex = /(\w+)="([^"]+)"/g;
-                    let propMatch;
-                    while ((propMatch = propRegex.exec(propsString)) !== null) {
-                      const [, k, v] = propMatch;
-                      existingProps[k] = v;
-                    }
-                    existingProps.state = data.state;
-                    if (data.commitmentId) existingProps.commitmentId = data.commitmentId;
-
-                    const newPropsString = Object.entries(existingProps)
-                      .map(([k, v]) => `${k}="${v}"`)
-                      .join(',');
-                    return `[commitmentDetected:${newPropsString}]`;
-                  });
-                  return { ...message, content: updatedContent };
-                });
-
-                // 2. Update messages state
-                setMessages(updatedMessages);
-                
-                // 3. If accepted, create commitment via API first, then save with commitmentId
-                let finalMessages = updatedMessages;
-                if (data.state === 'accepted') {
-                  const token = await getToken();
-                  if (!token) {
-                    console.error('❌ No auth token available');
-                    return;
-                  }
-
-                  // Check if commitment already exists in backend to prevent duplicates
-                  console.log('🔍 Checking for existing commitment in backend...');
-                  try {
-                    const checkResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
-                      method: 'GET',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                      },
-                    });
-
-                    if (checkResponse.ok) {
-                      const checkData = await checkResponse.json();
-                      const existingCommitments = checkData.commitments || [];
-                      
-                      // Check if commitment with same title, description, and type already exists
-                      const existingCommitment = existingCommitments.find((c: any) => 
-                        c.title === props.title && 
-                        c.description === props.description && 
-                        c.type === props.type
-                      );
-                      
-                      if (existingCommitment) {
-                        console.log('✅ Commitment already exists in backend, using existing ID:', existingCommitment.id);
-                        
-                        // Update message with existing commitmentId
-                        finalMessages = updatedMessages.map((message) => {
-                          if (message.role !== 'assistant') return message;
-                          if (hostMessageId && message.id !== hostMessageId) return message;
-
-                          const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                          let occurrence = 0;
-                          const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                            if (occurrence !== index) { occurrence++; return match; }
-                            occurrence++;
-
-                            const existingProps: Record<string, string> = {};
-                            const propRegex = /(\w+)="([^"]+)"/g;
-                            let propMatch;
-                            while ((propMatch = propRegex.exec(propsString)) !== null) {
-                              const [, k, v] = propMatch;
-                              existingProps[k] = v;
-                            }
-                            existingProps.commitmentId = existingCommitment.id;
-
-                            const newPropsString = Object.entries(existingProps)
-                              .map(([k, v]) => `${k}="${v}"`)
-                              .join(',');
-                            return `[commitmentDetected:${newPropsString}]`;
-                          });
-                          return { ...message, content: updatedContent };
-                        });
-                        
-                        setMessages(finalMessages);
-                        console.log('✅ Updated message with existing commitmentId');
-                        
-                        // Skip API creation since commitment already exists
-                        await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
-                        console.log('✅ Commitment update completed successfully (existing commitment)');
-                        return;
-                      }
-                    }
-                  } catch (checkError) {
-                    console.warn('⚠️ Error checking existing commitments:', checkError);
-                    // Continue with creation if check fails
-                  }
-
-                  console.log('🔥 Creating new commitment via API...');
-                  const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/create`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      title: props.title,
-                      description: props.description,
-                      type: props.type,
-                      deadline: props.deadline,
-                      cadence: props.cadence,
-                      coachingSessionId: firebaseUser.uid,
-                      messageId: hostMessageId || `msg_${Date.now()}`
-                    }),
-                  });
-
-                  if (response.ok) {
-                    const result = await response.json();
-                    console.log('✅ Commitment created successfully:', result);
-                    
-                    // Update the message content with the returned commitmentId
-                    if (result.commitmentId) {
-                      console.log('🔄 Updating message with commitmentId:', result.commitmentId);
-                      
-                      // Update the already updated messages with commitmentId
-                      finalMessages = updatedMessages.map((message) => {
-                        if (message.role !== 'assistant') return message;
-                        if (hostMessageId && message.id !== hostMessageId) return message;
-
-                        const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                        let occurrence = 0;
-                        const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                          if (occurrence !== index) { occurrence++; return match; }
-                          occurrence++;
-
-                          const existingProps: Record<string, string> = {};
-                          const propRegex = /(\w+)="([^"]+)"/g;
-                          let propMatch;
-                          while ((propMatch = propRegex.exec(propsString)) !== null) {
-                            const [, k, v] = propMatch;
-                            existingProps[k] = v;
-                          }
-                          existingProps.commitmentId = result.commitmentId;
-
-                          const newPropsString = Object.entries(existingProps)
-                            .map(([k, v]) => `${k}="${v}"`)
-                            .join(',');
-                          return `[commitmentDetected:${newPropsString}]`;
-                        });
-                        return { ...message, content: updatedContent };
-                      });
-                      
-                      // Update messages state with final version (state + commitmentId)
-                      setMessages(finalMessages);
-                      
-                      console.log('✅ Message updated with commitmentId');
-                    }
-                  } else {
-                    const errorText = await response.text();
-                    console.error('❌ Failed to create commitment:', {
-                      status: response.status,
-                      error: errorText
-                    });
-                  }
-                }
-                
-                // 4. Save final messages to Firestore (with or without commitmentId)
-                await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
-                
-                console.log('✅ Commitment update completed successfully');
-              } catch (error) {
-                console.error('❌ Failed to update commitment:', error);
-              }
-            }}
-          />
-        );
-      }
-      case 'sessionSuggestion': {
-        return (
-          <SessionSuggestionCard
-            key={baseProps.key}
-            sessionSuggestion={{
-              type: 'sessionSuggestion',
-              title: props.title || 'Session Suggestion',
-              reason: props.reason || '',
-              duration: props.duration || '60m',
-              state: (props.state as 'none' | 'scheduled' | 'dismissed') || 'none',
-              scheduledDate: props.scheduledDate,
-              scheduledTime: props.scheduledTime,
-              scheduledSessionId: props.scheduledSessionId
-            }}
-            coachingSessionId={firebaseUser?.uid || 'unknown'}
-            messageId={hostMessageId || 'unknown'}
-            onSchedule={(sessionTitle, duration, dateTime) => {
-              console.log('✅ Session scheduled:', { sessionTitle, duration, dateTime });
-            }}
-            onDismiss={(sessionTitle) => {
-              console.log('✅ Session dismissed:', sessionTitle);
-            }}
-            onStateChange={async (newState, additionalData) => {
-              console.log('🎯 SessionSuggestion state change:', { newState, additionalData });
-              try {
-                const updatedMessages = messages.map((message) => {
-                  if (message.role !== 'assistant') return message;
-                  if (hostMessageId && message.id !== hostMessageId) return message;
-                  const tokenRegex = /\[sessionSuggestion:([^\]]+)\]/g;
-                  let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                    if (occurrence !== index) { occurrence++; return match; }
-                    occurrence++;
-                    const existingProps: Record<string, string> = {};
-                    const propRegex = /(\w+)="([^"]+)"/g;
-                    let propMatch;
-                    while ((propMatch = propRegex.exec(propsString)) !== null) {
-                      const [, k, v] = propMatch;
-                      existingProps[k] = v;
-                    }
-                    existingProps.state = newState;
-                    if (additionalData?.scheduledDate) existingProps.scheduledDate = additionalData.scheduledDate;
-                    if (additionalData?.scheduledTime) existingProps.scheduledTime = additionalData.scheduledTime;
-                    const newPropsString = Object.entries(existingProps)
-                      .map(([k, v]) => `${k}="${v}"`)
-                      .join(',');
-                    return `[sessionSuggestion:${newPropsString}]`;
-                  });
-                  return { ...message, content: updatedContent };
-                });
-                
-                // Update messages state
-                setMessages(updatedMessages);
-                
-                // Save to Firestore
-                await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
-                
-                console.log('✅ SessionSuggestion state updated and saved to Firestore');
-              } catch (error) {
-                console.error('❌ Failed to update session suggestion state:', error);
-              }
-            }}
-          />
-        );
-      }
-      case 'session': {
-        return (
-          <ScheduledSessionCard
-            key={baseProps.key}
-            session={{
-              type: 'session',
-              title: props.title || 'Session',
-              goal: props.goal || '',
-              duration: props.duration || '60m',
-              question: props.question || '',
-              scheduledSessionId: props.scheduledSessionId
-            }}
-            coachingSessionId={firebaseUser?.uid || 'unknown'}
-            messageId={hostMessageId || 'unknown'}
-            onReplaceWithSessionCard={async (sessionCardContent) => {
-              console.log('🎯 Replacing session token with sessionCard token:', sessionCardContent);
-              try {
-                const updatedMessages = messages.map((message) => {
-                  if (message.role !== 'assistant') return message;
-                  if (hostMessageId && message.id !== hostMessageId) return message;
-                  const tokenRegex = /\[session:([^\]]+)\]/g;
-                  let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                    if (occurrence !== index) { occurrence++; return match; }
-                    occurrence++;
-                    return sessionCardContent; // Replace with sessionCard token
-                  });
-                  return { ...message, content: updatedContent };
-                });
-                setMessages(updatedMessages);
-                await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
-                console.log('✅ Session token replaced with sessionCard token and saved to Firestore');
-              } catch (error) {
-                console.error('❌ Failed to replace session token:', error);
-              }
-            }}
-          />
-        );
-      }
-      case 'sessionCard': {
-        return (
-          <SessionCard
-            key={baseProps.key}
-            session={{
-              type: 'sessionCard',
-              title: props.title || 'Session',
-              sessionId: props.sessionId || '',
-              duration: props.duration || '60m',
-              question: props.question || '',
-              goal: props.goal || ''
-            }}
-            onContinueSession={(sessionId) => {
-              console.log('✅ Continue session clicked:', sessionId);
-            }}
-          />
-        );
-      }
-      case 'insight': {
-        return (
-          <InsightCard
-            key={baseProps.key}
-            insight={{
-              type: 'insight',
-              title: props.title || 'Insight',
-              preview: props.preview || '',
-              fullContent: props.fullContent || ''
-            }}
-            onDiscuss={(fullInsight) => {
-              console.log('✅ Insight discussion requested:', fullInsight.substring(0, 100) + '...');
-              // TODO: Handle insight discussion - could navigate to a discussion screen
-              // or add the insight to the current conversation
-            }}
-          />
-        );
-      }
-      case 'checkin':
-        // Check-in cards are handled by the scheduling popup system
-        return null;
-      default:
-        return (
-          <View key={`unknown-card-${index}`} style={{
-            padding: 16, 
-            backgroundColor: colorScheme === 'dark' ? '#374151' : '#F3F4F6', 
-            borderRadius: 8, 
-            marginVertical: 8
-          }}>
-            <Text style={{ color: colorScheme === 'dark' ? '#9CA3AF' : '#6B7280', fontSize: 14 }}>
-              Unknown component: {type}
-            </Text>
-          </View>
-        );
-    }
-  };
-
-  // Function to clean message content by removing finish tokens and coaching cards
-  const getDisplayContent = (content: string) => {
-    let cleanContent = content;
-    
-    // Remove content between finish tokens, but preserve content after [finish-end]
-    const finishStartIndex = cleanContent.indexOf('[finish-start]');
-    const finishEndIndex = cleanContent.indexOf('[finish-end]');
-    
-    if (finishStartIndex !== -1 && finishEndIndex !== -1) {
-      // Keep content before [finish-start] and after [finish-end]
-      const beforeFinish = cleanContent.slice(0, finishStartIndex).trim();
-      const afterFinish = cleanContent.slice(finishEndIndex + '[finish-end]'.length).trim();
-      cleanContent = beforeFinish + (afterFinish ? '\n\n' + afterFinish : '');
-    } else if (finishStartIndex !== -1) {
-      // If only [finish-start] is found, remove everything after it
-      cleanContent = cleanContent.slice(0, finishStartIndex).trim();
-    }
-    
-    // Remove coaching card syntax like [checkin:...], [focus:...], etc.
-    const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
-    cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
-    
-    // Remove triple backticks from LLM responses
-    cleanContent = cleanContent.replace(/```/g, '').trim();
-    
-    // Clean up extra whitespace/newlines that might be left
-    cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple newlines with double newlines
-    cleanContent = cleanContent.trim();
-    
-    return cleanContent;
-  };
 
   // Use the audio transcription hook
   const {
@@ -1677,7 +757,6 @@ export default function CoachingScreen() {
     },
   });
 
-  const scrollViewRef = useRef<ScrollView>(null);
   const textInputRef = useRef<TextInput>(null);
 
   const paywallShownRef = useRef<boolean>(false);
@@ -1841,7 +920,14 @@ export default function CoachingScreen() {
       try {
         // Load existing session from backend (never create from cache)
         console.log('🔄 [COACHING INIT] Calling initializeCoachingSession...');
-        const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
+        const sessionMessages = await initializeCoachingSession(
+          firebaseUser.uid,
+          setAllMessages,
+          setHasMoreMessages,
+          setDisplayedMessageCount,
+          setMessages,
+          getToken
+        );
         
         console.log('🔄 [COACHING INIT] Session initialization result:', {
           messageCount: sessionMessages.length,
@@ -1976,138 +1062,8 @@ export default function CoachingScreen() {
 
   
 
-  // Auto-scroll to position new messages below header
-  const scrollToNewMessageRef = useRef(false);
   
-  // Store refs for each message to measure their positions
-  const messageRefs = useRef<{ [key: string]: View | null }>({});
   
-  // Store the target scroll position after user message positioning
-  const targetScrollPosition = useRef<number | null>(null);
-  
-  // Track if user has manually scrolled
-  const hasUserScrolled = useRef<boolean>(false);
-  // One-time initial auto-scroll flag
-  const didInitialAutoScroll = useRef<boolean>(false);
-  
-  // ========================================================================
-  // USER MESSAGE POSITIONING SYSTEM
-  // ========================================================================
-  // Automatically positions user messages at optimal viewing position after sending
-  // Places messages at a fixed offset below header for consistent UX
-  // Handles both short and long messages with different positioning strategies
-  // ========================================================================
-  const scrollToShowLastMessage = useCallback(() => {
-    // Early returns for invalid states
-    if (!scrollViewRef.current || messages.length === 0) return;
-    
-    const lastMessage = messages[messages.length - 1];
-    
-    // Only position user messages (AI messages position themselves)
-    if (lastMessage.role !== 'user') return;
-    
-    debugLog('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
-    
-    // Target position: MESSAGE_TARGET_OFFSET pixels below header
-    const targetFromTop = MESSAGE_TARGET_OFFSET;
-    
-    // Get reference to the user message element
-    const lastMessageRef = messageRefs.current[lastMessage.id];
-    
-    if (lastMessageRef) {
-      // Wait for layout stabilization before measuring
-      // Increased timeout for better reliability on initial messages
-      setTimeout(() => {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-            // Determine if this is a long message requiring special handling
-            const isLongMessage = msgHeight > 100; // Messages taller than 100px are considered long
-            
-            let targetScrollY;
-            if (isLongMessage) {
-              // LONG MESSAGE STRATEGY: Position the END of the message at target position
-              // This ensures the most recent content is visible and leaves room for AI response
-              targetScrollY = Math.max(0, (msgY + msgHeight) - targetFromTop - 60); // 60px buffer for AI response
-            } else {
-              // SHORT MESSAGE STRATEGY: Position the START of the message at target position  
-              targetScrollY = Math.max(0, msgY - targetFromTop);
-            }
-            
-            debugLog('📐 Measurement results:', {
-              messageY: msgY,
-              messageHeight: msgHeight,
-              isLongMessage,
-              targetFromTop,
-              targetScrollY
-            });
-            
-            // Execute the scroll animation
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            // Store position for maintaining scroll during AI response
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
-            
-            debugLog('✅ User message positioned at scroll:', targetScrollY);
-          },
-          () => {
-            debugLog('❌ Measurement failed, using estimation fallback');
-            
-            // FALLBACK STRATEGY: Estimate message position when measurement fails
-            let estimatedY = 12; // paddingTop
-            
-            // Calculate cumulative height of all previous messages
-            for (let i = 0; i < messages.length - 1; i++) {
-              const msg = messages[i];
-              const lines = Math.max(1, Math.ceil(msg.content.length / 40));
-              const msgHeight = lines * 22 + 48; // text + padding
-              estimatedY += msgHeight + 16; // marginBottom
-            }
-            
-            // Estimate height of the last message
-            const lastMsg = messages[messages.length - 1];
-            const lastMsgLines = Math.max(1, Math.ceil(lastMsg.content.length / 40));
-            const lastMsgHeight = lastMsgLines * 22 + 48;
-            const isLongMessage = lastMsgHeight > 100;
-            
-            let targetScrollY;
-            if (isLongMessage) {
-              // For long messages: position the END of the message
-              targetScrollY = Math.max(0, (estimatedY + lastMsgHeight) - targetFromTop - 60);
-            } else {
-              // For short messages: position the START of the message
-              targetScrollY = Math.max(0, estimatedY - targetFromTop);
-            }
-            
-            // Execute fallback scroll
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            // Store fallback position
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
-          }
-        );
-      }, 200); // Increased timeout for better reliability on initial messages
-    }
-  }, [messages]);
-  
-  // 4. Simplify useEffect:
-  useEffect(() => {
-    // Only scroll when user sends a message
-    if (scrollToNewMessageRef.current && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollToShowLastMessage();
-        scrollToNewMessageRef.current = false;
-      }, 150); // Increased delay for better reliability
-    }
-  }, [messages.length, scrollToShowLastMessage]);
 
   // ========================================================================
   // POSITION MAINTENANCE DURING AI RESPONSE
@@ -2136,10 +1092,10 @@ export default function CoachingScreen() {
                   
                   if (isLongMessage) {
                     // For long messages: maintain END position at target offset
-                    correctPosition = Math.max(0, (msgY + msgHeight) - MESSAGE_TARGET_OFFSET - 60);
+                    correctPosition = Math.max(0, (msgY + msgHeight) - 20 - 60);
                   } else {
                     // For short messages: maintain START position at target offset
-                    correctPosition = Math.max(0, msgY - MESSAGE_TARGET_OFFSET);
+                    correctPosition = Math.max(0, msgY - 20);
                   }
                   
                   scrollViewRef.current?.scrollTo({
@@ -2194,9 +1150,9 @@ export default function CoachingScreen() {
                   let correctPosition: number;
                   
                   if (isLongMessage) {
-                    correctPosition = Math.max(0, (msgY + msgHeight) - MESSAGE_TARGET_OFFSET - 60);
+                    correctPosition = Math.max(0, (msgY + msgHeight) - 20 - 60);
                   } else {
-                    correctPosition = Math.max(0, msgY - MESSAGE_TARGET_OFFSET);
+                    correctPosition = Math.max(0, msgY - 20);
                   }
                   
                   scrollViewRef.current?.scrollTo({
@@ -2631,7 +1587,7 @@ export default function CoachingScreen() {
     // Allow layout to settle, then scroll to last message precisely (no blank overscroll)
     setTimeout(() => {
       if (!hasUserScrolled.current && scrollViewRef.current) {
-        handleScrollToBottom(false);
+        hookHandleScrollToBottom(false);
         didInitialAutoScroll.current = true;
       }
     }, 300); // Increased timeout for initial auto-scroll reliability
@@ -3019,17 +1975,10 @@ export default function CoachingScreen() {
                      </Text>
 
                    {/* Render coaching cards for AI messages */}
-                   {message.role === 'assistant' && (() => {
-                     const coachingCards = parseCoachingCards(message.content);
-                     if (coachingCards.length > 0) {
-                       return (
-                         <View style={{ marginTop: 8, marginBottom: 16 }}>
-                           {coachingCards.map((card, index) => renderCoachingCard(card.type, card.props, index, message.id))}
-                         </View>
-                       );
-                     }
-                     return null;
-                   })()}
+                   <CoachingCardRenderer 
+                     message={message} 
+                     rendererProps={coachingCardRendererProps} 
+                   />
                  </View>
 
                  {/* Completion Popup - appears on final message when progress reaches 100% */}
@@ -3092,7 +2041,7 @@ export default function CoachingScreen() {
                     : containerHeight + 140, // When keyboard closed: give more space above input
                 }
               ]}
-              onPress={() => handleScrollToBottom(true)}
+              onPress={() => hookHandleScrollToBottom(true)}
             >
               <ArrowDown size={20} color={colors.text} />
             </TouchableOpacity>

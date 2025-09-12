@@ -29,6 +29,8 @@ import { AnimatedTypingIndicator } from '@/components/coaching/ui/AnimatedTyping
 import { AudioLevelIndicator } from '@/components/coaching/ui/AudioLevelIndicator';
 import { RecordingTimer } from '@/components/coaching/ui/RecordingTimer';
 import { MessageItem } from '@/components/coaching/ui/MessageItem';
+import { ErrorMessage } from '@/components/coaching/ui/ErrorMessage';
+import CoachingErrorBoundary from '@/components/coaching/CoachingErrorBoundary';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -86,7 +88,7 @@ export default function CoachingScreen() {
 
   // Use the AI coaching hook
   const coachingHook = useAICoaching();
-  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration } = coachingHook;
+  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration, resendMessage } = coachingHook;
   
   // Test function to clear all coaching data
   const clearAllCoachingData = useCallback(async () => {
@@ -273,6 +275,9 @@ export default function CoachingScreen() {
 
   // Track AI response state more reliably
   const [aiResponseStarted, setAiResponseStarted] = useState(false);
+
+  // Error handling state
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
 
   // Pagination state for message loading
   const [allMessages, setAllMessages] = useState<CoachingMessage[]>([]);
@@ -1299,6 +1304,26 @@ export default function CoachingScreen() {
     textInputRef.current?.focus();
   };
 
+  // Handle retry for failed messages
+  const handleRetryMessage = async (messageId: string) => {
+    if (!firebaseUser?.uid || retryingMessageId) return;
+    
+    console.log('🔄 [ERROR RETRY] Retrying message:', messageId);
+    setRetryingMessageId(messageId);
+    
+    try {
+      const currentSessionId = getSessionId();
+      await resendMessage(messageId, currentSessionId, {
+        sessionType: 'default-session'
+      });
+      console.log('✅ [ERROR RETRY] Message retry successful');
+    } catch (error) {
+      console.error('❌ [ERROR RETRY] Message retry failed:', error);
+    } finally {
+      setRetryingMessageId(null);
+    }
+  };
+
   const handleCompletionAction = async () => {
     console.log('User clicked End this session');
     console.log('📊 Session Stats:', completionStats);
@@ -1464,12 +1489,25 @@ export default function CoachingScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-      >
+    <CoachingErrorBoundary 
+      colorScheme={colorScheme ?? 'light'}
+      onError={(error, errorInfo) => {
+        console.error('🚨 [COACHING ERROR BOUNDARY] Coaching screen error:', error, errorInfo);
+        // Here you could add error reporting to your analytics service
+      }}
+      onRetry={() => {
+        console.log('🔄 [COACHING ERROR BOUNDARY] Restarting coaching session');
+        // Clear any error states and reinitialize
+        setIsInitialized(false);
+        setMessages([]);
+      }}
+    >
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
@@ -1604,6 +1642,15 @@ export default function CoachingScreen() {
                      message={message} 
                      rendererProps={coachingCardRendererProps} 
                    />
+
+                   {/* Show error message for failed AI responses */}
+                   {message.role === 'assistant' && message.isError && (
+                     <ErrorMessage
+                       onRetry={() => handleRetryMessage(message.id)}
+                       colorScheme={colorScheme}
+                       isRetrying={retryingMessageId === message.id}
+                     />
+                   )}
                  </View>
 
                  {/* Completion Popup - appears on final message when progress reaches 100% */}
@@ -1823,6 +1870,7 @@ export default function CoachingScreen() {
         </View>
       </KeyboardAvoidingView>
     </View>
+    </CoachingErrorBoundary>
   );
 }
 

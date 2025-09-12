@@ -22,13 +22,13 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
 import { loadMessagesFromFirestore, saveMessagesToFirestore, syncCommitmentStatesWithBackend, initializeCoachingSession } from '@/services/coachingFirestore';
 import { useCoachingScroll } from '@/hooks/useCoachingScroll';
-import { useCoachingInput } from '@/hooks/useCoachingInput';
 import { SpinningAnimation } from '@/components/coaching/ui/SpinningAnimation';
 import { ModernSpinner } from '@/components/coaching/ui/ModernSpinner';
 import { DateSeparator } from '@/components/coaching/ui/DateSeparator';
 import { AnimatedTypingIndicator } from '@/components/coaching/ui/AnimatedTypingIndicator';
 import { AudioLevelIndicator } from '@/components/coaching/ui/AudioLevelIndicator';
 import { RecordingTimer } from '@/components/coaching/ui/RecordingTimer';
+import { MessageItem } from '@/components/coaching/ui/MessageItem';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -249,6 +249,13 @@ export default function CoachingScreen() {
     };
   }
   
+  const [chatInput, setChatInput] = useState('');
+  const [isChatInputFocused, setIsChatInputFocused] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [inputHeight, setInputHeight] = useState(24); // Initial height for minimum 1 line
+  const [containerHeight, setContainerHeight] = useState(90); // Dynamic container height
+  const [isInputExpanded, setIsInputExpanded] = useState(false); // Expand durumu
+  const [currentLineCount, setCurrentLineCount] = useState(1); // Current line count
   const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
   const [sessionStartTime] = useState(new Date());
   const [completionStats, setCompletionStats] = useState({
@@ -373,49 +380,19 @@ export default function CoachingScreen() {
     }
   }, [messages, isLoading, aiResponseStarted]);
 
-  // Enhanced loading indicator logic
-  const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
+  // Enhanced loading indicator logic - memoized for performance
+  const shouldShowLoadingIndicator = useMemo(() => {
+    return isLoading || (aiResponseStarted && messages.length > 0);
+  }, [isLoading, aiResponseStarted, messages.length]);
   
-  // Use the coaching input hook
-  const inputHook = useCoachingInput({
-    onSendMessage: (message: string) => {
-      // Send message using AI coaching hook
-      const sessionId = getSessionId();
-      sendMessage(message, sessionId);
-    },
-    onTextChange: (text: string) => {
-      // Optional callback for text changes
-    }
-  });
-
-  const {
-    chatInput,
-    isChatInputFocused,
-    keyboardHeight,
-    inputHeight,
-    containerHeight,
-    isInputExpanded,
-    currentLineCount,
-    textInputRef,
-    setChatInput,
-    setIsChatInputFocused,
-    setKeyboardHeight,
-    setInputHeight,
-    setContainerHeight,
-    setIsInputExpanded,
-    setCurrentLineCount,
-    handleTextChange,
-    handleContentSizeChange,
-    handleSendMessage: inputHandleSendMessage,
-    handleExpandToggle: inputHandleExpandToggle,
-    LINE_HEIGHT,
-    MIN_LINES,
-    MAX_LINES,
-    EXPANDED_MAX_LINES,
-    INPUT_PADDING_VERTICAL,
-    CONTAINER_BASE_HEIGHT,
-    CONTAINER_PADDING,
-  } = inputHook;
+  // Dynamic input constants
+  const LINE_HEIGHT = 24;
+  const MIN_LINES = 1;
+  const MAX_LINES = 10;
+  const EXPANDED_MAX_LINES = 18; // Maximum lines when expanded
+  const INPUT_PADDING_VERTICAL = 8;
+  const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
+  const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
   // Use the coaching scroll hook
   const scrollHook = useCoachingScroll({
@@ -447,14 +424,14 @@ export default function CoachingScreen() {
     debugLog
   } = scrollHook;
 
-  // Coaching card renderer props
-  const coachingCardRendererProps: CoachingCardRendererProps = {
+  // Coaching card renderer props - memoized for performance
+  const coachingCardRendererProps: CoachingCardRendererProps = useMemo(() => ({
     messages,
     setMessages,
     firebaseUser,
     getToken,
     saveMessagesToFirestore
-  };
+  }), [messages, setMessages, firebaseUser, getToken, saveMessagesToFirestore]);
 
 
 
@@ -484,6 +461,7 @@ export default function CoachingScreen() {
     },
   });
 
+  const textInputRef = useRef<TextInput>(null);
 
   const paywallShownRef = useRef<boolean>(false);
   const accessCheckedRef = useRef<boolean>(false);
@@ -1021,6 +999,105 @@ export default function CoachingScreen() {
     };
   }, []);
 
+  // Text change handlers for dynamic input
+  const handleTextChange = (text: string) => {
+    setChatInput(text);
+    
+    // More precise calculation - word-based line wrapping
+    const containerWidth = 380; // chatInputWrapper width
+    const containerPadding = 16; // 8px left + 8px right padding
+    const textInputPadding = 8; // 4px left + 4px right padding
+    
+    // First estimate the line count
+    const estimatedLines = Math.max(1, text.split('\n').length);
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
+    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
+    
+    // Character width based on font size (fontSize: 15, fontWeight: 400)
+    // More conservative calculation - extra margin for words
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
+    const charsPerLine = baseCharsPerLine;
+    
+    // Line calculation - including word wrapping
+    const textLines = text.split('\n');
+    let totalLines = 0;
+    
+    textLines.forEach(line => {
+      if (line.length === 0) {
+        totalLines += 1; // Empty line
+      } else {
+        // Word-based calculation - for risk of long words wrapping
+        const words = line.split(' ');
+        let currentLineLength = 0;
+        let linesForThisTextLine = 1;
+        
+        words.forEach((word, index) => {
+          const wordLength = word.length;
+          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
+          
+          // If this word won't fit on current line, new line
+          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
+            linesForThisTextLine++;
+            currentLineLength = wordLength;
+          } else {
+            currentLineLength += spaceNeeded + wordLength;
+          }
+        });
+        
+        totalLines += linesForThisTextLine;
+      }
+    });
+    
+    // Save line count
+    setCurrentLineCount(totalLines);
+    
+    // Min/Max limits - based on expand state
+    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
+    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
+    
+    // Height calculation
+    const newInputHeight = actualLines * LINE_HEIGHT;
+    
+    // Container height - optimized for real layout
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
+
+  const handleContentSizeChange = (event: any) => {
+    const { height } = event.nativeEvent.contentSize;
+    
+    // Calculate Min/Max heights
+    const minHeight = MIN_LINES * LINE_HEIGHT; // 24px
+    const maxHeight = MAX_LINES * LINE_HEIGHT; // 240px
+    
+    // Use real content height but round to LINE_HEIGHT
+    const rawHeight = Math.max(minHeight, Math.min(maxHeight, height));
+    
+    // Round to nearest LINE_HEIGHT multiple (multiples of 24px)
+    const roundedLines = Math.round(rawHeight / LINE_HEIGHT);
+    const newInputHeight = Math.max(MIN_LINES, Math.min(MAX_LINES, roundedLines)) * LINE_HEIGHT;
+    
+    // Container height - same calculation as handleTextChange
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
 
   // Ensure last lines remain visible when input grows to a new line - DISABLED to prevent auto-scroll
   useEffect(() => {
@@ -1028,6 +1105,16 @@ export default function CoachingScreen() {
     // Only scroll if user explicitly wants it, not automatically on input height change
     return;
   }, [inputHeight, containerHeight]);
+
+  // Expand toggle function
+  const handleExpandToggle = () => {
+    setIsInputExpanded(!isInputExpanded);
+    
+    // Recalculate based on current text
+    setTimeout(() => {
+      handleTextChange(chatInput);
+    }, 0);
+  };
 
   // 8. Set flag correctly in handleSendMessage:
   
@@ -1692,7 +1779,7 @@ export default function CoachingScreen() {
                 style={[styles.expandButton, {
                   backgroundColor: colorScheme === 'dark' ? '#404040' : '#F0F0F0',
                 }]}
-                onPress={inputHandleExpandToggle}
+                onPress={handleExpandToggle}
               >
                 <IconSymbol
                   name={isInputExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"}
@@ -1727,7 +1814,7 @@ export default function CoachingScreen() {
                 multiline
                 maxLength={15000} // ~2000 words limit
                 returnKeyType='default'
-                onSubmitEditing={inputHandleSendMessage}
+                onSubmitEditing={handleSendMessage}
                 cursorColor={colors.tint}
                   scrollEnabled={inputHeight >= (isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES) * LINE_HEIGHT} // Scroll active at maximum height
                   textBreakStrategy="balanced" // Word breaking strategy
@@ -1784,7 +1871,7 @@ export default function CoachingScreen() {
                     onPress={
                       isLoading 
                         ? handleStopGeneration 
-                        : (chatInput.trim().length > 0 ? inputHandleSendMessage : handleMicrophonePress)
+                        : (chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress)
                     }
                   >
                     {isLoading ? (

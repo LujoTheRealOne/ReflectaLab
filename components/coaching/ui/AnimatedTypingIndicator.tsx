@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { View, Animated, ColorSchemeName, StyleSheet } from 'react-native';
 
 interface AnimatedTypingIndicatorProps {
   colorScheme: ColorSchemeName;
 }
 
-export const AnimatedTypingIndicator = ({ colorScheme }: AnimatedTypingIndicatorProps) => {
+export const AnimatedTypingIndicator = memo(({ colorScheme }: AnimatedTypingIndicatorProps) => {
   const dot1Animation = useRef(new Animated.Value(0)).current;
   const dot2Animation = useRef(new Animated.Value(0)).current;
   const dot3Animation = useRef(new Animated.Value(0)).current;
@@ -116,7 +116,7 @@ export const AnimatedTypingIndicator = ({ colorScheme }: AnimatedTypingIndicator
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   typingIndicator: {

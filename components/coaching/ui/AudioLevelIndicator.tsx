@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, ColorSchemeName, StyleSheet } from 'react-native';
 
 interface AudioLevelIndicatorProps {
@@ -6,7 +6,7 @@ interface AudioLevelIndicatorProps {
   colorScheme: ColorSchemeName;
 }
 
-export const AudioLevelIndicator = ({ audioLevel, colorScheme }: AudioLevelIndicatorProps) => {
+export const AudioLevelIndicator = memo(({ audioLevel, colorScheme }: AudioLevelIndicatorProps) => {
   const totalDots = 6;
   
   const isDotActive = (index: number) => {
@@ -35,7 +35,7 @@ export const AudioLevelIndicator = ({ audioLevel, colorScheme }: AudioLevelIndic
       })}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   audioLevelContainer: {

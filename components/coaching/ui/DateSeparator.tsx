@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, Text, ColorSchemeName } from 'react-native';
 
 interface DateSeparatorProps {
@@ -6,7 +6,7 @@ interface DateSeparatorProps {
   colorScheme: ColorSchemeName;
 }
 
-export const DateSeparator = ({ date, colorScheme }: DateSeparatorProps) => {
+export const DateSeparator = memo(({ date, colorScheme }: DateSeparatorProps) => {
   const formatDate = (date: Date) => {
     const today = new Date();
     const yesterday = new Date(today);
@@ -58,4 +58,4 @@ export const DateSeparator = ({ date, colorScheme }: DateSeparatorProps) => {
       </View>
     </View>
   );
-};
+});

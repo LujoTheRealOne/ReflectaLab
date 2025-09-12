@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { Text, ColorSchemeName, StyleSheet } from 'react-native';
 
 interface RecordingTimerProps {
@@ -6,7 +6,7 @@ interface RecordingTimerProps {
   colorScheme: ColorSchemeName;
 }
 
-export const RecordingTimer = ({ startTime, colorScheme }: RecordingTimerProps) => {
+export const RecordingTimer = memo(({ startTime, colorScheme }: RecordingTimerProps) => {
   const [elapsed, setElapsed] = useState('00:00');
   
   useEffect(() => {
@@ -29,7 +29,7 @@ export const RecordingTimer = ({ startTime, colorScheme }: RecordingTimerProps) 
       {elapsed}
     </Text>
   );
-};
+});
 
 const styles = StyleSheet.create({
   recordingTimer: {

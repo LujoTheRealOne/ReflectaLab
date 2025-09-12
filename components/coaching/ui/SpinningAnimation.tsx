@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { View, Animated, ColorSchemeName, StyleSheet } from 'react-native';
 
 interface SpinningAnimationProps {
   colorScheme: ColorSchemeName;
 }
 
-export const SpinningAnimation = ({ colorScheme }: SpinningAnimationProps) => {
+export const SpinningAnimation = memo(({ colorScheme }: SpinningAnimationProps) => {
   const spinValue = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
@@ -42,7 +42,7 @@ export const SpinningAnimation = ({ colorScheme }: SpinningAnimationProps) => {
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   loadingSpinner: {

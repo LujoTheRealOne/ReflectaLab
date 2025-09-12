@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { Animated, ColorSchemeName } from 'react-native';
 
 interface ModernSpinnerProps {
@@ -6,7 +6,7 @@ interface ModernSpinnerProps {
   size?: number;
 }
 
-export const ModernSpinner = ({ colorScheme, size = 20 }: ModernSpinnerProps) => {
+export const ModernSpinner = memo(({ colorScheme, size = 20 }: ModernSpinnerProps) => {
   const spinValue = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
@@ -42,4 +42,4 @@ export const ModernSpinner = ({ colorScheme, size = 20 }: ModernSpinnerProps) =>
       ]}
     />
   );
-};
+});

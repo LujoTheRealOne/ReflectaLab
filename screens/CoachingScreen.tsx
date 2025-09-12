@@ -1724,7 +1724,7 @@ export default function CoachingScreen() {
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
                 height: containerHeight, // Dynamic height
                 shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-                shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
+                shadowOpacity: colorScheme === 'dark' ? 0.05 : 0.2,
               }
             ]}
           >

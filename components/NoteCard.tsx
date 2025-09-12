@@ -39,7 +39,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
         { 
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
           borderColor: isDark ? '#374151' : '#D9D9D9',
-          shadowColor: isDark ? '#000' : '#000',
+          shadowColor: isDark ? '#FFF' : '#000',
           shadowOpacity: isDark ? 0.25 : 0.15,
         }
       ]}
@@ -69,7 +69,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
           borderColor: isDark ? 'rgba(128, 128, 128, 0.2)' : 'rgba(196, 196, 196, 0.2)',
           overflow: 'hidden',
-          shadowColor: isDark ? '#000' : '#000',
+          shadowColor: isDark ? '#FFF' : '#000',
           shadowOpacity: isDark ? 0.3 : 0.18,
         }
       ]}> 
@@ -140,14 +140,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 4,
     zIndex: 10,
-    // Floating shadow effect
+    // Enhanced shadow effect
     shadowOffset: {
-      width: -13,
-      height: -6,
+      width: 0,
+      height: 2,
     },
-    shadowOpacity: 0.08,
-    shadowRadius: 19,
-    elevation: 12,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
     borderWidth: 1,
   },
   cardPreview: {

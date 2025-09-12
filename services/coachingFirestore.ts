@@ -116,17 +116,13 @@ export const saveMessagesToFirestore = async (messages: CoachingMessage[], userI
       });
       console.log('✅ [FIRESTORE] Updated existing coaching session:', sessionDoc.id);
     } else {
-      // This should rarely happen - only for completely new users
-      console.log('📝 [FIRESTORE] No existing session found, creating new one...');
-      const newSessionRef = doc(collection(db, 'coachingSessions'));
-      await setDoc(newSessionRef, {
-        userId: userId,
-        sessionType: 'default-session',
-        messages: firestoreMessages,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      console.log('✅ [FIRESTORE] Created new coaching session:', newSessionRef.id);
+      // No session exists - backend should create it first via API call
+      console.log('⚠️ [FIRESTORE] No existing session found - session should be created by backend API first');
+      console.log('⚠️ [FIRESTORE] Skipping mobile session creation to prevent duplicate sessions');
+      
+      // Don't create session here to avoid conflicts with backend session creation
+      // Backend API will create the session with proper sessionId = userId
+      return;
     }
     
     console.log(`✅ [FIRESTORE] Successfully saved ${firestoreMessages.length} messages to Firestore`);

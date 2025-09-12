@@ -50,10 +50,10 @@ export default function CoachingScreen() {
 
   // Route parameters not used in current implementation
 
-  // Use userId as session ID (single session per user) - no state needed
+  // Use Clerk userId as session ID (single session per user) - consistent with backend
   const getSessionId = (): string => {
-    const sessionId = firebaseUser?.uid || 'anonymous';
-    console.log('🔑 [SESSION ID] Current session ID:', sessionId);
+    const sessionId = user?.id || 'anonymous';
+    console.log('🔑 [SESSION ID] Current session ID (Clerk):', sessionId);
     return sessionId;
   };
 
@@ -89,7 +89,7 @@ export default function CoachingScreen() {
   
   // Test function to clear all coaching data
   const clearAllCoachingData = useCallback(async () => {
-    if (!firebaseUser?.uid) return;
+    if (!user?.id) return;
     
     try {
       console.log('🧹 Clearing all coaching data...');
@@ -101,7 +101,7 @@ export default function CoachingScreen() {
       const sessionsRef = collection(db, 'coachingSessions');
       const sessionQuery = query(
         sessionsRef,
-        where('userId', '==', firebaseUser.uid),
+        where('userId', '==', user.id),
         where('sessionType', '==', 'default-session')
       );
       
@@ -129,17 +129,17 @@ export default function CoachingScreen() {
 
   // Manual refresh from Firestore
   const refreshFromFirestore = useCallback(async () => {
-    if (!firebaseUser?.uid) {
+    if (!user?.id) {
       console.warn('⚠️ Cannot refresh from Firestore: no user');
       return;
     }
 
     try {
-      console.log('🔄 Manual refresh from Firestore requested for user:', firebaseUser.uid);
+      console.log('🔄 Manual refresh from Firestore requested for user:', user.id);
       
       // Re-initialize session from Firestore
       const sessionMessages = await initializeCoachingSession(
-        firebaseUser.uid,
+        user.id,
         setAllMessages,
         setHasMoreMessages,
         setDisplayedMessageCount,
@@ -164,7 +164,7 @@ export default function CoachingScreen() {
     } catch (error) {
       console.error('❌ Error refreshing from Firestore:', error);
     }
-  }, [firebaseUser?.uid, setMessages, initializeCoachingSession, user?.firstName]);
+  }, [user?.id, setMessages, initializeCoachingSession, user?.firstName]);
 
   // Debug functions available in development
   if (__DEV__) {
@@ -207,7 +207,7 @@ export default function CoachingScreen() {
       
       // Only log actual errors to BetterStack
       betterStackLogger.logInfo('AI response error occurred', {
-        userId: firebaseUser?.uid,
+        userId: user?.id,
         sessionId: getSessionId(),
         category: 'AIError',
         metadata: {
@@ -496,11 +496,11 @@ export default function CoachingScreen() {
       
       // Refresh main session when focusing back from breakout session
       const refreshMainSession = async () => {
-        if (firebaseUser?.uid) {
+        if (user?.id) {
           console.log('🔄 CoachingScreen focused - refreshing main session...');
           try {
             // Force reload main session from Firestore
-            const firestoreResult = await loadMessagesFromFirestore(firebaseUser.uid);
+            const firestoreResult = await loadMessagesFromFirestore(user!.id);
             if (firestoreResult.allMessages.length > 0) {
               const displayMessages = firestoreResult.allMessages.slice(-30);
               setMessages(displayMessages);
@@ -554,7 +554,7 @@ export default function CoachingScreen() {
     }, [firebaseUser?.uid, setMessages])
   );
 
-  // Session ID is derived from firebaseUser.uid - no useEffect needed
+  // Session ID is derived from user.id (Clerk) - no useEffect needed
 
   // Track current user to detect user switches
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -565,7 +565,7 @@ export default function CoachingScreen() {
   
   // Handle user switching - clear state when user changes
   useEffect(() => {
-    const newUserId = firebaseUser?.uid || null;
+    const newUserId = user?.id || null;
     
     if (currentUserId && newUserId && currentUserId !== newUserId) {
       // User switched - clear previous user's state and reset initialization
@@ -580,10 +580,10 @@ export default function CoachingScreen() {
     }
     
     setCurrentUserId(newUserId);
-  }, [firebaseUser?.uid, currentUserId, clearCoachingDataForUser]);
+  }, [user?.id, currentUserId, clearCoachingDataForUser]);
   
   useEffect(() => {
-    if (!firebaseUser || isInitialized || initializationInProgress.current) return;
+    if (!user?.id || isInitialized || initializationInProgress.current) return;
     
     const initializeChat = async () => {
       // Prevent concurrent initialization
@@ -594,10 +594,10 @@ export default function CoachingScreen() {
       
       initializationInProgress.current = true;
       
-      console.log('🔄 [COACHING INIT] Starting chat initialization for user:', firebaseUser.uid);
+      console.log('🔄 [COACHING INIT] Starting chat initialization for user:', user!.id);
       console.log('🔄 [COACHING INIT] User details:', {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
+        uid: user!.id,
+        email: firebaseUser?.email,
         firstName: user?.firstName
       });
       
@@ -605,7 +605,7 @@ export default function CoachingScreen() {
         // Load existing session from backend (never create from cache)
         console.log('🔄 [COACHING INIT] Calling initializeCoachingSession...');
         const sessionMessages = await initializeCoachingSession(
-          firebaseUser.uid,
+          user!.id,
           setAllMessages,
           setHasMoreMessages,
           setDisplayedMessageCount,
@@ -677,7 +677,7 @@ export default function CoachingScreen() {
     };
     
     initializeChat();
-  }, [firebaseUser, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
+    }, [user?.id, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
 
   // Debounced save to prevent multiple rapid saves
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -685,12 +685,12 @@ export default function CoachingScreen() {
   
   // Save messages to Firestore whenever messages change
   useEffect(() => {
-    if (firebaseUser?.uid && messages.length > 0) {
+    if (user?.id && messages.length > 0) {
       // Create a hash of current messages to detect actual changes
-      const messageHash = `${firebaseUser.uid}-${messages.length}-${messages[messages.length - 1]?.id}`;
+      const messageHash = `${user.id}-${messages.length}-${messages[messages.length - 1]?.id}`;
       
       console.log('💾 [SAVE] Message save triggered:', {
-        userId: firebaseUser.uid,
+        userId: user.id,
         messageCount: messages.length,
         messageHash: messageHash,
         isWelcomeOnly: messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant',
@@ -719,7 +719,7 @@ export default function CoachingScreen() {
         console.log('💾 [SAVE] Executing debounced save...');
         
         // Save to Firestore (all messages)
-        saveMessagesToFirestore(messages, firebaseUser.uid);
+        saveMessagesToFirestore(messages, user.id);
         
         // Update last save hash
         lastSaveRef.current = messageHash;
@@ -729,11 +729,11 @@ export default function CoachingScreen() {
       
     } else {
       console.log('💾 [SAVE] Save skipped:', {
-        hasUser: !!firebaseUser?.uid,
+        hasUser: !!user?.id,
         messageCount: messages.length
       });
     }
-  }, [messages, firebaseUser?.uid, saveMessagesToFirestore]);
+  }, [messages, user?.id, saveMessagesToFirestore]);
   
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -1252,7 +1252,7 @@ export default function CoachingScreen() {
 
   // Handle retry for failed messages
   const handleRetryMessage = async (messageId: string) => {
-    if (!firebaseUser?.uid || retryingMessageId) return;
+    if (!user?.id || retryingMessageId) return;
     
     console.log('🔄 [ERROR RETRY] Retrying message:', messageId);
     setRetryingMessageId(messageId);
@@ -1279,7 +1279,7 @@ export default function CoachingScreen() {
       // Log failed retry to BetterStack
       if (error instanceof Error) {
         betterStackLogger.logCoachingError(error, {
-          userId: firebaseUser.uid,
+          userId: user!.id,
           sessionId: getSessionId(),
           messageId,
           errorType: 'retry_failed',
@@ -1469,7 +1469,7 @@ export default function CoachingScreen() {
         
         // Log to BetterStack
         betterStackLogger.logErrorBoundary(error, errorInfo, {
-          userId: firebaseUser?.uid,
+          userId: user?.id,
           sessionId: getSessionId(),
           componentStack: errorInfo.componentStack,
           metadata: {

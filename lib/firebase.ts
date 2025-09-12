@@ -1,9 +1,8 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
-import { getAuth, connectAuthEmulator, initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { getAuth, connectAuthEmulator, initializeAuth } from "firebase/auth";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 const firebaseConfig = {
@@ -24,10 +23,8 @@ const db = getFirestore(app);
 const auth = (() => {
   if (Platform.OS !== 'web') {
     try {
-      const a = initializeAuth(app, {
-        persistence: getReactNativePersistence(AsyncStorage),
-      });
-      console.log('🔐 Firebase Auth initialized with AsyncStorage persistence');
+      const a = initializeAuth(app);
+      console.log('🔐 Firebase Auth initialized with default persistence');
       return a;
     } catch (_e) {
       // initializeAuth throws if called more than once; fall back to getAuth
@@ -48,12 +45,17 @@ if (__DEV__) {
   let emulatorsConnected = false;
   
   if (!emulatorsConnected) {
+    // Use environment variable for emulator host (for physical device development)
+    // Default to localhost for emulator/simulator, use your dev machine IP for physical device
+    const emulatorHost = process.env.EXPO_PUBLIC_EMULATOR_HOST || 'localhost';
+    
     console.log('🔥 Firebase Client SDK (Expo): Connecting to emulators...');
+    console.log(`   📱 Using emulator host: ${emulatorHost}`);
     
     try {
       // Connect to Auth emulator
-      connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-      console.log('   ✅ Auth emulator connected: http://localhost:9099');
+      connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true });
+      console.log(`   ✅ Auth emulator connected: http://${emulatorHost}:9099`);
     } catch (error) {
       // Emulator connection might already be established
       console.log('   ⚠️ Auth emulator connection skipped (likely already connected)');
@@ -61,8 +63,8 @@ if (__DEV__) {
 
     try {
       // Connect to Firestore emulator
-      connectFirestoreEmulator(db, 'localhost', 8080);
-      console.log('   ✅ Firestore emulator connected: localhost:8080');
+      connectFirestoreEmulator(db, emulatorHost, 8080);
+      console.log(`   ✅ Firestore emulator connected: ${emulatorHost}:8080`);
     } catch (error) {
       // Emulator connection might already be established
       console.log('   ⚠️ Firestore emulator connection skipped (likely already connected)');
@@ -70,8 +72,8 @@ if (__DEV__) {
 
     try {
       // Connect to Storage emulator
-      connectStorageEmulator(storage, 'localhost', 9199);
-      console.log('   ✅ Storage emulator connected: localhost:9199');
+      connectStorageEmulator(storage, emulatorHost, 9199);
+      console.log(`   ✅ Storage emulator connected: ${emulatorHost}:9199`);
     } catch (error) {
       // Emulator connection might already be established
       console.log('   ⚠️ Storage emulator connection skipped (likely already connected)');

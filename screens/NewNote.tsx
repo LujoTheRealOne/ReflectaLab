@@ -67,7 +67,7 @@ export default function HomeContent() {
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { firebaseUser, isFirebaseReady, getToken } = useAuth();
+  const { user, firebaseUser, isFirebaseReady, getToken } = useAuth();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
@@ -143,7 +143,7 @@ export default function HomeContent() {
     const now = new Date();
     const newEntry: JournalEntry = {
       id: entryId,
-      uid: firebaseUser.uid,
+      uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
       content: '',
       timestamp: now,
       title: ''
@@ -243,7 +243,7 @@ export default function HomeContent() {
     try {
       const entriesQuery = query(
         collection(db, 'journal_entries'),
-        where('uid', '==', firebaseUser.uid),
+        where('uid', '==', user?.id || firebaseUser.uid), // Use Clerk user ID consistently
         orderBy('timestamp', 'desc'),
         limit(1)
       );
@@ -334,7 +334,7 @@ export default function HomeContent() {
         const entryId = stableEntryId;
         const now = new Date();
         const newEntry = {
-          uid: firebaseUser.uid,
+          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
           content,
           timestamp: serverTimestamp(),
           lastUpdated: serverTimestamp()
@@ -344,9 +344,9 @@ export default function HomeContent() {
         await setDoc(docRef, newEntry);
 
         // Add to local cache only (no extra Firestore write)
-        await syncService.addLocalEntry(firebaseUser.uid, {
+        await syncService.addLocalEntry(user?.id || firebaseUser.uid, { // Use Clerk user ID consistently
           id: entryId,
-          uid: firebaseUser.uid,
+          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
           content,
           timestamp: now.toISOString(),
           title: '',
@@ -361,7 +361,7 @@ export default function HomeContent() {
         // Update local state with new entry info from database (keep the same ID)
         setLatestEntry({
           id: entryId,
-          uid: firebaseUser.uid,
+          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
           content,
           timestamp: now,
           title: ''

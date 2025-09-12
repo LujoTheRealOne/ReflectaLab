@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { View, Text, useColorScheme } from 'react-native';
 import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
 import { CoachingMessage } from '@/hooks/useAICoaching';
@@ -60,31 +60,66 @@ export const parseCoachingCompletion = (content: string) => {
   return { components, rawData: finishContent };
 };
 
-// Function to parse coaching cards from any content
+// Function to parse coaching cards from any content - SAFE PARSING
 export const parseCoachingCards = (content: string): CoachingCardComponent[] => {
-  // Parse component markers like [focus:focus="...",context="..."]
-  const componentRegex = /\[(\w+):([^\]]+)\]/g;
-  const components: Array<{ type: string; props: Record<string, string> }> = [];
-  
-  let match;
-  while ((match = componentRegex.exec(content)) !== null) {
-    const componentType = match[1];
-    const propsString = match[2];
+  try {
+    // Validate input
+    if (!content || typeof content !== 'string') {
+      return [];
+    }
+
+    // Parse component markers like [focus:focus="...",context="..."]
+    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    const components: Array<{ type: string; props: Record<string, string> }> = [];
     
-    // Parse props from key="value" format
-    const props: Record<string, string> = {};
-    const propRegex = /(\w+)="([^"]+)"/g;
-    let propMatch;
+    let match;
+    let matchCount = 0;
+    const maxMatches = 50; // Prevent infinite loops
     
-    while ((propMatch = propRegex.exec(propsString)) !== null) {
-      const [, key, value] = propMatch;
-      props[key] = value;
+    while ((match = componentRegex.exec(content)) !== null && matchCount < maxMatches) {
+      matchCount++;
+      
+      try {
+        const componentType = match[1];
+        const propsString = match[2];
+        
+        // Validate component type
+        if (!componentType || componentType.length === 0) {
+          console.warn('🚨 [COACHING CARD] Invalid component type:', componentType);
+          continue;
+        }
+        
+        // Parse props from key="value" format
+        const props: Record<string, string> = {};
+        const propRegex = /(\w+)="([^"]+)"/g;
+        let propMatch;
+        let propCount = 0;
+        const maxProps = 20; // Prevent infinite loops
+        
+        while ((propMatch = propRegex.exec(propsString)) !== null && propCount < maxProps) {
+          propCount++;
+          const [, key, value] = propMatch;
+          if (key && value !== undefined) {
+            props[key] = value;
+          }
+        }
+        
+        components.push({ type: componentType, props });
+      } catch (innerError) {
+        console.error('🚨 [COACHING CARD] Error parsing individual component:', innerError);
+        continue; // Skip this component but continue with others
+      }
     }
     
-    components.push({ type: componentType, props });
+    if (matchCount >= maxMatches) {
+      console.warn('🚨 [COACHING CARD] Reached maximum match limit, some components may be skipped');
+    }
+    
+    return components;
+  } catch (error) {
+    console.error('🚨 [COACHING CARD] Error parsing coaching cards:', error);
+    return []; // Return empty array instead of crashing
   }
-  
-  return components;
 };
 
 // Function to clean message content by removing finish tokens and coaching cards
@@ -572,9 +607,20 @@ export const CoachingCardRenderer: React.FC<{
   
   return (
     <View style={{ marginTop: 8, marginBottom: 16 }}>
-      {coachingCards.map((card, index) => 
-        renderCoachingCard(card.type, card.props, index, message.id, rendererProps)
-      )}
+      {coachingCards.map((card, index) => {
+        try {
+          return renderCoachingCard(card.type, card.props, index, message.id, rendererProps);
+        } catch (error) {
+          console.error('🚨 [COACHING CARD] Error rendering card:', card.type, error);
+          return (
+            <View key={`error-${index}`} style={{ padding: 8, backgroundColor: '#fee', borderRadius: 4 }}>
+              <Text style={{ color: '#666', fontSize: 12 }}>
+                Card rendering error: {card.type}
+              </Text>
+            </View>
+          );
+        }
+      })}
     </View>
   );
 };

@@ -23,9 +23,14 @@ class CoachingErrorBoundaryClass extends Component<Props, State> {
     this.state = { hasError: false, retryCount: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     // Update state so the next render will show the fallback UI
-    return { hasError: true, error, retryCount: 0 };
+    return { 
+      hasError: true, 
+      error, 
+      retryCount: 0,
+      errorInfo: undefined 
+    };
   }
 
   componentDidCatch(error: Error, errorInfo: any) {
@@ -91,7 +96,7 @@ interface CoachingErrorBoundaryProps extends Props {
   colorScheme?: 'light' | 'dark';
 }
 
-export default function CoachingErrorBoundary({ 
+const CoachingErrorBoundary = React.memo(function CoachingErrorBoundary({ 
   children, 
   fallback, 
   onError, 
@@ -102,37 +107,42 @@ export default function CoachingErrorBoundary({
   const colorScheme = propColorScheme || systemColorScheme || 'light';
   const colors = Colors[colorScheme];
   
+  // Memoize the error fallback to prevent unnecessary re-renders
+  const errorFallback = React.useMemo(() => (
+    <View style={[styles.errorContainer, { backgroundColor: colors.background }]}>
+      <AlertTriangle 
+        size={48} 
+        color={colorScheme === 'dark' ? '#FF8A8A' : '#FF6B6B'} 
+        style={styles.errorIcon} 
+      />
+      <Text style={[styles.errorTitle, { color: colors.text }]}>
+        Coaching Session Error
+      </Text>
+      <Text style={[styles.errorMessage, { color: `${colors.text}80` }]}>
+        Something went wrong with the coaching session. This might be a temporary network issue or server problem.
+      </Text>
+      <TouchableOpacity 
+        style={[styles.retryButton, { backgroundColor: colors.tint }]}
+        onPress={onRetry}
+      >
+        <RefreshCw size={16} color="#ffffff" style={styles.buttonIcon} />
+        <Text style={styles.retryButtonText}>Restart Session</Text>
+      </TouchableOpacity>
+    </View>
+  ), [colors, colorScheme, onRetry]);
+  
   return (
     <CoachingErrorBoundaryClass 
       onError={onError}
       onRetry={onRetry}
-      fallback={fallback || (
-        <View style={[styles.errorContainer, { backgroundColor: colors.background }]}>
-          <AlertTriangle 
-            size={48} 
-            color={colorScheme === 'dark' ? '#FF8A8A' : '#FF6B6B'} 
-            style={styles.errorIcon} 
-          />
-          <Text style={[styles.errorTitle, { color: colors.text }]}>
-            Coaching Session Error
-          </Text>
-          <Text style={[styles.errorMessage, { color: `${colors.text}80` }]}>
-            Something went wrong with the coaching session. This might be a temporary network issue or server problem.
-          </Text>
-          <TouchableOpacity 
-            style={[styles.retryButton, { backgroundColor: colors.tint }]}
-            onPress={onRetry}
-          >
-            <RefreshCw size={16} color="#ffffff" style={styles.buttonIcon} />
-            <Text style={styles.retryButtonText}>Restart Session</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      fallback={fallback || errorFallback}
     >
       {children}
     </CoachingErrorBoundaryClass>
   );
-}
+});
+
+export default CoachingErrorBoundary;
 
 const styles = StyleSheet.create({
   errorContainer: {

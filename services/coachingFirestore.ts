@@ -4,7 +4,7 @@ import { CoachingMessage } from '@/hooks/useAICoaching';
 const firestoreSaveInProgress = new Set<string>();
 
 /**
- * Load coaching messages from Firestore for a specific user
+ * Load coaching messages from Firestore for a specific user using direct document access (like web)
  */
 export const loadMessagesFromFirestore = async (userId: string): Promise<{ allMessages: CoachingMessage[]; totalCount: number }> => {
   try {
@@ -12,26 +12,23 @@ export const loadMessagesFromFirestore = async (userId: string): Promise<{ allMe
     
     // Import Firestore dynamically to avoid SSR issues
     const { db } = await import('../lib/firebase');
-    const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
+    const { doc, getDoc } = await import('firebase/firestore');
     
-    // Query for the user's default coaching session
-    const sessionsRef = collection(db, 'coachingSessions');
-    const sessionQuery = query(
-      sessionsRef,
-      where('userId', '==', userId),
-      where('sessionType', '==', 'default-session'),
-      orderBy('createdAt', 'desc'),
-      limit(1)
-    );
+    // Use direct document access like web - sessionId = userId for main coaching session
+    const docRef = doc(db, 'coachingSessions', userId);
+    const docSnap = await getDoc(docRef);
     
-    const sessionSnapshot = await getDocs(sessionQuery);
-    
-    if (!sessionSnapshot.empty) {
-      const sessionDoc = sessionSnapshot.docs[0];
-      const sessionData = sessionDoc.data();
+    if (docSnap.exists()) {
+      const sessionData = docSnap.data();
       const messages = sessionData.messages || [];
       
-      console.log(`🔥 Found coaching session with ${messages.length} messages`);
+      console.log(`🔥 Found coaching session with ${messages.length} messages`, {
+        sessionDocId: docSnap.id,
+        sessionUserId: sessionData.userId,
+        sessionType: sessionData.sessionType,
+        createdAt: sessionData.createdAt,
+        updatedAt: sessionData.updatedAt
+      });
       
       // Convert to our message format
       const firestoreMessages: CoachingMessage[] = messages.map((msg: any, index: number) => ({
@@ -44,7 +41,10 @@ export const loadMessagesFromFirestore = async (userId: string): Promise<{ allMe
       console.log(`✅ Successfully loaded ${firestoreMessages.length} messages from Firestore`);
       return { allMessages: firestoreMessages, totalCount: firestoreMessages.length };
     } else {
-      console.log('🔥 No coaching session found for user');
+      console.log('🔥 No coaching session found for user:', userId, {
+        documentId: userId,
+        accessType: 'direct-document-access'
+      });
       return { allMessages: [], totalCount: 0 };
     }
   } catch (error) {

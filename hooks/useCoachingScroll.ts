@@ -21,7 +21,7 @@ interface UseCoachingScrollReturn {
   showScrollToBottom: boolean;
   
   // Refs
-  scrollViewRef: React.RefObject<ScrollView>;
+  scrollViewRef: React.RefObject<ScrollView | null>;
   messageRefs: React.MutableRefObject<{ [key: string]: View | null }>;
   scrollToNewMessageRef: React.MutableRefObject<boolean>;
   targetScrollPosition: React.MutableRefObject<number | null>;
@@ -56,7 +56,7 @@ export const useCoachingScroll = ({
 }: UseCoachingScrollProps): UseCoachingScrollReturn => {
   
   // Debug mode flag - set to false for production
-  const DEBUG_LOGS = __DEV__ && false; // Disabled for production
+  const DEBUG_LOGS = __DEV__ && true; // Temporarily enabled for debugging
   const debugLog = (message: string, ...args: any[]) => {
     if (DEBUG_LOGS) {
       console.log(message, ...args);
@@ -414,28 +414,48 @@ export const useCoachingScroll = ({
   }, [isLoading, messages]);
 
   // ========================================================================
-  // POSITIONING CLEANUP AFTER AI RESPONSE
+  // POSITIONING CLEANUP AND AI RESPONSE COMPLETE SCROLL
   // ========================================================================
   useEffect(() => {
     if (progress === 100) {
+      debugLog('🎯 AI response complete (progress 100%), cleaning up and scrolling to show response');
       setTimeout(() => {
+        // Clear positioning system
         targetScrollPosition.current = null;
         hasUserScrolled.current = false;
         debugLog('🧹 Positioning cleared after AI response completion');
-      }, 1000); // Wait 1 second after completion before clearing
+        
+        // Scroll to show the complete AI response
+        handleScrollToBottom(true);
+      }, 500); // Reduced timeout for more responsive scroll
     }
-  }, [progress]);
+  }, [progress, handleScrollToBottom]);
 
-  // Auto-scroll to position new messages below header
+  // Auto-scroll to position new messages below header - DIRECT EXECUTION
+  const lastExecutedMessageCount = useRef(0);
+  
   useEffect(() => {
-    // Only scroll when user sends a message
-    if (scrollToNewMessageRef.current && scrollViewRef.current) {
+    // Only execute on new messages and when flag is set
+    const hasNewMessage = messages.length > lastExecutedMessageCount.current;
+    
+    if (scrollToNewMessageRef.current && 
+        scrollViewRef.current && 
+        messages.length > 0 && 
+        hasNewMessage) {
+      
+      debugLog('🎯 ScrollToNewMessage flag detected, positioning new message');
+      
+      // Clear flag immediately
+      scrollToNewMessageRef.current = false;
+      lastExecutedMessageCount.current = messages.length;
+      
+      // Position the message
       setTimeout(() => {
         scrollToShowLastMessage();
-        scrollToNewMessageRef.current = false;
-      }, 150); // Increased delay for better reliability
+        debugLog('🎯 ScrollToNewMessage positioning complete');
+      }, 200);
     }
-  }, [messages.length, scrollToShowLastMessage]);
+  }, [messages.length]); // Only depend on message count change
 
   // Initial auto-scroll to bottom once after messages initialize
   useEffect(() => {

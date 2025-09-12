@@ -17,7 +17,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
 import { loadMessagesFromFirestore, saveMessagesToFirestore, initializeCoachingSession } from '@/services/coachingFirestore';
 import { useCoachingScroll } from '@/hooks/useCoachingScroll';
@@ -269,14 +269,36 @@ export default function CoachingScreen() {
     }
   }, [isLoadingMore, hasMoreMessages, displayedMessageCount, allMessages, MESSAGES_PER_PAGE, setMessages]);
 
+  // Deduplicate messages by ID to prevent duplicates
+  const deduplicateMessages = useCallback((messages: CoachingMessage[]) => {
+    const seen = new Set<string>();
+    const deduplicated = messages.filter(msg => {
+      if (seen.has(msg.id)) {
+        console.log('🔄 [DEDUP] Removing duplicate message:', msg.id);
+        return false;
+      }
+      seen.add(msg.id);
+      return true;
+    });
+    
+    if (deduplicated.length !== messages.length) {
+      console.log(`🔄 [DEDUP] Removed ${messages.length - deduplicated.length} duplicate messages`);
+    }
+    
+    return deduplicated;
+  }, []);
+
   // Group messages by date and insert separators
   const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
     if (messages.length === 0) return [];
     
+    // First deduplicate messages
+    const deduplicatedMessages = deduplicateMessages(messages);
+    
     const result: Array<CoachingMessage | { type: 'separator'; date: Date; id: string }> = [];
     let lastDate: string | null = null;
     
-    messages.forEach((message, index) => {
+    deduplicatedMessages.forEach((message, index) => {
       const messageDate = new Date(message.timestamp).toDateString();
       
       // Add separator if this is a new day
@@ -293,7 +315,7 @@ export default function CoachingScreen() {
     });
     
     return result;
-  }, []);
+  }, [deduplicateMessages]);
 
   // Track when AI response actually starts
   useEffect(() => {
@@ -494,26 +516,8 @@ export default function CoachingScreen() {
       // Reset completion flag when entering screen
       sessionCompletedRef.current = false;
       
-      // Refresh main session when focusing back from breakout session
-      const refreshMainSession = async () => {
-        if (user?.id) {
-          console.log('🔄 CoachingScreen focused - refreshing main session...');
-          try {
-            // Force reload main session from Firestore
-            const firestoreResult = await loadMessagesFromFirestore(user!.id);
-            if (firestoreResult.allMessages.length > 0) {
-              const displayMessages = firestoreResult.allMessages.slice(-30);
-              setMessages(displayMessages);
-              setAllMessages(firestoreResult.allMessages);
-              console.log(`✅ Main session refreshed with ${displayMessages.length} messages`);
-            }
-          } catch (error) {
-            console.error('❌ Failed to refresh main session:', error);
-          }
-        }
-      };
-      
-      refreshMainSession();
+      // Real-time listener handles updates automatically, no manual refresh needed
+      console.log('🔄 CoachingScreen focused - real-time listener will handle updates');
       
       // Cleanup function that runs when leaving the screen
       return () => {
@@ -581,6 +585,68 @@ export default function CoachingScreen() {
     
     setCurrentUserId(newUserId);
   }, [user?.id, currentUserId, clearCoachingDataForUser]);
+
+  // Real-time listener for coaching session - ONLY during active messaging
+  const realTimeListenerActive = useRef(false);
+  
+  useEffect(() => {
+    // Only use real-time listener when not actively messaging (isLoading = false)
+    // This prevents conflicts with useAICoaching's state management
+    if (!user?.id || !isInitialized || isLoading) return;
+
+    // Prevent multiple listeners
+    if (realTimeListenerActive.current) return;
+    
+    console.log('🔄 [REALTIME] Setting up real-time listener for session:', user.id);
+    realTimeListenerActive.current = true;
+
+    const unsubscribe = onSnapshot(
+      doc(db, 'coachingSessions', user.id),
+      (docSnap) => {
+        // Skip updates if currently messaging to avoid conflicts
+        if (isLoading) {
+          console.log('🔄 [REALTIME] Skipping update - messaging in progress');
+          return;
+        }
+        
+        if (docSnap.exists()) {
+          console.log('🔄 [REALTIME] Session updated, refreshing messages...');
+          const sessionData = docSnap.data();
+          const messages = sessionData.messages || [];
+          
+          // Convert to our message format
+          const firestoreMessages: CoachingMessage[] = messages.map((msg: any, index: number) => ({
+            id: msg.id || `msg_${index}`,
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content || '',
+            timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
+          }));
+          
+          // Only update if message count changed (prevent unnecessary re-renders)
+          if (firestoreMessages.length !== messages.length) {
+            setAllMessages(firestoreMessages);
+            setMessages(firestoreMessages.slice(-30)); // Show last 30 messages
+            setDisplayedMessageCount(Math.min(30, firestoreMessages.length));
+            setHasMoreMessages(firestoreMessages.length > 30);
+            
+            console.log(`✅ [REALTIME] Updated with ${firestoreMessages.length} messages from real-time listener`);
+          }
+        } else {
+          console.log('🔄 [REALTIME] No session document found');
+        }
+      },
+      (error) => {
+        console.error('❌ [REALTIME] Error in real-time listener:', error);
+        realTimeListenerActive.current = false;
+      }
+    );
+
+    return () => {
+      console.log('🧹 [REALTIME] Cleaning up real-time listener');
+      realTimeListenerActive.current = false;
+      unsubscribe();
+    };
+  }, [user?.id, isInitialized, isLoading, messages.length]);
   
   useEffect(() => {
     if (!user?.id || isInitialized || initializationInProgress.current) return;
@@ -1724,7 +1790,7 @@ export default function CoachingScreen() {
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
                 height: containerHeight, // Dynamic height
                 shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-                shadowOpacity: colorScheme === 'dark' ? 0.05 : 0.2,
+                shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
               }
             ]}
           >

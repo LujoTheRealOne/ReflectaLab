@@ -4,6 +4,7 @@ import {
   Dimensions,
   Image,
   Linking,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -137,6 +138,7 @@ export default function SettingsScreen() {
   const cachedExpoPushToken = cachedData?.permissionsData?.expoPushToken;
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Subscription handlers
   const handleUpgradeToPro = async () => {
@@ -283,11 +285,15 @@ export default function SettingsScreen() {
   // Refresh commitments when screen is focused
   useFocusEffect(
     useCallback(() => {
-      console.log('⚙️ Settings screen focused - refreshing commitments');
+      console.log('⚙️ Settings screen focused - refreshing commitments and settings');
       if (firebaseUser?.uid) {
+        // Refresh commitments
         refetchCommitmentsRef.current();
+        
+        // Also refresh settings cache to ensure we have latest data
+        refreshSettings();
       }
-    }, [firebaseUser?.uid])
+    }, [firebaseUser?.uid, refreshSettings])
   );
 
   // Handle push notification toggle
@@ -380,6 +386,13 @@ export default function SettingsScreen() {
       
       // Show success feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // Force refresh commitments to show updated state
+      console.log('✅ Commitment check-in completed, refreshing commitments...');
+      setTimeout(() => {
+        refetchCommitmentsRef.current();
+      }, 500); // Small delay to ensure backend has processed the update
+      
     } catch (error) {
       console.error('Error checking in commitment:', error);
       Alert.alert(
@@ -391,6 +404,31 @@ export default function SettingsScreen() {
       setIsLoading(false);
     }
   }, [isLoading, checkInCommitment]);
+
+  // Handle pull-to-refresh
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    
+    setIsRefreshing(true);
+    console.log('🔄 Settings - Pull to refresh triggered');
+    
+    try {
+      // Refresh all data in parallel
+      await Promise.all([
+        refetchCommitmentsRef.current(),
+        refreshSettings(),
+        loadPushNotificationPreference(),
+        loadCoachingMessagesPreference(),
+        checkPermissions()
+      ]);
+      
+      console.log('✅ Settings - Refresh completed');
+    } catch (error) {
+      console.error('❌ Settings - Refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, refreshSettings, loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
 
   // Handle biometric authentication toggle
   const handleBiometricToggle = useCallback(async (newValue: boolean) => {
@@ -668,7 +706,19 @@ export default function SettingsScreen() {
         )}
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={{ paddingBottom: 80 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.tint}
+            colors={[colors.tint]}
+          />
+        }
+      >
         {/** Skeleton header when loading fresh */}
         {shouldShowSkeleton && (
           <View style={{ paddingHorizontal: 10, marginTop: 10 }}>
@@ -750,10 +800,10 @@ export default function SettingsScreen() {
                           backgroundColor: colorScheme === 'dark' ? '#333333' : '#F2F2F2' 
                         }]}
                         onPress={() => handleCommitmentCheckIn(commitment.id, false)}
-                        disabled={isLoading}
+                        disabled={isLoading || isRefreshing}
                       >
                         <Text style={[styles.actionButtonText, { color: colors.text, opacity: .6 }]} numberOfLines={1}>
-                          {isLoading ? 'Processing...' : 'Not done'}
+                          {isLoading || isRefreshing ? 'Processing...' : 'Not done'}
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity 
@@ -761,13 +811,13 @@ export default function SettingsScreen() {
                           backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' 
                         }]}
                         onPress={() => handleCommitmentCheckIn(commitment.id, true)}
-                        disabled={isLoading}
+                        disabled={isLoading || isRefreshing}
                       >
                         <Text style={[styles.actionButtonText, { 
                           color: colorScheme === 'dark' ? '#000000' : '#FFFFFF', 
                           opacity: .91 
                         }]} numberOfLines={1}>
-                          {isLoading ? 'Processing...' : 'Done'}
+                          {isLoading || isRefreshing ? 'Processing...' : 'Done'}
                         </Text>
                       </TouchableOpacity>
                     </View>

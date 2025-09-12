@@ -355,10 +355,10 @@ export default function CoachingScreen() {
     if (isLoading) {
       setShowLoadingIndicator(true);
     } else {
-      // Add a small delay before hiding loading indicator to ensure AI response is visible
+      // Shorter delay for more responsive UI
       const timer = setTimeout(() => {
         setShowLoadingIndicator(false);
-      }, 500); // 500ms delay to ensure AI response is rendered
+      }, 200); // Reduced from 500ms to 200ms
       
       return () => clearTimeout(timer);
     }
@@ -446,15 +446,46 @@ export default function CoachingScreen() {
     stopRecordingAndTranscribe,
     cancelRecording,
   } = useAudioTranscription({
-    onTranscriptionComplete: (transcription) => {
+    onTranscriptionComplete: async (transcription) => {
       const existingText = chatInput.trim();
       const newText = existingText 
         ? `${existingText} ${transcription}` 
         : transcription;
+      
+      // Set the text first
       setChatInput(newText);
-      // Trigger input field expansion for long transcriptions
       handleTextChange(newText);
-      // No auto-focus after transcription - let user decide when to open keyboard
+      
+      // Auto-send the transcribed message
+      if (newText.trim().length > 0) {
+        console.log('🎤 Auto-sending transcribed message:', newText);
+        
+        // Use userId as session ID (single session per user)
+        const currentSessionId = getSessionId();
+        
+        // Track coaching session activity
+        trackCoachingSessionStarted({
+          session_id: currentSessionId,
+          session_type: 'regular',
+          trigger: 'manual',
+        });
+
+        // Clear input immediately
+        setChatInput('');
+        setInputHeight(24); // Reset to minimum height
+        setContainerHeight(90); // Reset container height
+        setIsInputExpanded(false);
+        setCurrentLineCount(1);
+        
+        // Set positioning flag
+        hasUserScrolled.current = false;
+        scrollToNewMessageRef.current = true;
+
+        // Send the message
+        await sendMessage(newText, currentSessionId, {
+          sessionType: 'default-session'
+        });
+      }
     },
     onTranscriptionError: (error) => {
       console.error('Transcription error:', error);
@@ -783,124 +814,22 @@ export default function CoachingScreen() {
       if (lastMessage?.role === 'user') {
         const lastMessageRef = messageRefs.current[lastMessage.id];
         
-        if (lastMessageRef) {
-          setTimeout(() => {
-            if (scrollViewRef.current && !hasUserScrolled.current) {
-              // Re-measure and recalculate position to maintain exact offset
-              lastMessageRef.measureLayout(
-                scrollViewRef.current as any,
-                (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-                  // Calculate exact position to maintain MESSAGE_TARGET_OFFSET
-                  const isLongMessage = msgHeight > 100;
-                  let correctPosition: number;
-                  
-                  if (isLongMessage) {
-                    // For long messages: maintain END position at target offset
-                    correctPosition = Math.max(0, (msgY + msgHeight) - 20 - 60);
-                  } else {
-                    // For short messages: maintain START position at target offset
-                    correctPosition = Math.max(0, msgY - 20);
-                  }
-                  
-                  scrollViewRef.current?.scrollTo({
-                    y: correctPosition,
-                    animated: false // No animation to prevent jarring
-                  });
-                  
-                  // Update stored position
-                  targetScrollPosition.current = correctPosition;
-                  
-                  debugLog('🔧 Position maintained during AI response:', correctPosition);
-                },
-                () => {
-                  // Fallback: use stored position
-                  const maintainedPosition = targetScrollPosition.current;
-                  if (maintainedPosition !== null) {
-                    scrollViewRef.current?.scrollTo({
-                      y: maintainedPosition,
-                      animated: false
-                    });
-                  }
-                }
-              );
-            }
-          }, 100); // Shorter timeout for responsiveness
+        if (lastMessageRef && scrollViewRef.current && !hasUserScrolled.current) {
+          // Simplified positioning - just maintain stored position without complex recalculation
+          const maintainedPosition = targetScrollPosition.current;
+          if (maintainedPosition !== null) {
+            scrollViewRef.current.scrollTo({
+              y: maintainedPosition,
+              animated: false
+            });
+            debugLog('🔧 Position maintained during AI response:', maintainedPosition);
+          }
         }
       }
     }
   }, [isLoading, messages]);
 
-  // ========================================================================
-  // ROBUST POSITION MAINTENANCE DURING AI STREAMING
-  // ========================================================================
-  // Enhanced maintenance for keyboard closed scenarios
-  // ========================================================================
-  useEffect(() => {
-    if (isLoading && targetScrollPosition.current !== null && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      
-      if (lastMessage?.role === 'user') {
-        const lastMessageRef = messageRefs.current[lastMessage.id];
-        
-        if (lastMessageRef) {
-          // Multiple adjustments to combat drift, especially when keyboard is closed
-          const maintainPosition = () => {
-            if (scrollViewRef.current && !hasUserScrolled.current) {
-              lastMessageRef.measureLayout(
-                scrollViewRef.current as any,
-                (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-                  // Recalculate exact position to maintain MESSAGE_TARGET_OFFSET
-                  const isLongMessage = msgHeight > 100;
-                  let correctPosition: number;
-                  
-                  if (isLongMessage) {
-                    correctPosition = Math.max(0, (msgY + msgHeight) - 20 - 60);
-                  } else {
-                    correctPosition = Math.max(0, msgY - 20);
-                  }
-                  
-                  scrollViewRef.current?.scrollTo({
-                    y: correctPosition,
-                    animated: false
-                  });
-                  
-                  // Update stored position
-                  targetScrollPosition.current = correctPosition;
-                  
-                  debugLog('🔧 Position recalculated and maintained:', {
-                    correctPosition,
-                    keyboardHeight,
-                    isLongMessage
-                  });
-                },
-                () => {
-                  // Fallback: use stored position
-                  const maintainedPosition = targetScrollPosition.current;
-                  if (maintainedPosition !== null) {
-                    scrollViewRef.current?.scrollTo({
-                      y: maintainedPosition,
-                      animated: false
-                    });
-                    
-                    debugLog('🔧 Position maintained using stored value:', maintainedPosition);
-                  }
-                }
-              );
-            }
-          };
-          
-          // Initial adjustment
-          setTimeout(maintainPosition, 100);
-          
-          // Additional adjustment for keyboard closed scenarios
-          if (keyboardHeight === 0) {
-            setTimeout(maintainPosition, 300);
-            setTimeout(maintainPosition, 600);
-          }
-        }
-      }
-    }
-  }, [isLoading, keyboardHeight]); // Added keyboardHeight dependency
+  // Simplified positioning - removed complex keyboard-based adjustments
 
   // ========================================================================
   // POSITIONING CLEANUP AFTER AI RESPONSE
@@ -910,13 +839,17 @@ export default function CoachingScreen() {
   // ========================================================================
   useEffect(() => {
     if (progress === 100) {
+      // Immediate cleanup for smoother experience
+      targetScrollPosition.current = null;
+      hasUserScrolled.current = false;
+      debugLog('🧹 Positioning cleared after AI response completion');
+      
+      // Auto-scroll to show the complete AI response
       setTimeout(() => {
-        targetScrollPosition.current = null;
-        hasUserScrolled.current = false;
-        debugLog('🧹 Positioning cleared after AI response completion');
-      }, 1000); // Wait 1 second after completion before clearing
+        hookHandleScrollToBottom(true);
+      }, 300); // Quick scroll to bottom to show full response
     }
-  }, [progress]);
+  }, [progress, hookHandleScrollToBottom]);
 
   // Check for completion when progress reaches 100%
   useEffect(() => {
@@ -1188,12 +1121,6 @@ export default function CoachingScreen() {
     }
   };
 
-  const handleVoiceModePress = () => {
-    // Navigate to voice mode screen
-    (navigation as any).navigate('VoiceMode', { 
-      sessionId: getSessionId()
-    });
-  };
 
   const handleRecordingCancel = () => {
     // Remember if input was focused before recording started
@@ -1350,25 +1277,19 @@ export default function CoachingScreen() {
     }
     
      // ====================================================================
-     // SCROLL-TO-BOTTOM BUTTON VISIBILITY
+     // SCROLL-TO-BOTTOM BUTTON VISIBILITY - Simplified
      // ====================================================================
-     // Shows button when user can scroll down to see more content
-     // Only shows after AI responses are complete and not during positioning
+     // Shows button when user can scroll down, but not during AI responses
      // ====================================================================
-     const hasMessages = messages.length > 0;
-     const lastMessage = hasMessages ? messages[messages.length - 1] : null;
-     const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
-     const isPositioningActive = targetScrollPosition.current !== null;
-     
-     if (isAIResponseComplete && !isPositioningActive) {
+     if (!isLoading && messages.length > 0) {
        const contentHeight = contentSize.height;
        const screenHeight = layoutMeasurement.height;
        const distanceFromBottom = contentHeight - screenHeight - scrollY;
        
-       // Show button when user is more than 200px from bottom
-       setShowScrollToBottom(distanceFromBottom > 200);
+       // Show button when user is more than 150px from bottom (reduced threshold)
+       setShowScrollToBottom(distanceFromBottom > 150);
      } else {
-       // Hide button during AI responses, positioning, or when no messages
+       // Hide button during AI responses or when no messages
        setShowScrollToBottom(false);
      }
   };
@@ -1820,43 +1741,23 @@ export default function CoachingScreen() {
                   textBreakStrategy="balanced" // Word breaking strategy
                 />
                 
-                {/* Button Container at the bottom - Voice + Send buttons side by side */}
+                {/* Button Container at the bottom - Separate Mic and Send buttons */}
                 <View style={styles.buttonContainer}>
-                  {chatInput.trim().length > 0 ? (
-                <TouchableOpacity
-                      style={[styles.microphoneButtonRound, { 
-                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
-                      }]}
-                      onPress={handleMicrophonePress}
-                    >
-                      <Mic
-                        size={18}
-                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
-                        strokeWidth={1.5}
-                  />
-                </TouchableOpacity>
-                  ) : (
+                  {/* Microphone Button - Always visible for transcription */}
                   <TouchableOpacity
-                      style={[styles.voiceButton, { 
-                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
-                      }]}
-                      onPress={handleMicrophonePress}
-                      onLongPress={handleVoiceModePress}
-                      delayLongPress={500}
-                    >
-                      <Text style={[styles.voiceButtonText, { 
-                        color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 
-                      }]}>
-                        Voice
-                      </Text>
-                      <IconSymbol
-                        name="waveform"
-                        size={12}
-                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                    style={[styles.microphoneButtonRound, { 
+                      backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                    }]}
+                    onPress={handleMicrophonePress}
+                  >
+                    <Mic
+                      size={18}
+                      color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                      strokeWidth={1.5}
                     />
                   </TouchableOpacity>
-            )}
 
+                  {/* Send Button - Only for sending messages */}
                   <TouchableOpacity
                     style={[styles.sendButtonRound, { 
                       backgroundColor: isLoading 
@@ -1867,12 +1768,10 @@ export default function CoachingScreen() {
                       shadowOpacity: 0.2,
                       shadowRadius: 4,
                       elevation: 3,
+                      opacity: chatInput.trim().length > 0 || isLoading ? 1 : 0.5,
                     }]}
-                    onPress={
-                      isLoading 
-                        ? handleStopGeneration 
-                        : (chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress)
-                    }
+                    onPress={isLoading ? handleStopGeneration : handleSendMessage}
+                    disabled={chatInput.trim().length === 0 && !isLoading}
                   >
                     {isLoading ? (
                       <Square
@@ -1881,14 +1780,8 @@ export default function CoachingScreen() {
                         fill={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
                         strokeWidth={0}
                       />
-                    ) : chatInput.trim().length > 0 ? (
-                      <ArrowUp
-                        size={18}
-                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
-                        strokeWidth={1.5}
-                      />
                     ) : (
-                      <Mic
+                      <ArrowUp
                         size={18}
                         color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
                         strokeWidth={1.5}
@@ -2079,20 +1972,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 6,
     paddingTop: 8,
-  },
-  voiceButton: {
-    height: 32,
-    paddingHorizontal: 8,
-    borderRadius: 100,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  voiceButtonText: {
-    fontSize: 11,
-    fontWeight: '600',
-    lineHeight: 16,
   },
   microphoneButtonRound: {
     width: 32,

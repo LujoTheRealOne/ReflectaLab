@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { Calendar, Clock, CheckCircle, XCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
@@ -33,6 +33,11 @@ export default function CommitmentCard({
   const [selectedDeadline, setSelectedDeadline] = useState(deadline || '1w');
   const [selectedCadence, setSelectedCadence] = useState(cadence || 'daily');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Sync local state with prop changes (important for when commitment state is loaded from backend)
+  useEffect(() => {
+    setCurrentState(state);
+  }, [state]);
 
   // Debug logging (disabled)
   // console.log('🎯 CommitmentCard props:', { state, currentState, editable, title });

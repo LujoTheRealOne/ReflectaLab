@@ -139,7 +139,7 @@ export const renderCoachingCard = (
     case 'meditation':
       return (
         <MeditationCard
-          {...baseProps}
+          key={baseProps.key}
           title={props.title || 'Guided Meditation'}
           duration={parseInt(props.duration || '300')}
           description={props.description}
@@ -153,7 +153,7 @@ export const renderCoachingCard = (
       
       return (
         <FocusCard
-          {...baseProps}
+          key={baseProps.key}
           focus={focusText}
           context={contextText}
         />
@@ -162,7 +162,7 @@ export const renderCoachingCard = (
       const blockers = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
       return (
         <BlockersCard
-          {...baseProps}
+          key={baseProps.key}
           blockers={blockers}
           title={props.title}
         />
@@ -171,7 +171,7 @@ export const renderCoachingCard = (
       const actions = props.items ? props.items.split('|').map((item: string) => item.trim()).filter(Boolean) : [];
       return (
         <ActionPlanCard
-          {...baseProps}
+          key={baseProps.key}
           actions={actions}
           title={props.title}
         />
@@ -182,13 +182,11 @@ export const renderCoachingCard = (
       // Only keep 'accepted'/'rejected' if there's a valid commitmentId (meaning user already confirmed)
       const isValidCommitmentId = (id: string | undefined): boolean => {
         if (!id) return false;
-        // Valid commitmentId should be from our API, not LLM-generated
-        // LLM often generates fake IDs like "commitment_1757635966483"
-        // Real IDs from API are different format
-        return id.startsWith('commitment_') && 
-               id.length > 20 && // Real IDs are longer
-               !id.includes('1757635966483') && // Filter specific fake ID
-               !id.match(/commitment_\d{13}$/); // Filter timestamp-based fake IDs
+        // Valid commitmentId should be from our API (Firestore auto-generated IDs)
+        // Firestore IDs are 20-character alphanumeric strings
+        // LLM-generated fake IDs are usually timestamp-based like "commitment_1757635966483"
+        return id.length >= 15 && // Real Firestore IDs are typically 20 chars
+               !id.match(/^commitment_\d{13}$/); // Filter timestamp-based fake IDs from LLM
       };
       
       const hasValidCommitmentId = isValidCommitmentId(props.commitmentId);
@@ -346,8 +344,8 @@ export const renderCoachingCard = (
                   console.log('✅ Commitment created successfully:', result);
                   
                   // Update the message content with the returned commitmentId
-                  if (result.commitmentId) {
-                    console.log('🔄 Updating message with commitmentId:', result.commitmentId);
+                  if (result.commitment?.id) {
+                    console.log('🔄 Updating message with commitmentId:', result.commitment.id);
                     
                     // Update the already updated messages with commitmentId
                     finalMessages = updatedMessages.map((message) => {
@@ -367,7 +365,7 @@ export const renderCoachingCard = (
                           const [, k, v] = propMatch;
                           existingProps[k] = v;
                         }
-                        existingProps.commitmentId = result.commitmentId;
+                        existingProps.commitmentId = result.commitment.id;
 
                         const newPropsString = Object.entries(existingProps)
                           .map(([k, v]) => `${k}="${v}"`)
@@ -547,7 +545,7 @@ export const renderCoachingCard = (
       return null;
     default:
       return (
-        <View key={`unknown-card-${index}`} style={{
+        <View key={baseProps.key} style={{
           padding: 16, 
           backgroundColor: colorScheme === 'dark' ? '#374151' : '#F3F4F6', 
           borderRadius: 8, 

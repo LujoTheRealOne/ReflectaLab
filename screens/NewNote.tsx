@@ -477,9 +477,8 @@ export default function HomeContent() {
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (event) => {
         const keyboardHeight = event?.endCoordinates?.height || 0;
-        // Mikrofonunu keyboard'ın üstüne konumlandır
-        const newTranslateY = -(keyboardHeight - 117); // Keyboard - 5px (daha aşağıda)
-        
+        // Position microphone button above keyboard with proper spacing
+        const newTranslateY = -(keyboardHeight + 30); // Move above keyboard with 30px margin
 
         
         setIsKeyboardVisible(true);

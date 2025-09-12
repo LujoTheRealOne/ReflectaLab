@@ -212,33 +212,24 @@ export const renderCoachingCard = (
         />
       );
     case 'commitmentDetected': {
-      // IMPORTANT: Always start commitments in 'none' state to require user confirmation
-      // LLM sometimes sends state='accepted' directly, but we need user interaction
-      // Only keep 'accepted'/'rejected' if there's a valid commitmentId (meaning user already confirmed)
-      const isValidCommitmentId = (id: string | undefined): boolean => {
-        if (!id) return false;
-        // Valid commitmentId should be from our API (Firestore auto-generated IDs)
-        // Firestore IDs are 20-character alphanumeric strings
-        // LLM-generated fake IDs are usually timestamp-based like "commitment_1757635966483"
-        return id.length >= 15 && // Real Firestore IDs are typically 20 chars
-               !id.match(/^commitment_\d{13}$/); // Filter timestamp-based fake IDs from LLM
-      };
+      // EXACT WEB BEHAVIOR: Use commitment state if available and not 'none', otherwise use local state
+      // This matches web app Line 95: commitment.state && commitment.state !== 'none' ? commitment.state : cardState
+      const commitmentState = props.state && props.state !== 'none' ? props.state : 'none';
       
-      const hasValidCommitmentId = isValidCommitmentId(props.commitmentId);
-      const normalizedState = hasValidCommitmentId 
-        ? ((props.state as 'none' | 'accepted' | 'rejected') || 'none')
-        : 'none'; // Always start fresh commitments in 'none' state
+      // Web uses 'commitmentType' but mobile/backend uses 'type' - handle both for compatibility
+      const commitmentType = props.commitmentType || props.type || 'one-time';
+      
       return (
         <CommitmentCard
           key={baseProps.key}
           editable={baseProps.editable}
           title={props.title || 'Commitment'}
           description={props.description || ''}
-          type={(props.type as 'one-time' | 'recurring') || 'one-time'}
+          type={(commitmentType as 'one-time' | 'recurring')}
           deadline={props.deadline}
           cadence={props.cadence}
-          state={normalizedState}
-          commitmentId={hasValidCommitmentId ? props.commitmentId : undefined}
+          state={commitmentState as 'none' | 'accepted' | 'rejected'}
+          commitmentId={props.commitmentId}
           onUpdate={async (data) => {
             console.log('🎯 CommitmentCard onUpdate called:', data);
             
@@ -248,40 +239,9 @@ export const renderCoachingCard = (
             }
 
             try {
-              // 1. Update the message content with new state
-              const updatedMessages = messages.map((message) => {
-                if (message.role !== 'assistant') return message;
-                if (hostMessageId && message.id !== hostMessageId) return message;
-
-                const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                let occurrence = 0;
-                const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                  if (occurrence !== index) { occurrence++; return match; }
-                  occurrence++;
-
-                  const existingProps: Record<string, string> = {};
-                  const propRegex = /(\w+)="([^"]+)"/g;
-                  let propMatch;
-                  while ((propMatch = propRegex.exec(propsString)) !== null) {
-                    const [, k, v] = propMatch;
-                    existingProps[k] = v;
-                  }
-                  existingProps.state = data.state;
-                  if (data.commitmentId) existingProps.commitmentId = data.commitmentId;
-
-                  const newPropsString = Object.entries(existingProps)
-                    .map(([k, v]) => `${k}="${v}"`)
-                    .join(',');
-                  return `[commitmentDetected:${newPropsString}]`;
-                });
-                return { ...message, content: updatedContent };
-              });
-
-              // 2. Update messages state
-              setMessages(updatedMessages);
+              // EXACT WEB BEHAVIOR: Only call API, let backend handle message updates
+              // This matches web app pattern - simple, reliable, backend-driven
               
-              // 3. If accepted, create commitment via API first, then save with commitmentId
-              let finalMessages = updatedMessages;
               if (data.state === 'accepted') {
                 const token = await getToken();
                 if (!token) {
@@ -289,74 +249,7 @@ export const renderCoachingCard = (
                   return;
                 }
 
-                // Check if commitment already exists in backend to prevent duplicates
-                console.log('🔍 Checking for existing commitment in backend...');
-                try {
-                  const checkResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
-                    method: 'GET',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                  });
-
-                  if (checkResponse.ok) {
-                    const checkData = await checkResponse.json();
-                    const existingCommitments = checkData.commitments || [];
-                    
-                    // Check if commitment with same title, description, and type already exists
-                    const existingCommitment = existingCommitments.find((c: any) => 
-                      c.title === props.title && 
-                      c.description === props.description && 
-                      c.type === props.type
-                    );
-                    
-                    if (existingCommitment) {
-                      console.log('✅ Commitment already exists in backend, using existing ID:', existingCommitment.id);
-                      
-                      // Update message with existing commitmentId
-                      finalMessages = updatedMessages.map((message) => {
-                        if (message.role !== 'assistant') return message;
-                        if (hostMessageId && message.id !== hostMessageId) return message;
-
-                        const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                        let occurrence = 0;
-                        const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                          if (occurrence !== index) { occurrence++; return match; }
-                          occurrence++;
-
-                          const existingProps: Record<string, string> = {};
-                          const propRegex = /(\w+)="([^"]+)"/g;
-                          let propMatch;
-                          while ((propMatch = propRegex.exec(propsString)) !== null) {
-                            const [, k, v] = propMatch;
-                            existingProps[k] = v;
-                          }
-                          existingProps.commitmentId = existingCommitment.id;
-
-                          const newPropsString = Object.entries(existingProps)
-                            .map(([k, v]) => `${k}="${v}"`)
-                            .join(',');
-                          return `[commitmentDetected:${newPropsString}]`;
-                        });
-                        return { ...message, content: updatedContent };
-                      });
-                      
-                      setMessages(finalMessages);
-                      console.log('✅ Updated message with existing commitmentId');
-                      
-                      // Skip API creation since commitment already exists
-                      await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
-                      console.log('✅ Commitment update completed successfully (existing commitment)');
-                      return;
-                    }
-                  }
-                } catch (checkError) {
-                  console.warn('⚠️ Error checking existing commitments:', checkError);
-                  // Continue with creation if check fails
-                }
-
-                console.log('🔥 Creating new commitment via API...');
+                console.log('🔥 Creating commitment via API...');
                 const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/create`, {
                   method: 'POST',
                   headers: {
@@ -366,7 +259,7 @@ export const renderCoachingCard = (
                   body: JSON.stringify({
                     title: props.title,
                     description: props.description,
-                    type: props.type,
+                    type: commitmentType, // Use the resolved type (handles both 'type' and 'commitmentType')
                     deadline: props.deadline,
                     cadence: props.cadence,
                     coachingSessionId: firebaseUser.uid,
@@ -378,43 +271,10 @@ export const renderCoachingCard = (
                   const result = await response.json();
                   console.log('✅ Commitment created successfully:', result);
                   
-                  // Update the message content with the returned commitmentId
-                  if (result.commitment?.id) {
-                    console.log('🔄 Updating message with commitmentId:', result.commitment.id);
-                    
-                    // Update the already updated messages with commitmentId
-                    finalMessages = updatedMessages.map((message) => {
-                      if (message.role !== 'assistant') return message;
-                      if (hostMessageId && message.id !== hostMessageId) return message;
-
-                      const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
-                      let occurrence = 0;
-                      const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                        if (occurrence !== index) { occurrence++; return match; }
-                        occurrence++;
-
-                        const existingProps: Record<string, string> = {};
-                        const propRegex = /(\w+)="([^"]+)"/g;
-                        let propMatch;
-                        while ((propMatch = propRegex.exec(propsString)) !== null) {
-                          const [, k, v] = propMatch;
-                          existingProps[k] = v;
-                        }
-                        existingProps.commitmentId = result.commitment.id;
-
-                        const newPropsString = Object.entries(existingProps)
-                          .map(([k, v]) => `${k}="${v}"`)
-                          .join(',');
-                        return `[commitmentDetected:${newPropsString}]`;
-                      });
-                      return { ...message, content: updatedContent };
-                    });
-                    
-                    // Update messages state with final version (state + commitmentId)
-                    setMessages(finalMessages);
-                    
-                    console.log('✅ Message updated with commitmentId');
-                  }
+                  // Backend already updated the message content with commitmentId and state
+                  // The real-time listener will automatically sync the updated message
+                  // No need for manual message manipulation - just like web!
+                  
                 } else {
                   const errorText = await response.text();
                   console.error('❌ Failed to create commitment:', {
@@ -422,10 +282,11 @@ export const renderCoachingCard = (
                     error: errorText
                   });
                 }
+              } else if (data.state === 'rejected') {
+                // Web doesn't have special handling for rejection, just local state
+                // Mobile should follow the same pattern
+                console.log('🔴 Commitment rejected - handled by local state');
               }
-              
-              // 4. Save final messages to Firestore (with or without commitmentId)
-              await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
               
               console.log('✅ Commitment update completed successfully');
             } catch (error) {

@@ -66,7 +66,8 @@ function clearCommitmentsData() {
 }
 
 export const useActiveCommitments = () => {
-  const { getToken, firebaseUser } = useAuth();
+  // FIXED: Use Clerk user ID for consistency with web and backend
+  const { getToken, user, firebaseUser } = useAuth();
   const [, forceUpdate] = useState({});
 
   // Force re-render when global state changes
@@ -77,7 +78,9 @@ export const useActiveCommitments = () => {
   }, []);
 
   const fetchActiveCommitments = useCallback(async () => {
-    if (!firebaseUser?.uid) {
+    // FIXED: Use Clerk user ID instead of Firebase UID
+    const userId = user?.id || firebaseUser?.uid;
+    if (!userId) {
       updateGlobalState({ loading: false });
       return;
     }
@@ -90,7 +93,7 @@ export const useActiveCommitments = () => {
         throw new Error('No authentication token available');
       }
 
-      console.log('🎯 Fetching active commitments for user:', firebaseUser.uid);
+      console.log('🎯 Fetching active commitments for user:', userId);
 
       const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
         method: 'GET',
@@ -137,10 +140,12 @@ export const useActiveCommitments = () => {
     } finally {
       updateGlobalState({ loading: false });
     }
-  }, [firebaseUser?.uid, getToken]);
+  }, [user?.id, firebaseUser?.uid, getToken]);
 
   const checkInCommitment = useCallback(async (commitmentId: string, completed: boolean) => {
-    if (!firebaseUser?.uid) {
+    // FIXED: Use Clerk user ID instead of Firebase UID
+    const userId = user?.id || firebaseUser?.uid;
+    if (!userId) {
       throw new Error('User not authenticated');
     }
 
@@ -161,7 +166,8 @@ export const useActiveCommitments = () => {
         body: JSON.stringify({
           commitmentId,
           completed,
-          coachingSessionId: firebaseUser.uid,
+          // FIXED: Use Clerk user ID for coachingSessionId (consistent with web)
+          coachingSessionId: user?.id || firebaseUser?.uid,
           messageId: `settings_checkin_${Date.now()}`
         }),
       });
@@ -181,15 +187,16 @@ export const useActiveCommitments = () => {
       console.error('❌ Error checking in commitment:', err);
       throw err;
     }
-  }, [firebaseUser?.uid, getToken, fetchActiveCommitments]);
+  }, [user?.id, firebaseUser?.uid, getToken, fetchActiveCommitments]);
 
   // Initialize commitments when user changes
   useEffect(() => {
-    if (firebaseUser?.uid) {
+    const userId = user?.id || firebaseUser?.uid;
+    if (userId) {
       // If user changed, reset state and fetch
-      if (currentUserId !== firebaseUser.uid) {
+      if (currentUserId !== userId) {
         clearCommitmentsData();
-        currentUserId = firebaseUser.uid;
+        currentUserId = userId;
         isInitialized = false;
       }
       
@@ -202,7 +209,7 @@ export const useActiveCommitments = () => {
     } else {
       clearCommitmentsData();
     }
-  }, [firebaseUser?.uid, fetchActiveCommitments]);
+  }, [user?.id, firebaseUser?.uid, fetchActiveCommitments]);
 
   return {
     commitments: globalCommitments,

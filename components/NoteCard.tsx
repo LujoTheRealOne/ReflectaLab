@@ -39,7 +39,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
         { 
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
           borderColor: isDark ? '#374151' : '#D9D9D9',
-          shadowColor: isDark ? '#FFF' : '#000',
+          shadowColor: '#000',
           shadowOpacity: isDark ? 0.25 : 0.15,
         }
       ]}

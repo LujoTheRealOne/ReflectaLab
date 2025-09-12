@@ -179,10 +179,9 @@ export function useAICoaching(): UseAICoachingReturn {
         console.log('🤖 RAW LLM RESPONSE:', fullContent);
         console.log('🤖 LLM RESPONSE LENGTH:', fullContent.length);
         
-        // Check for finish tokens (including new sessionEnd format)
+        // Check for finish tokens
         const hasFinishToken = fullContent.includes('[finish-start]') || 
-                              fullContent.includes('[finish-end]') || 
-                              fullContent.includes('[sessionEnd:');
+                              fullContent.includes('[finish-end]');
         
         if (hasFinishToken) {
           console.log('🎯 Finish token detected! Setting progress to 100%');
@@ -237,10 +236,9 @@ export function useAICoaching(): UseAICoachingReturn {
                     : msg
                 ));
               } else if (data.type === 'done') {
-                // Check for finish tokens (including new sessionEnd format)
+                // Check for finish tokens
                 const hasFinishToken = fullContent.includes('[finish-start]') || 
-                                      fullContent.includes('[finish-end]') || 
-                                      fullContent.includes('[sessionEnd:');
+                                      fullContent.includes('[finish-end]');
                 
                 if (hasFinishToken) {
                   console.log('🎯 Finish token detected! Setting progress to 100%');

@@ -461,7 +461,7 @@ export default function OnboardingChatScreen() {
     return components;
   };
 
-  // Function to parse coaching completion data between finish tokens or from sessionEnd
+  // Function to parse coaching completion data between finish tokens
   const parseCoachingCompletion = (content: string) => {
     // Check for traditional finish tokens first
     const finishStartIndex = content.indexOf('[finish-start]');
@@ -481,30 +481,6 @@ export default function OnboardingChatScreen() {
       return { components, rawData: finishContent };
     }
     
-    // Check for sessionEnd format
-    const sessionEndMatch = content.match(/\[sessionEnd:([^\]]+)\]/);
-    if (sessionEndMatch) {
-      // Parse sessionEnd as a completion component
-      const sessionEndProps: Record<string, string> = {};
-      const propsString = sessionEndMatch[1];
-      const propRegex = /(\w+)="([^"]+)"/g;
-      let propMatch;
-      
-      while ((propMatch = propRegex.exec(propsString)) !== null) {
-        const [, key, value] = propMatch;
-        sessionEndProps[key] = value;
-      }
-      
-      const components = [{ type: 'sessionEnd', props: sessionEndProps }];
-      
-      console.log('🎯 Parsed coaching completion (sessionEnd):', { 
-        componentsCount: components.length, 
-        components,
-        rawSessionEnd: sessionEndMatch[0]
-      });
-      
-      return { components, rawData: sessionEndMatch[0] };
-    }
     
     return { components: [], rawData: '' };
   };
@@ -1016,10 +992,10 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     if (progress >= 100 && !showCompletionForMessage) {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
-      // Find the final AI message that contains finish tokens (including sessionEnd)
+      // Find the final AI message that contains finish tokens
       const lastAIMessage = [...messages].reverse().find(msg => 
         msg.role === 'assistant' && 
-        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]') || msg.content.includes('[sessionEnd:'))
+        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
       );
       
       if (lastAIMessage) {

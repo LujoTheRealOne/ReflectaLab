@@ -13,7 +13,6 @@ import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
@@ -21,7 +20,6 @@ import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { coachingCacheService } from '@/services/coachingCacheService';
 
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
@@ -364,58 +362,10 @@ export default function CoachingScreen() {
     }
   };
 
-  // Cache management using secure coaching cache service
-  const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], userId: string) => {
+  // Clear coaching data for specific user with full state reset
+  const clearCoachingDataForUser = useCallback(async (userId: string) => {
     try {
-      await coachingCacheService.saveMessages(messages, userId);
-      debugLog(`💾 Saved ${messages.length} messages to secure cache for user:`, userId);
-    } catch (error) {
-      console.error('Error saving messages to secure cache:', error);
-    }
-  }, []);
-
-  const loadExistingSessionFromBackend = useCallback(async (userId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> => {
-    try {
-      debugLog('🔍 Loading existing session from backend for user:', userId);
-      
-      // ALWAYS check backend first - never create session from cache
-      const sessionResult = await coachingCacheService.initializeSession(userId);
-      
-      debugLog(`📱 Session result:`, {
-        exists: sessionResult.sessionExists,
-        messageCount: sessionResult.messages.length
-      });
-      
-      return sessionResult;
-    } catch (error) {
-      console.error('Error loading session from backend:', error);
-      return { messages: [], sessionExists: false };
-    }
-  }, []);
-
-  // Debug function to clear storage (for testing)
-  const clearStorageForUser = useCallback(async (userId: string) => {
-    try {
-      await coachingCacheService.clearUserMessages(userId);
-      console.log('🗑️ Cleared secure cache for user:', userId);
-    } catch (error) {
-      console.error('Error clearing secure cache:', error);
-    }
-  }, []);
-
-  // Test function to clear all coaching data (will be defined after setMessages)
-  let clearAllCoachingData: (() => Promise<void>) | null = null;
-
-  // Manual refresh from backend (will be defined after setMessages is available)
-  let refreshFromBackend: (() => Promise<void>) | null = null;
-
-  // Clear coaching cache for specific user with full state reset
-  const clearCoachingCacheForUser = useCallback(async (userId: string) => {
-    try {
-      console.log('🧹 Clearing coaching cache and state for user:', userId);
-      
-      // Clear secure cache for this user
-      await coachingCacheService.clearUserMessages(userId);
+      console.log('🧹 Clearing coaching state for user:', userId);
       
       // Reset all coaching-related states
       setMessages([]);
@@ -427,9 +377,9 @@ export default function CoachingScreen() {
       setParsedCoachingData(null);
       setIsInitialized(false);
       
-      console.log('✅ Coaching cache and state cleared for user:', userId);
+      console.log('✅ Coaching state cleared for user:', userId);
     } catch (error) {
-      console.error('❌ Error clearing coaching cache for user:', userId, error);
+      console.error('❌ Error clearing coaching state for user:', userId, error);
     }
   }, []);
 
@@ -573,27 +523,37 @@ export default function CoachingScreen() {
     }
   }, []);
 
-  // Multi-device sync strategy using Firestore
-  // Load existing coaching session (backend first - never create from cache)
+  // Load existing coaching session directly from Firestore
   const initializeCoachingSession = useCallback(async (userId: string): Promise<CoachingMessage[]> => {
     console.log('🔄 Initializing coaching session for user:', userId);
     
     try {
-      // 1. Load existing session from backend (never from cache)
-      console.log('🔄 Step 1: Loading existing session from backend...');
-      const sessionResult = await loadExistingSessionFromBackend(userId);
+      // Load existing session from Firestore
+      console.log('🔄 Loading existing session from Firestore...');
+      const firestoreResult = await loadMessagesFromFirestore(userId);
       
-      if (sessionResult.sessionExists) {
-        console.log(`✅ Found existing session with ${sessionResult.messages.length} messages`);
+      if (firestoreResult.allMessages.length > 0) {
+        console.log(`✅ Found existing session with ${firestoreResult.allMessages.length} messages`);
         
         // Set up pagination for existing session
-        setAllMessages(sessionResult.messages);
-        setHasMoreMessages(sessionResult.messages.length > 300);
-        setDisplayedMessageCount(Math.min(300, sessionResult.messages.length));
+        setAllMessages(firestoreResult.allMessages);
+        setHasMoreMessages(firestoreResult.allMessages.length > 300);
+        setDisplayedMessageCount(Math.min(300, firestoreResult.allMessages.length));
         
         // Return last 30 messages for display
-        const displayMessages = sessionResult.messages.slice(-30);
+        const displayMessages = firestoreResult.allMessages.slice(-30);
         console.log(`✅ Session loaded with ${displayMessages.length} display messages`);
+        
+        // Sync commitment states with backend in background (non-blocking)
+        console.log('🔄 Starting background commitment sync...');
+        syncCommitmentStatesWithBackend(firestoreResult.allMessages, userId).then((syncedMessages) => {
+          console.log('🔄 Background sync completed, updating messages...');
+          setAllMessages(syncedMessages);
+          setMessages(syncedMessages.slice(-30));
+        }).catch((error) => {
+          console.error('❌ Background commitment sync failed:', error);
+        });
+        
         return displayMessages;
       } else {
         console.log('📝 No existing session found - ready to create new session on first message');
@@ -615,21 +575,143 @@ export default function CoachingScreen() {
       
       return [];
     }
-  }, [loadExistingSessionFromBackend]);
+  }, [loadMessagesFromFirestore]);
+
+  // Sync commitment states with backend commitments
+  const syncCommitmentStatesWithBackend = useCallback(async (messages: CoachingMessage[], userId: string): Promise<CoachingMessage[]> => {
+    try {
+      console.log('🔄 Starting commitment state sync with backend...');
+      
+      const token = await getToken();
+      if (!token) {
+        console.warn('⚠️ No auth token available for commitment sync');
+        return messages;
+      }
+
+      // Get all commitments from backend
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn('⚠️ Failed to fetch backend commitments for sync');
+        return messages;
+      }
+
+      const data = await response.json();
+      const backendCommitments = data.commitments || [];
+      console.log(`🔄 Found ${backendCommitments.length} commitments in backend`);
+
+      if (backendCommitments.length === 0) {
+        return messages;
+      }
+
+      // Create a map of backend commitments by title for matching
+      const commitmentMap = new Map();
+      backendCommitments.forEach((commitment: any) => {
+        const key = `${commitment.title}_${commitment.description}_${commitment.type}`;
+        commitmentMap.set(key, commitment);
+        console.log(`🗂️ Backend commitment mapped:`, {
+          title: commitment.title,
+          description: commitment.description,
+          type: commitment.type,
+          id: commitment.id,
+          key
+        });
+      });
+
+      // Update messages with backend commitment states
+      let updatedCount = 0;
+      const syncedMessages = messages.map((message, messageIndex) => {
+        if (message.role !== 'assistant') return message;
+
+        // Check if message has commitment tokens
+        const commitmentRegex = /\[commitmentDetected:([^\]]+)\]/g;
+        const commitmentMatches = message.content.match(commitmentRegex);
+        
+        if (commitmentMatches) {
+          console.log(`🔍 Message ${messageIndex} has ${commitmentMatches.length} commitment(s):`, commitmentMatches);
+        }
+        
+        let hasUpdates = false;
+        
+        const updatedContent = message.content.replace(commitmentRegex, (match, propsString) => {
+          const props: Record<string, string> = {};
+          const propRegex = /(\w+)="([^"]+)"/g;
+          let propMatch;
+          
+          while ((propMatch = propRegex.exec(propsString)) !== null) {
+            const [, key, value] = propMatch;
+            props[key] = value;
+          }
+
+          // Try to match with backend commitment
+          const matchKey = `${props.title}_${props.description}_${props.type}`;
+          const backendCommitment = commitmentMap.get(matchKey);
+          
+          console.log(`🔍 Trying to match commitment:`, {
+            title: props.title,
+            description: props.description,
+            type: props.type,
+            currentState: props.state,
+            currentCommitmentId: props.commitmentId,
+            matchKey,
+            foundInBackend: !!backendCommitment
+          });
+          
+          if (backendCommitment) {
+            // Update with backend data
+            props.state = 'accepted';
+            props.commitmentId = backendCommitment.id;
+            hasUpdates = true;
+            updatedCount++;
+            
+            console.log(`✅ Synced commitment: ${props.title} → state=accepted, id=${backendCommitment.id}`);
+          } else {
+            console.log(`❌ No matching commitment found in backend for: ${props.title}`);
+          }
+
+          const newPropsString = Object.entries(props)
+            .map(([k, v]) => `${k}="${v}"`)
+            .join(',');
+          return `[commitmentDetected:${newPropsString}]`;
+        });
+
+        return hasUpdates ? { ...message, content: updatedContent } : message;
+      });
+
+      if (updatedCount > 0) {
+        console.log(`✅ Updated ${updatedCount} commitment states from backend`);
+        
+        // Save synced messages to Firestore
+        await saveMessagesToFirestore(syncedMessages, userId);
+        
+        console.log('✅ Synced messages saved to Firestore');
+      } else {
+        console.log('ℹ️ No commitment states needed syncing');
+      }
+
+      return syncedMessages;
+    } catch (error) {
+      console.error('❌ Error syncing commitment states:', error);
+      return messages; // Return original messages on error
+    }
+  }, [getToken, saveMessagesToFirestore]);
 
   // Use the AI coaching hook
   const coachingHook = useAICoaching();
   const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration } = coachingHook;
   
   // Test function to clear all coaching data
-  clearAllCoachingData = useCallback(async () => {
+  const clearAllCoachingData = useCallback(async () => {
     if (!firebaseUser?.uid) return;
     
     try {
       console.log('🧹 Clearing all coaching data...');
-      
-      // Clear secure cache
-      await coachingCacheService.clearUserMessages(firebaseUser.uid);
       
       // Clear Firestore coaching session
       const { db } = await import('../lib/firebase');
@@ -664,24 +746,24 @@ export default function CoachingScreen() {
     }
   }, [firebaseUser, user?.firstName, setMessages]);
 
-  // Manual refresh from backend
-  refreshFromBackend = useCallback(async () => {
+  // Manual refresh from Firestore
+  const refreshFromFirestore = useCallback(async () => {
     if (!firebaseUser?.uid) {
-      console.warn('⚠️ Cannot refresh from backend: no user');
+      console.warn('⚠️ Cannot refresh from Firestore: no user');
       return;
     }
 
     try {
-      console.log('🔄 Manual refresh from backend requested for user:', firebaseUser.uid);
+      console.log('🔄 Manual refresh from Firestore requested for user:', firebaseUser.uid);
       
-      // Re-initialize session from backend
+      // Re-initialize session from Firestore
       const sessionMessages = await initializeCoachingSession(firebaseUser.uid);
       
       if (sessionMessages.length > 0) {
         setMessages(sessionMessages);
-        console.log(`✅ Refreshed with ${sessionMessages.length} messages from backend`);
+        console.log(`✅ Refreshed with ${sessionMessages.length} messages from Firestore`);
       } else {
-        console.log('📝 No session found in backend');
+        console.log('📝 No session found in Firestore');
         // Show welcome message if no session exists
         const welcomeMessage: CoachingMessage = {
           id: '1',
@@ -692,15 +774,14 @@ export default function CoachingScreen() {
         setMessages([welcomeMessage]);
       }
     } catch (error) {
-      console.error('❌ Error refreshing from backend:', error);
+      console.error('❌ Error refreshing from Firestore:', error);
     }
   }, [firebaseUser?.uid, setMessages, initializeCoachingSession, user?.firstName]);
 
   // Expose functions globally for testing (remove in production)
   if (__DEV__) {
     (global as any).clearCoachingData = clearAllCoachingData;
-    (global as any).refreshCoachingFromBackend = refreshFromBackend;
-    (global as any).coachingCacheService = coachingCacheService;
+    (global as any).refreshCoachingFromFirestore = refreshFromFirestore;
     
     // Debug function to check session persistence
     (global as any).debugSessionPersistence = async () => {
@@ -713,24 +794,14 @@ export default function CoachingScreen() {
       console.log('🔍 [DEBUG] Current user ID:', firebaseUser.uid);
       console.log('🔍 [DEBUG] Current messages count:', messages.length);
       
-      // Check cache
-      const cachedMessages = await coachingCacheService.loadMessages(firebaseUser.uid);
-      console.log('🔍 [DEBUG] Cached messages count:', cachedMessages.length);
-      
-      // Check backend
-      const backendMessages = await coachingCacheService.syncWithBackend(firebaseUser.uid);
-      console.log('🔍 [DEBUG] Backend messages count:', backendMessages.length);
-      
-      // Check cache stats
-      const cacheStats = await coachingCacheService.getCacheStats();
-      console.log('🔍 [DEBUG] Cache stats:', cacheStats);
+      // Check Firestore
+      const firestoreResult = await loadMessagesFromFirestore(firebaseUser.uid);
+      console.log('🔍 [DEBUG] Firestore messages count:', firestoreResult.allMessages.length);
       
       return {
         userId: firebaseUser.uid,
         currentMessages: messages.length,
-        cachedMessages: cachedMessages.length,
-        backendMessages: backendMessages.length,
-        cacheStats
+        firestoreMessages: firestoreResult.allMessages.length,
       };
     };
     
@@ -1165,9 +1236,24 @@ export default function CoachingScreen() {
           />
         );
       case 'commitmentDetected': {
-        const normalizedState = ((props.state as 'none' | 'accepted' | 'rejected') === 'accepted' && !props.commitmentId)
-          ? 'none'
-          : ((props.state as 'none' | 'accepted' | 'rejected') || 'none');
+        // IMPORTANT: Always start commitments in 'none' state to require user confirmation
+        // LLM sometimes sends state='accepted' directly, but we need user interaction
+        // Only keep 'accepted'/'rejected' if there's a valid commitmentId (meaning user already confirmed)
+        const isValidCommitmentId = (id: string | undefined): boolean => {
+          if (!id) return false;
+          // Valid commitmentId should be from our API, not LLM-generated
+          // LLM often generates fake IDs like "commitment_1757635966483"
+          // Real IDs from API are different format
+          return id.startsWith('commitment_') && 
+                 id.length > 20 && // Real IDs are longer
+                 !id.includes('1757635966483') && // Filter specific fake ID
+                 !id.match(/commitment_\d{13}$/); // Filter timestamp-based fake IDs
+        };
+        
+        const hasValidCommitmentId = isValidCommitmentId(props.commitmentId);
+        const normalizedState = hasValidCommitmentId 
+          ? ((props.state as 'none' | 'accepted' | 'rejected') || 'none')
+          : 'none'; // Always start fresh commitments in 'none' state
         return (
           <CommitmentCard
             key={baseProps.key}
@@ -1178,7 +1264,7 @@ export default function CoachingScreen() {
             deadline={props.deadline}
             cadence={props.cadence}
             state={normalizedState}
-            commitmentId={props.commitmentId}
+            commitmentId={hasValidCommitmentId ? props.commitmentId : undefined}
             onUpdate={async (data) => {
               console.log('🎯 CommitmentCard onUpdate called:', data);
               
@@ -1220,11 +1306,8 @@ export default function CoachingScreen() {
                 // 2. Update messages state
                 setMessages(updatedMessages);
                 
-                // 3. Explicitly save to both cache and Firestore
-                await coachingCacheService.saveMessages(updatedMessages, firebaseUser.uid);
-                await saveMessagesToFirestore(updatedMessages, firebaseUser.uid);
-                
-                // 4. If accepted, create commitment via API
+                // 3. If accepted, create commitment via API first, then save with commitmentId
+                let finalMessages = updatedMessages;
                 if (data.state === 'accepted') {
                   const token = await getToken();
                   if (!token) {
@@ -1232,7 +1315,74 @@ export default function CoachingScreen() {
                     return;
                   }
 
-                  console.log('🔥 Creating commitment via API...');
+                  // Check if commitment already exists in backend to prevent duplicates
+                  console.log('🔍 Checking for existing commitment in backend...');
+                  try {
+                    const checkResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
+                      method: 'GET',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                      },
+                    });
+
+                    if (checkResponse.ok) {
+                      const checkData = await checkResponse.json();
+                      const existingCommitments = checkData.commitments || [];
+                      
+                      // Check if commitment with same title, description, and type already exists
+                      const existingCommitment = existingCommitments.find((c: any) => 
+                        c.title === props.title && 
+                        c.description === props.description && 
+                        c.type === props.type
+                      );
+                      
+                      if (existingCommitment) {
+                        console.log('✅ Commitment already exists in backend, using existing ID:', existingCommitment.id);
+                        
+                        // Update message with existing commitmentId
+                        finalMessages = updatedMessages.map((message) => {
+                          if (message.role !== 'assistant') return message;
+                          if (hostMessageId && message.id !== hostMessageId) return message;
+
+                          const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
+                          let occurrence = 0;
+                          const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                            if (occurrence !== index) { occurrence++; return match; }
+                            occurrence++;
+
+                            const existingProps: Record<string, string> = {};
+                            const propRegex = /(\w+)="([^"]+)"/g;
+                            let propMatch;
+                            while ((propMatch = propRegex.exec(propsString)) !== null) {
+                              const [, k, v] = propMatch;
+                              existingProps[k] = v;
+                            }
+                            existingProps.commitmentId = existingCommitment.id;
+
+                            const newPropsString = Object.entries(existingProps)
+                              .map(([k, v]) => `${k}="${v}"`)
+                              .join(',');
+                            return `[commitmentDetected:${newPropsString}]`;
+                          });
+                          return { ...message, content: updatedContent };
+                        });
+                        
+                        setMessages(finalMessages);
+                        console.log('✅ Updated message with existing commitmentId');
+                        
+                        // Skip API creation since commitment already exists
+                        await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
+                        console.log('✅ Commitment update completed successfully (existing commitment)');
+                        return;
+                      }
+                    }
+                  } catch (checkError) {
+                    console.warn('⚠️ Error checking existing commitments:', checkError);
+                    // Continue with creation if check fails
+                  }
+
+                  console.log('🔥 Creating new commitment via API...');
                   const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/create`, {
                     method: 'POST',
                     headers: {
@@ -1253,6 +1403,44 @@ export default function CoachingScreen() {
                   if (response.ok) {
                     const result = await response.json();
                     console.log('✅ Commitment created successfully:', result);
+                    
+                    // Update the message content with the returned commitmentId
+                    if (result.commitmentId) {
+                      console.log('🔄 Updating message with commitmentId:', result.commitmentId);
+                      
+                      // Update the already updated messages with commitmentId
+                      finalMessages = updatedMessages.map((message) => {
+                        if (message.role !== 'assistant') return message;
+                        if (hostMessageId && message.id !== hostMessageId) return message;
+
+                        const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
+                        let occurrence = 0;
+                        const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                          if (occurrence !== index) { occurrence++; return match; }
+                          occurrence++;
+
+                          const existingProps: Record<string, string> = {};
+                          const propRegex = /(\w+)="([^"]+)"/g;
+                          let propMatch;
+                          while ((propMatch = propRegex.exec(propsString)) !== null) {
+                            const [, k, v] = propMatch;
+                            existingProps[k] = v;
+                          }
+                          existingProps.commitmentId = result.commitmentId;
+
+                          const newPropsString = Object.entries(existingProps)
+                            .map(([k, v]) => `${k}="${v}"`)
+                            .join(',');
+                          return `[commitmentDetected:${newPropsString}]`;
+                        });
+                        return { ...message, content: updatedContent };
+                      });
+                      
+                      // Update messages state with final version (state + commitmentId)
+                      setMessages(finalMessages);
+                      
+                      console.log('✅ Message updated with commitmentId');
+                    }
                   } else {
                     const errorText = await response.text();
                     console.error('❌ Failed to create commitment:', {
@@ -1261,6 +1449,9 @@ export default function CoachingScreen() {
                     });
                   }
                 }
+                
+                // 4. Save final messages to Firestore (with or without commitmentId)
+                await saveMessagesToFirestore(finalMessages, firebaseUser.uid);
                 
                 console.log('✅ Commitment update completed successfully');
               } catch (error) {
@@ -1324,11 +1515,10 @@ export default function CoachingScreen() {
                 // Update messages state
                 setMessages(updatedMessages);
                 
-                // Save to both cache and Firestore - same as normal message saving
-                await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
+                // Save to Firestore
                 await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
                 
-                console.log('✅ SessionSuggestion state updated and saved to both cache and Firestore');
+                console.log('✅ SessionSuggestion state updated and saved to Firestore');
               } catch (error) {
                 console.error('❌ Failed to update session suggestion state:', error);
               }
@@ -1366,9 +1556,8 @@ export default function CoachingScreen() {
                   return { ...message, content: updatedContent };
                 });
                 setMessages(updatedMessages);
-                await coachingCacheService.saveMessages(updatedMessages, firebaseUser!.uid);
                 await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
-                console.log('✅ Session token replaced with sessionCard token and saved to both cache and Firestore');
+                console.log('✅ Session token replaced with sessionCard token and saved to Firestore');
               } catch (error) {
                 console.error('❌ Failed to replace session token:', error);
               }
@@ -1549,11 +1738,13 @@ export default function CoachingScreen() {
         if (firebaseUser?.uid) {
           console.log('🔄 CoachingScreen focused - refreshing main session...');
           try {
-            // Force reload main session from backend
-            const sessionResult = await coachingCacheService.initializeSession(firebaseUser.uid);
-            if (sessionResult.messages.length > 0) {
-              setMessages(sessionResult.messages);
-              console.log(`✅ Main session refreshed with ${sessionResult.messages.length} messages`);
+            // Force reload main session from Firestore
+            const firestoreResult = await loadMessagesFromFirestore(firebaseUser.uid);
+            if (firestoreResult.allMessages.length > 0) {
+              const displayMessages = firestoreResult.allMessages.slice(-30);
+              setMessages(displayMessages);
+              setAllMessages(firestoreResult.allMessages);
+              console.log(`✅ Main session refreshed with ${displayMessages.length} messages`);
             }
           } catch (error) {
             console.error('❌ Failed to refresh main session:', error);
@@ -1609,26 +1800,24 @@ export default function CoachingScreen() {
   const [isInitialized, setIsInitialized] = useState(false);
   const initializationInProgress = useRef(false);
   
-  // Handle user switching - clear cache when user changes
+  // Handle user switching - clear state when user changes
   useEffect(() => {
     const newUserId = firebaseUser?.uid || null;
     
     if (currentUserId && newUserId && currentUserId !== newUserId) {
-      // User switched - clear previous user's cache and reset initialization
+      // User switched - clear previous user's state and reset initialization
       console.log('👤 User switched detected:', currentUserId, '→', newUserId);
-      clearCoachingCacheForUser(currentUserId);
+      clearCoachingDataForUser(currentUserId);
       setIsInitialized(false); // Force re-initialization for new user
     } else if (currentUserId && !newUserId) {
-      // User logged out - clear current user's cache
-      console.log('🚪 User logged out, clearing cache for:', currentUserId);
-      clearCoachingCacheForUser(currentUserId);
+      // User logged out - clear current user's state
+      console.log('🚪 User logged out, clearing state for:', currentUserId);
+      clearCoachingDataForUser(currentUserId);
       setIsInitialized(false);
     }
     
-    // Update cache service with new user
-    coachingCacheService.setCurrentUser(newUserId);
     setCurrentUserId(newUserId);
-  }, [firebaseUser?.uid, currentUserId, clearCoachingCacheForUser]);
+  }, [firebaseUser?.uid, currentUserId, clearCoachingDataForUser]);
   
   useEffect(() => {
     if (!firebaseUser || isInitialized || initializationInProgress.current) return;
@@ -1724,7 +1913,7 @@ export default function CoachingScreen() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveRef = useRef<string>('');
   
-  // Save messages to both local storage and Firestore whenever messages change
+  // Save messages to Firestore whenever messages change
   useEffect(() => {
     if (firebaseUser?.uid && messages.length > 0) {
       // Create a hash of current messages to detect actual changes
@@ -1759,16 +1948,13 @@ export default function CoachingScreen() {
       saveTimeoutRef.current = setTimeout(() => {
         console.log('💾 [SAVE] Executing debounced save...');
         
-        // Save to local storage (last 300 messages - rich cache)
-        saveMessagesToStorage(messages, firebaseUser.uid);
-        
-        // Save to Firestore (all messages - full backup)
+        // Save to Firestore (all messages)
         saveMessagesToFirestore(messages, firebaseUser.uid);
         
         // Update last save hash
         lastSaveRef.current = messageHash;
         
-        console.log('💾 [SAVE] Save operations initiated');
+        console.log('💾 [SAVE] Save operation initiated');
       }, 1000);
       
     } else {
@@ -1777,7 +1963,7 @@ export default function CoachingScreen() {
         messageCount: messages.length
       });
     }
-  }, [messages, firebaseUser?.uid, saveMessagesToStorage, saveMessagesToFirestore]);
+  }, [messages, firebaseUser?.uid, saveMessagesToFirestore]);
   
   // Cleanup timeout on unmount
   useEffect(() => {

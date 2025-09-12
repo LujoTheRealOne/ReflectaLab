@@ -784,8 +784,8 @@ export default function OnboardingScreen() {
                 onboardingCompletedAt: 0,
                 whatDoYouDoInLife: selectedRoles,
                 selfReflectionPracticesTried: selectedSelfReflection,
-                clarityInLife: clarityLevel,
-                stressInLife: stressLevel,
+                clarityInLife: clarityLevel * 10,
+                stressInLife: stressLevel * 10,
               },
               coachingConfig: {
                 challengeDegree: coachingStylePosition.x < 3.7 ? 'gentle' : coachingStylePosition.x < 6.4 ? 'moderate' : coachingStylePosition.x < 8.2 ? 'challenging' : 'intense',

@@ -282,18 +282,21 @@ export default function SettingsScreen() {
     }, 100); // Small delay to ensure UI renders first
   }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
 
-  // Refresh commitments when screen is focused
+  // Refresh commitments when screen is focused (but only if we have stale data)
   useFocusEffect(
     useCallback(() => {
-      console.log('⚙️ Settings screen focused - refreshing commitments and settings');
+      console.log('⚙️ Settings screen focused - checking if refresh needed');
       if (firebaseUser?.uid) {
-        // Refresh commitments
-        refetchCommitmentsRef.current();
-        
-        // Also refresh settings cache to ensure we have latest data
+        // Only refresh settings cache, commitments will auto-load if needed
         refreshSettings();
+        
+        // Only refresh commitments if we don't have any loaded yet
+        if (commitments.length === 0 && !commitmentsLoading) {
+          console.log('⚙️ No commitments loaded, triggering refresh');
+          refetchCommitmentsRef.current();
+        }
       }
-    }, [firebaseUser?.uid, refreshSettings])
+    }, [firebaseUser?.uid, refreshSettings, commitments.length, commitmentsLoading])
   );
 
   // Handle push notification toggle
@@ -387,11 +390,9 @@ export default function SettingsScreen() {
       // Show success feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       
-      // Force refresh commitments to show updated state
+      // Refresh commitments to show updated state
       console.log('✅ Commitment check-in completed, refreshing commitments...');
-      setTimeout(() => {
-        refetchCommitmentsRef.current();
-      }, 500); // Small delay to ensure backend has processed the update
+      await refetchCommitmentsRef.current();
       
     } catch (error) {
       console.error('Error checking in commitment:', error);

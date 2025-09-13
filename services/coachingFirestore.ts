@@ -71,23 +71,22 @@ export const saveMessagesToFirestore = async (messages: CoachingMessage[], userI
     
     // Import Firestore dynamically
     const { db } = await import('../lib/firebase');
-    const { collection, query, where, getDocs, doc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
+    const { collection, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
     
-    // Find existing coaching session
+    // Find existing coaching session - ONLY main session (sessionId = userId)
     const sessionsRef = collection(db, 'coachingSessions');
-    const sessionQuery = query(
-      sessionsRef,
-      where('userId', '==', userId),
-      where('sessionType', '==', 'default-session')
-    );
     
-    console.log('🔍 [FIRESTORE] Searching for existing session...');
-    const sessionSnapshot = await getDocs(sessionQuery);
+    // CRITICAL FIX: Use direct document access for main session to prevent breakout session contamination
+    // Main session: sessionId = userId, Breakout session: sessionId = session_xxx
+    const mainSessionDocRef = doc(db, 'coachingSessions', userId);
+    const mainSessionDoc = await getDoc(mainSessionDocRef);
+    
+    console.log('🔍 [FIRESTORE] Searching for main session (direct document access)...');
     
     console.log('🔍 [FIRESTORE] Query result:', {
-      isEmpty: sessionSnapshot.empty,
-      docCount: sessionSnapshot.docs.length,
-      userId: userId
+      mainSessionExists: mainSessionDoc.exists(),
+      userId: userId,
+      documentId: userId
     });
     
     // Convert messages to Firestore format (save all messages to backend)
@@ -98,23 +97,22 @@ export const saveMessagesToFirestore = async (messages: CoachingMessage[], userI
       timestamp: msg.timestamp
     }));
     
-    if (!sessionSnapshot.empty) {
-      // Update existing session - NEVER CREATE NEW
-      const sessionDoc = sessionSnapshot.docs[0];
-      const existingData = sessionDoc.data();
+    if (mainSessionDoc.exists()) {
+      // Update existing main session - NEVER CREATE NEW
+      const existingData = mainSessionDoc.data();
       
-      console.log('🔍 [FIRESTORE] Found existing session:', {
-        sessionId: sessionDoc.id,
+      console.log('🔍 [FIRESTORE] Found existing main session:', {
+        sessionId: mainSessionDoc.id,
         existingMessageCount: existingData.messages?.length || 0,
         newMessageCount: firestoreMessages.length,
         sessionType: existingData.sessionType
       });
       
-      await updateDoc(sessionDoc.ref, {
+      await updateDoc(mainSessionDoc.ref, {
         messages: firestoreMessages,
         updatedAt: serverTimestamp()
       });
-      console.log('✅ [FIRESTORE] Updated existing coaching session:', sessionDoc.id);
+      console.log('✅ [FIRESTORE] Updated existing main coaching session:', mainSessionDoc.id);
     } else {
       // No session exists - backend should create it first via API call
       console.log('⚠️ [FIRESTORE] No existing session found - session should be created by backend API first');

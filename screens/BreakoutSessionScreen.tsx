@@ -10,17 +10,20 @@ import { AppStackParamList } from '@/navigation/AppNavigator';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Button } from '@/components/ui/Button';
 import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
+import { loadMessagesFromFirestore, saveMessagesToFirestore, initializeCoachingSession } from '@/services/coachingFirestore';
+import { useCoachingScroll } from '@/hooks/useCoachingScroll';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { ActionPlanCard, BlockersCard, CommitmentCard, CommitmentCheckinCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
+import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { coachingCacheService } from '@/services/coachingCacheService';
 
 type BreakoutSessionScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'BreakoutSession'>;
@@ -167,17 +170,17 @@ const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName
   const dot3Animation = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
-    // Create individual animations for each dot
+    // Create smoother, faster animations for each dot
     const animation1 = Animated.loop(
       Animated.sequence([
         Animated.timing(dot1Animation, {
           toValue: 1,
-          duration: 600,
+          duration: 400, // Faster animation
           useNativeDriver: true
         }),
         Animated.timing(dot1Animation, {
           toValue: 0,
-          duration: 600,
+          duration: 400,
           useNativeDriver: true
         })
       ])
@@ -185,15 +188,15 @@ const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName
 
     const animation2 = Animated.loop(
       Animated.sequence([
+        Animated.delay(150), // Shorter delay
         Animated.timing(dot2Animation, {
           toValue: 1,
-          duration: 600,
-          delay: 200,
+          duration: 400,
           useNativeDriver: true
         }),
         Animated.timing(dot2Animation, {
           toValue: 0,
-          duration: 600,
+          duration: 400,
           useNativeDriver: true
         })
       ])
@@ -201,15 +204,15 @@ const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName
 
     const animation3 = Animated.loop(
       Animated.sequence([
+        Animated.delay(300), // Shorter delay
         Animated.timing(dot3Animation, {
           toValue: 1,
-          duration: 600,
-          delay: 400,
+          duration: 400,
           useNativeDriver: true
         }),
         Animated.timing(dot3Animation, {
           toValue: 0,
-          duration: 600,
+          duration: 400,
           useNativeDriver: true
         })
       ])
@@ -228,17 +231,17 @@ const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName
 
   const dot1Opacity = dot1Animation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.3, 1]
+    outputRange: [0.4, 1] // Slightly higher minimum opacity
   });
 
   const dot2Opacity = dot2Animation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.3, 1]
+    outputRange: [0.4, 1]
   });
 
   const dot3Opacity = dot3Animation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.3, 1]
+    outputRange: [0.4, 1]
   });
 
   return (
@@ -332,6 +335,37 @@ const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, co
   );
 };
 
+// Error message component
+const ErrorMessage = ({ onRetry, colorScheme, isRetrying = false }: { 
+  onRetry: () => void; 
+  colorScheme: ColorSchemeName; 
+  isRetrying?: boolean;
+}) => {
+  return (
+    <View style={styles.errorContainer}>
+      <TouchableOpacity
+        style={[
+          styles.retryButton,
+          {
+            backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+            borderWidth: colorScheme === 'dark' ? 0 : 0.5,
+            borderColor: colorScheme === 'dark' ? 'transparent' : 'rgba(0, 0, 0, 0.1)',
+            opacity: isRetrying ? 0.6 : 1,
+          }
+        ]}
+        onPress={onRetry}
+        disabled={isRetrying}
+      >
+        <IconSymbol 
+          name="arrow.clockwise" 
+          size={16} 
+          color={colorScheme === 'dark' ? '#FFFFFF' : '#555555'} 
+        />
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenProps) {
   const navigation = useNavigation<BreakoutSessionScreenNavigationProp>();
   const { sessionId, title, goal } = route.params;
@@ -350,51 +384,38 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const routeSessionId = (route.params as any)?.sessionId;
   const routeSessionType = (route.params as any)?.sessionType;
 
-  // Use userId as session ID (single session per user) - no state needed
+  // ✅ BREAKOUT SESSION PATTERN: Use the actual breakout session ID from route params
   const getSessionId = (): string => {
-    return firebaseUser?.uid || 'anonymous';
-  };
-
-  // Debug mode flag - set to false for production
-  const DEBUG_LOGS = __DEV__ && false; // Disabled for production
-  const debugLog = (message: string, ...args: any[]) => {
-    if (DEBUG_LOGS) {
-      console.log(message, ...args);
+    // CRITICAL SECURITY: Never allow breakout session to use main session ID
+    if (!sessionId) {
+      console.error('🚨 [SECURITY] No sessionId provided to breakout session!');
+      return 'anonymous';
     }
-  };
-
-  // Cache management using Firestore for breakout sessions
-  const saveMessagesToStorage = useCallback(async (messages: CoachingMessage[], sessionId: string) => {
-    try {
-      await saveMessagesToFirestore(messages, sessionId);
-      debugLog(`💾 Saved ${messages.length} messages to Firestore for breakout session:`, sessionId);
-    } catch (error) {
-      console.error('Error saving messages to Firestore:', error);
-    }
-  }, []);
-
-  const loadExistingSessionFromBackend = useCallback(async (sessionId: string): Promise<{ messages: CoachingMessage[]; sessionExists: boolean }> => {
-    try {
-      debugLog('🔍 Loading existing breakout session from backend:', sessionId);
-      
-      // Load messages directly from Firestore for breakout session
-      const { allMessages, totalCount } = await loadMessagesFromFirestore(sessionId);
-      
-      debugLog(`📱 Breakout session result:`, {
-        exists: allMessages.length > 0,
-        messageCount: allMessages.length,
-        totalCount
+    
+    // CRITICAL SECURITY: Ensure this is a valid breakout session ID
+    if (sessionId === user?.id || sessionId === firebaseUser?.uid) {
+      console.error('🚨 [SECURITY] Breakout session attempted to use main session ID!', {
+        sessionId,
+        userId: user?.id,
+        firebaseUid: firebaseUser?.uid
       });
-      
-      return { 
-        messages: allMessages, 
-        sessionExists: allMessages.length > 0 
-      };
-    } catch (error) {
-      console.error('Error loading breakout session from backend:', error);
-      return { messages: [], sessionExists: false };
+      return 'anonymous';
     }
-  }, []);
+    
+    // CRITICAL SECURITY: Ensure breakout session ID has correct format
+    if (!sessionId.startsWith('session_')) {
+      console.error('🚨 [SECURITY] Invalid breakout session ID format!', { sessionId });
+      return 'anonymous';
+    }
+    
+    return sessionId;
+  };
+
+  // ✅ COACHING SCREEN PATTERN: debugLog is now provided by useCoachingScroll hook
+
+  // ✅ WEB PATTERN: Message storage is handled by API and useCoachingSession hook
+
+  // ✅ WEB PATTERN: Session loading is now handled by useCoachingSession hook automatically
 
   // Debug function to clear storage (for testing)
   const clearStorageForUser = useCallback(async (userId: string) => {
@@ -406,10 +427,10 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     }
   }, []);
 
-  // Test function to clear all coaching data (will be defined after setMessages)
+  // Test function to clear all coaching data
   let clearAllCoachingData: (() => Promise<void>) | null = null;
 
-  // Manual refresh from backend (will be defined after setMessages is available)
+  // Manual refresh from backend
   let refreshFromBackend: (() => Promise<void>) | null = null;
 
   // Clear coaching cache for specific user with full state reset
@@ -421,7 +442,6 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
       await coachingCacheService.clearUserMessages(userId);
       
       // Reset all coaching-related states
-      setMessages([]);
       setAllMessages([]);
       setDisplayedMessageCount(300);
       setHasMoreMessages(false);
@@ -475,128 +495,362 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     }
   }, []);
 
-  const saveMessagesToFirestore = useCallback(async (messages: CoachingMessage[], sessionId: string) => {
-    try {
-      console.log('🔥 Saving messages to Firestore for breakout session:', sessionId);
-      
-      // Import Firestore dynamically
-      const { db } = await import('../lib/firebase');
-      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      
-      // Convert messages to Firestore format (save all messages to backend)
-      const firestoreMessages = messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp
-      }));
-      
-      // Save directly to the specific sessionId document
-      const sessionDocRef = doc(db, 'coachingSessions', sessionId);
-      await setDoc(sessionDocRef, {
-        sessionId: sessionId,
-        sessionType: 'breakout-session',
-        parentSessionId: firebaseUser?.uid, // Link to main user session
-        userId: firebaseUser?.uid,
-        messages: firestoreMessages,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }, { merge: true }); // Use merge to update existing or create new
-      
-      console.log('🔥 Saved breakout session with messages');
-      debugLog(`🔥 Successfully saved ${firestoreMessages.length} messages to Firestore`);
-    } catch (error) {
-      console.log('🔥 Firestore save failed:', error);
-    }
-  }, [firebaseUser?.uid]);
+  // ✅ WEB PATTERN: Firestore operations are handled by API and useCoachingSession hook
 
   // Multi-device sync strategy using Firestore
-  // Load existing breakout session (backend first - never create from cache)
-  const initializeCoachingSession = useCallback(async (sessionId: string): Promise<CoachingMessage[]> => {
-    console.log('🔄 Initializing breakout session:', sessionId);
+  // ✅ WEB PATTERN: Session loading is now handled by useCoachingSession hook
+
+  // ✅ BREAKOUT SESSION PATTERN: Use separate state management for breakout sessions
+  const [messages, setMessages] = useState<CoachingMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number>(7);
+  
+  // ✅ BREAKOUT SESSION PATTERN: Track initialization state
+  const [isInitialized, setIsInitialized] = useState(false);
+  const initializationInProgress = useRef(false);
+  
+  // ✅ COACHING SCREEN PATTERN: Error handling state
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+  
+  // ✅ COACHING SCREEN PATTERN: CoachingCardRenderer props
+  const coachingCardRendererProps: CoachingCardRendererProps = useMemo(() => ({
+    messages,
+    setMessages,
+    firebaseUser: { uid: user?.id }, // Use Clerk user ID
+    getToken,
+    saveMessagesToFirestore: async (messages: CoachingMessage[], userId: string) => {
+      // For breakout sessions, we don't save to Firestore directly
+      // The API handles all persistence
+      console.log('🔍 [BREAKOUT] CoachingCardRenderer saveMessagesToFirestore called, skipping for breakout session');
+    }
+  }), [messages, setMessages, user?.id, getToken]);
+  
+  // ✅ BREAKOUT SESSION PATTERN: Custom sendMessage for breakout sessions
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // ✅ COACHING SCREEN PATTERN: Typewriter effect function for React Native
+  const simulateTypewriter = useCallback(async (content: string, messageId: string) => {
+    const words = content.split(' ');
+    let currentContent = '';
     
-    try {
-      // 1. Load existing breakout session from backend (never from cache)
-      console.log('🔄 Step 1: Loading existing breakout session from backend...');
-      const sessionResult = await loadExistingSessionFromBackend(sessionId);
+    for (let i = 0; i < words.length; i++) {
+      currentContent += (i > 0 ? ' ' : '') + words[i];
       
-      if (sessionResult.sessionExists) {
-        console.log(`✅ Found existing session with ${sessionResult.messages.length} messages`);
-        
-        // Set up pagination for existing session
-        setAllMessages(sessionResult.messages);
-        setHasMoreMessages(sessionResult.messages.length > 300);
-        setDisplayedMessageCount(Math.min(300, sessionResult.messages.length));
-        
-        // Return last 30 messages for display
-        const displayMessages = sessionResult.messages.slice(-30);
-        console.log(`✅ Session loaded with ${displayMessages.length} display messages`);
-        return displayMessages;
-      } else {
-        console.log('📝 No existing session found - ready to create new session on first message');
-        
-        // No breakout session exists - create initial message
-        setAllMessages([]);
-        setHasMoreMessages(false);
-        setDisplayedMessageCount(0);
-        
-        const initialMessage: CoachingMessage = {
-          id: '1',
-          content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, content: currentContent }
+          : msg
+      ));
+      
+      // Adjust speed based on word length - shorter delay for shorter words
+      const delay = Math.min(Math.max(words[i].length * 10, 30), 100);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }, []);
+
+  // Custom sendMessage function for breakout sessions
+  const sendMessage = useCallback(async (content: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => {
+    if (!content.trim()) return;
+    if (!sessionId || !sessionId.trim()) {
+      throw new Error('Session ID is required for coaching messages');
+    }
+
+    // Cancel any ongoing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+
+    const userMessage: CoachingMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: content.trim(),
+      timestamp: new Date()
+    };
+
+    // Add user message immediately to breakout session state
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Get Clerk token for authentication
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication token not available');
+      }
+
+      // Call the web app API endpoint
+      console.log('🔍 [BREAKOUT API] Making API call to:', `${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`);
+      console.log('🔍 [BREAKOUT API] Request payload:', {
+        message: content.trim().substring(0, 50) + '...',
+        sessionId: sessionId,
+        sessionType: options?.sessionType || 'default-session',
+        sessionDuration: options?.sessionDuration,
+        conversationHistoryLength: messages.length
+      });
+
+      // CRITICAL FIX: Add React Native specific headers for SSE compatibility
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+        body: JSON.stringify({
+          message: content.trim(),
+          sessionId: sessionId,
+          sessionType: options?.sessionType || 'default-session',
+          sessionDuration: options?.sessionDuration,
+          conversationHistory: messages // Include conversation history for context
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      console.log('🔍 [BREAKOUT API] Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: {
+          contentType: response.headers.get('content-type'),
+          contentLength: response.headers.get('content-length'),
+          connection: response.headers.get('connection')
+        },
+        hasBody: !!response.body,
+        bodyLocked: response.bodyUsed
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ [BREAKOUT API] HTTP error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      }
+
+      // ✅ COACHING SCREEN PATTERN: Create AI message placeholder for streaming
+      const aiMessageId = (Date.now() + 1).toString();
+      const aiMessage: CoachingMessage = {
+        id: aiMessageId,
           role: 'assistant',
+        content: '',
           timestamp: new Date()
         };
         
-        return [initialMessage];
+      // ✅ COACHING SCREEN PATTERN: Add AI message placeholder and stop loading immediately
+      setMessages(prev => [...prev, aiMessage]);
+      setIsLoading(false);
+
+      // ✅ COACHING SCREEN PATTERN: React Native streaming implementation
+      if (!response.body) {
+        console.log('🔄 [BREAKOUT API] Using React Native text-based streaming (same as CoachingScreen)');
+        const fullResponse = await response.text();
+        
+        // Parse the server-sent events format manually
+        const lines = fullResponse.split('\n');
+        let fullContent = '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'content') {
+                fullContent += data.content;
+              }
+            } catch (parseError) {
+              console.error('❌ [BREAKOUT API] Error parsing line:', line, parseError);
+            }
+          }
+        }
+        
+        console.log('🤖 [BREAKOUT API] Full response content length:', fullContent.length);
+        
+        // ✅ COACHING SCREEN PATTERN: Use typewriter effect for smooth streaming experience
+        console.log('⌨️ [BREAKOUT API] Starting typewriter effect...');
+        await simulateTypewriter(fullContent, aiMessageId);
+        
+        console.log('✅ [BREAKOUT API] Text-based streaming with typewriter effect completed successfully');
+        return; // Exit successfully
       }
-    } catch (error) {
-      console.error('❌ Breakout session initialization failed:', error);
+
+      // ✅ COACHING SCREEN PATTERN: Handle normal streaming (if response.body exists)
+      console.log('🔍 [BREAKOUT API] Using normal SSE stream reading...');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      let assistantContent = '';
+      let chunkCount = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log('🔍 [BREAKOUT API] Stream completed, total chunks:', chunkCount);
+            break;
+          }
+
+          chunkCount++;
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                if (data.type === 'content' && data.content) {
+                  assistantContent += data.content;
+                  
+                  // Update assistant message in breakout session state
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === aiMessageId 
+                      ? { ...msg, content: assistantContent }
+                      : msg
+                  ));
+                } else if (data.type === 'done') {
+                  console.log('✅ [BREAKOUT API] Stream completed successfully');
+                } else if (data.type === 'error') {
+                  console.error('❌ [BREAKOUT API] Stream error:', data.error);
+                  throw new Error(data.error || 'Stream error');
+                }
+              } catch (parseError) {
+                console.warn('⚠️ [BREAKOUT API] Failed to parse SSE data:', line, parseError);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+        console.log('🔍 [BREAKOUT API] Stream reader released');
+      }
+
+    } catch (error: any) {
+      console.error('❌ [BREAKOUT API] Error in breakout session sendMessage:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.substring(0, 200),
+        isAbortError: error.name === 'AbortError',
+        isNetworkError: error.message?.includes('fetch'),
+        isResponseError: error.message?.includes('response')
+      });
       
-      // Reset on error and provide fallback message
-      setAllMessages([]);
-      setHasMoreMessages(false);
-      setDisplayedMessageCount(0);
+      if (error.name === 'AbortError') {
+        console.log('🔄 [BREAKOUT API] Request was aborted by user');
+        return;
+      }
+
+      // Remove user message on error and show error message
+      setMessages(prev => prev.slice(0, -1));
       
-      const fallbackMessage: CoachingMessage = {
-        id: '1',
-        content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+      // Provide more specific error messages
+      let errorContent = 'Sorry, I encountered an error. Please try again.';
+      if (error.message?.includes('No response body')) {
+        errorContent = 'Connection issue detected. The message was sent but the response stream failed. Please check your connection and try again.';
+      } else if (error.message?.includes('HTTP error')) {
+        errorContent = 'Server error occurred. Please try again in a moment.';
+      } else if (error.message?.includes('Authentication')) {
+        errorContent = 'Authentication error. Please refresh the app and try again.';
+      }
+      
+      const errorMessage: CoachingMessage = {
+        id: Date.now().toString(),
         role: 'assistant',
-        timestamp: new Date()
+        content: errorContent,
+        timestamp: new Date(),
+        isError: true
       };
       
-      return [fallbackMessage];
+      setMessages(prev => [...prev, errorMessage]);
+      setError(error.message || 'An error occurred');
     }
-  }, [loadExistingSessionFromBackend]);
+  }, [getToken, messages, simulateTypewriter]);
 
-  // Use the AI coaching hook (regular usage for now)
-  const { messages, isLoading, sendMessage, setMessages, progress, stopGeneration } = useAICoaching();
-  
-  // Initialize breakout session on mount
-  useEffect(() => {
-    const initializeSession = async () => {
-      if (!sessionId) return;
-      
-      console.log('🚀 Initializing breakout session on mount:', sessionId);
-      try {
-        const initialMessages = await initializeCoachingSession(sessionId);
-        setMessages(initialMessages);
-        console.log(`✅ Breakout session initialized with ${initialMessages.length} messages`);
-      } catch (error) {
-        console.error('❌ Failed to initialize breakout session:', error);
-        
-        // Fallback to welcome message
-        const welcomeMessage: CoachingMessage = {
-          id: '1',
-          content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
-          role: 'assistant',
-          timestamp: new Date()
-        };
-        setMessages([welcomeMessage]);
-      }
-    };
+  // ✅ COACHING SCREEN PATTERN: Handle message retry
+  const handleRetryMessage = useCallback(async (messageId: string) => {
+    if (retryingMessageId) return; // Prevent multiple retries
     
-    initializeSession();
-  }, [sessionId, title, goal, setMessages, initializeCoachingSession]);
+    setRetryingMessageId(messageId);
+    
+    try {
+      // Find the failed message and the user message before it
+      const messageIndex = messages.findIndex(msg => msg.id === messageId);
+      if (messageIndex <= 0) return;
+      
+      const userMessage = messages[messageIndex - 1];
+      if (userMessage.role !== 'user') return;
+      
+      // Remove the failed AI message
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      
+      // Retry with the same user message
+      await sendMessage(userMessage.content, sessionId);
+      
+    } catch (error) {
+      console.error('❌ [RETRY] Error retrying message:', error);
+    } finally {
+      setRetryingMessageId(null);
+    }
+  }, [messages, retryingMessageId, sendMessage, sessionId]);
+
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsLoading(false);
+    }
+  }, []);
+  
+  // ✅ WEB PATTERN: Determine if this is a breakout session
+  const isBreakoutSession = sessionId && sessionId !== user?.id;
+  
+  // ✅ COACHING SCREEN PATTERN: Already using useAICoaching hook above
+  
+  // ✅ WEB PATTERN: Helper function to deduplicate messages by ID
+  const deduplicateMessages = useCallback((messages: CoachingMessage[]): CoachingMessage[] => {
+    const seen = new Set<string>();
+    return messages.filter(msg => {
+      if (seen.has(msg.id)) return false;
+      seen.add(msg.id);
+      return true;
+    });
+  }, []);
+
+  // ✅ WEB PATTERN: Generate initial messages for new sessions
+  const getInitialMessages = useCallback((): CoachingMessage[] => {
+    if (!sessionId) return [];
+    
+    // For breakout sessions, show welcome message with title and goal
+    if (isBreakoutSession && (title || goal)) {
+      return [{
+        id: `initial-${sessionId}`,
+        role: 'assistant' as const,
+          content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
+          timestamp: new Date()
+      }];
+    }
+    
+    // Default fallback message
+    return [{
+      id: `initial-${sessionId}`,
+      role: 'assistant' as const,
+      content: "What's on your mind?",
+        timestamp: new Date()
+    }];
+  }, [sessionId, isBreakoutSession, title, goal]);
+
+  // ✅ COACHING SCREEN PATTERN: Session data derived from messages state
+  const sessionData = {
+    objective: isBreakoutSession ? (title || "Breakout Session") : "Coach",
+    messages: deduplicateMessages(messages), // From useAICoaching hook
+    sessionId: sessionId || user?.id,
+    title: title,
+    goal: goal
+  };
+
+  // Debug logging will be added after isInitialized declaration
   
   // Test function to clear breakout session data
   clearAllCoachingData = useCallback(async () => {
@@ -613,20 +867,13 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
       await deleteDoc(sessionDocRef);
       console.log('🗑️ Deleted Firestore breakout session:', sessionId);
       
-      // Reset messages to welcome message
-      const initialMessage: CoachingMessage = {
-        id: '1',
-        content: `Welcome to your breakout session: ${title || 'Focused Coaching'}\n\n${goal ? `Goal: ${goal}\n\n` : ''}I'm here to help you dive deeper into this specific topic. What would you like to explore?`,
-        role: 'assistant',
-        timestamp: new Date()
-      };
-      setMessages([initialMessage]);
+      // Session will be reloaded from Firestore automatically via useCoachingSession hook
       
       console.log('✅ Breakout session data cleared successfully');
     } catch (error) {
       console.error('❌ Error clearing breakout session data:', error);
     }
-  }, [sessionId, title, goal, setMessages]);
+  }, [sessionId]);
 
   // Manual refresh from backend
   refreshFromBackend = useCallback(async () => {
@@ -638,27 +885,13 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     try {
       console.log('🔄 Manual refresh from backend requested for breakout session:', sessionId);
       
-      // Re-initialize breakout session from backend
-      const sessionMessages = await initializeCoachingSession(sessionId);
+      // useCoachingSession hook will automatically reload from Firestore
       
-      if (sessionMessages.length > 0) {
-        setMessages(sessionMessages);
-        console.log(`✅ Refreshed with ${sessionMessages.length} messages from backend`);
-      } else {
-        console.log('📝 No session found in backend');
-        // Show welcome message if no session exists
-        const welcomeMessage: CoachingMessage = {
-          id: '1',
-          content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
-          role: 'assistant',
-          timestamp: new Date()
-        };
-        setMessages([welcomeMessage]);
-      }
+      console.log('✅ Refresh requested - session will reload automatically');
     } catch (error) {
       console.error('❌ Error refreshing from backend:', error);
     }
-  }, [sessionId, setMessages, initializeCoachingSession]);
+  }, [sessionId]);
 
   // Expose functions globally for testing (remove in production)
   if (__DEV__) {
@@ -689,8 +922,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   // Enhanced loading state management
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
 
-  // Track AI response state more reliably
-  const [aiResponseStarted, setAiResponseStarted] = useState(false);
+  // ✅ COACHING SCREEN PATTERN: aiResponseStarted is now managed later in the component
 
   // Pagination state for message loading
   const [allMessages, setAllMessages] = useState<CoachingMessage[]>([]);
@@ -717,7 +949,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
       const newCount = Math.min(displayedMessageCount + MESSAGES_PER_PAGE, allMessages.length);
       const messagesToShow = allMessages.slice(-newCount);
       
-      setMessages(messagesToShow);
+      // Note: In web pattern, messages are derived from session state
+      // This pagination logic may need to be handled differently
       setDisplayedMessageCount(newCount);
       setHasMoreMessages(newCount < allMessages.length);
       
@@ -730,7 +963,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
         setIsLoadingMore(false);
       }, 200);
     }
-  }, [isLoadingMore, hasMoreMessages, displayedMessageCount, allMessages, MESSAGES_PER_PAGE, setMessages]);
+  }, [isLoadingMore, hasMoreMessages, displayedMessageCount, allMessages, MESSAGES_PER_PAGE]);
 
   // Group messages by date and insert separators
   const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
@@ -772,24 +1005,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     }
   }, [isLoading]);
 
-  // Monitor when AI response actually starts
-  useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      const isLastMessageAI = lastMessage?.role === 'assistant';
-      
-      if (isLastMessageAI && isLoading) {
-        // AI response has started
-        setAiResponseStarted(true);
-      } else if (!isLoading && aiResponseStarted) {
-        // AI response has completed
-        setAiResponseStarted(false);
-      }
-    }
-  }, [messages, isLoading, aiResponseStarted]);
-
-  // Enhanced loading indicator logic
-  const shouldShowLoadingIndicator = isLoading || (aiResponseStarted && messages.length > 0);
+  // ✅ COACHING SCREEN PATTERN: All AI response monitoring is now managed later in the component
 
   //POWERFUL MESSAGE POSITIONING SYSTEM
 
@@ -807,79 +1023,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
-  // Dynamic content height calculation
-  const dynamicContentHeight = useMemo(() => {
-    let totalHeight = 12; // paddingTop
-    
-    messages.forEach((message, index) => {
-      const contentLength = message.content.length;
-      const lines = Math.max(1, Math.ceil(contentLength / 44));
-      let messageHeight = lines * 22 + 32;
-      
-      if (message.role === 'assistant') {
-        const isLastMessage = index === messages.length - 1;
-        const isCurrentlyStreaming = isLastMessage && isLoading;
-        
-        if (isCurrentlyStreaming) {
-          messageHeight += 200;
-        } else {
-          messageHeight += 80;
-        }
-      }
-      
-      totalHeight += messageHeight + 16;
-    });
-    
-    // Add loading indicator height
-    if (shouldShowLoadingIndicator) {
-      totalHeight += 60;
-    }
-    
-    return totalHeight;
-  }, [messages, isLoading, shouldShowLoadingIndicator]);
-
-  // 2. Dynamic bottom padding - account for live input container height so last lines stay visible
-  const dynamicBottomPadding = useMemo(() => {
-    // Base padding when idle
-    const basePadding = 50;
-
-    // Add extra space if keyboard is open
-    const keyboardExtraSpace = keyboardHeight > 0 ? keyboardHeight + containerHeight + 20 : 80;
-
-    // Extra space for the growing input container to prevent overlap
-    const extraForInput = Math.max(0, containerHeight - CONTAINER_BASE_HEIGHT) + 40; // small cushion
-
-    // If the AI is responding or user just sent a message, add more for positioning
-    const lastMessage = messages[messages.length - 1];
-    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (keyboardHeight > 0) {
-      // When keyboard is open - give more space
-      return keyboardExtraSpace;
-    } else if (isUserWaitingForAI) {
-      return basePadding + extraForInput + 120;
-    }
-
-    return basePadding + extraForInput;
-  }, [messages, isLoading, containerHeight, keyboardHeight]);
-
-  // New state for content height tracking
-  const [contentHeight, setContentHeight] = useState(0);
-  const [scrollViewHeight, setScrollViewHeight] = useState(0);
-
-  // Scroll limits calculation - simplified
-  const scrollLimits = useMemo(() => {
-    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
-    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
-    
-    return {
-      minContentHeight,
-      maxScrollDistance
-    };
-  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
-
-  // Enhanced scroll position tracking for scroll-to-bottom button
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // ✅ COACHING SCREEN PATTERN: dynamicContentHeight is now provided by useCoachingScroll hook
+  // ✅ COACHING SCREEN PATTERN: All scroll-related calculations are now provided by useCoachingScroll hook
 
   // Function to parse coaching completion data between finish tokens
   const parseCoachingCompletion = (content: string) => {
@@ -1035,7 +1180,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
                   const tokenRegex = /\[commitmentDetected:([^\]]+)\]/g;
                   let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                   const updatedContent = message.content.replace(tokenRegex, (match: string, propsString: string) => {
                     if (occurrence !== index) { occurrence++; return match; }
                     occurrence++;
 
@@ -1057,8 +1202,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   return { ...message, content: updatedContent };
                 });
 
-                // 2. Update messages state
-                setMessages(updatedMessages);
+                // 2. Update local messages state (will be persisted by outer effect)
+                // Note: In web pattern, this would update the session in Firestore directly
                 
                 // 3. Let outer effect persist updates to avoid duplicate saves
                 
@@ -1141,7 +1286,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
                   const tokenRegex = /\[sessionSuggestion:([^\]]+)\]/g;
                   let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                   const updatedContent = message.content.replace(tokenRegex, (match: string, propsString: string) => {
                     if (occurrence !== index) { occurrence++; return match; }
                     occurrence++;
 
@@ -1166,12 +1311,11 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   return { ...message, content: updatedContent };
                 });
 
-                // Update messages in state
-                setMessages(updatedMessages);
+                // Update messages in state (web pattern would update Firestore directly)
+                // Note: This logic needs to be adapted for web pattern
                 
-                // Persist to breakout session Firestore (not main cache)
-                await saveMessagesToFirestore(updatedMessages, sessionId);
-                console.log('✅ SessionSuggestion state updated and saved to breakout session');
+                // ✅ WEB PATTERN: API handles Firestore updates automatically
+                console.log('✅ SessionSuggestion state updated (API will sync to Firestore)');
                 
               } catch (error) {
                 console.error('❌ Failed to update session suggestion state:', error);
@@ -1205,7 +1349,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
                   const tokenRegex = /\[session:([^\]]+)\]/g;
                   let occurrence = 0;
-                  const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
+                   const updatedContent = message.content.replace(tokenRegex, (match: string, propsString: string) => {
                     if (occurrence !== index) { occurrence++; return match; }
                     occurrence++;
                     return sessionCardContent; // Replace with sessionCard token
@@ -1213,12 +1357,11 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   return { ...message, content: updatedContent };
                 });
 
-                // Update messages in state
-                setMessages(updatedMessages);
+                // Update messages in state (web pattern would update Firestore directly)
+                // Note: This logic needs to be adapted for web pattern
                 
-                // Persist to breakout session Firestore (not main cache)
-                await saveMessagesToFirestore(updatedMessages, sessionId);
-                console.log('✅ Session token replaced with sessionCard token and saved to breakout session');
+                // ✅ WEB PATTERN: API handles Firestore updates automatically
+                console.log('✅ Session token replaced with sessionCard token (API will sync to Firestore)');
                 
               } catch (error) {
                 console.error('❌ Failed to replace session token:', error);
@@ -1339,7 +1482,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     },
   });
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  // ✅ COACHING SCREEN PATTERN: scrollViewRef is now provided by useCoachingScroll hook
   const textInputRef = useRef<TextInput>(null);
 
   const paywallShownRef = useRef<boolean>(false);
@@ -1405,7 +1548,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
           const messageCount = messagesRef.current.length;
           const totalWords = messagesRef.current.reduce((total, msg) => {
             if (msg.role === 'user') {
-              return total + msg.content.split(/\s+/).filter(word => word.length > 0).length;
+              return total + msg.content.split(/\s+/).filter((word: string) => word.length > 0).length;
             }
             return total;
           }, 0);
@@ -1438,7 +1581,20 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Load conversation history from local storage or show welcome message
-  const [isInitialized, setIsInitialized] = useState(false);
+  // ✅ BREAKOUT SESSION PATTERN: Initialization state is now handled above
+  
+  // ✅ COACHING SCREEN PATTERN: Debug logging for session state
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('🐛 [DEBUG] BreakoutSession state:', {
+        sessionId,
+        isBreakoutSession,
+        totalMessageCount: messages.length,
+        isInitialized: isInitialized,
+        isLoading: isLoading
+      });
+    }
+  }, [sessionId, isBreakoutSession, messages.length, isInitialized, isLoading]);
   
   // Handle user switching - clear cache when user changes
   useEffect(() => {
@@ -1461,150 +1617,202 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     setCurrentUserId(newUserId);
   }, [firebaseUser?.uid, currentUserId, clearCoachingCacheForUser]);
   
-  // Remove this useEffect - we don't want main session initialization in breakout session
-
-  // Save messages to Firestore whenever messages change (using sessionId)
+  // ✅ BREAKOUT SESSION PATTERN: Initialize breakout session with isolated state
   useEffect(() => {
-    if (sessionId && messages.length > 0) {
-      // Don't save just the welcome message
-      if (messages.length === 1 && messages[0].id === '1' && messages[0].role === 'assistant') {
+    if (!user?.id || isInitialized || initializationInProgress.current) return;
+    
+    const initializeBreakoutSession = async () => {
+      // Prevent concurrent initialization
+      if (initializationInProgress.current) {
+        console.log('⚠️ [BREAKOUT INIT] Initialization already in progress, skipping');
         return;
       }
       
-      // Save to Firestore using breakout sessionId
-      saveMessagesToFirestore(messages, sessionId);
+      initializationInProgress.current = true;
+      
+      // CRITICAL SECURITY: Validate session ID before initialization
+      const validatedSessionId = getSessionId();
+      if (validatedSessionId === 'anonymous') {
+        console.error('🚨 [SECURITY] Cannot initialize - invalid session ID');
+        setIsInitialized(true); // Set as initialized to prevent loops
+        return;
+      }
+      
+      console.log('🔄 [BREAKOUT INIT] Starting isolated breakout session initialization for:', validatedSessionId);
+      
+      try {
+        // Load existing breakout session from Firestore
+        const sessionResult = await loadMessagesFromFirestore(validatedSessionId);
+        const sessionMessages = sessionResult.allMessages;
+        
+        if (sessionMessages.length > 0) {
+          // Existing breakout session found
+          console.log(`✅ [BREAKOUT INIT] Found existing breakout session with ${sessionMessages.length} messages`);
+          setMessages(sessionMessages);
+        } else {
+          // No existing session - show initial message
+          console.log('📝 [BREAKOUT INIT] No existing breakout session, creating initial message');
+          const initialMessages = getInitialMessages();
+          setMessages(initialMessages);
+        }
+        
+        setIsInitialized(true);
+        console.log('✅ [BREAKOUT INIT] Isolated breakout session initialization completed');
+        
+      } catch (error) {
+        console.error('❌ [BREAKOUT INIT] Breakout session initialization failed:', error);
+        
+        // Fallback: show initial message
+        const fallbackMessages = getInitialMessages();
+        setMessages(fallbackMessages);
+        setIsInitialized(true);
+        console.log('🔄 [BREAKOUT INIT] Fallback initialization completed');
+      } finally {
+        initializationInProgress.current = false;
+      }
+    };
+    
+    initializeBreakoutSession();
+  }, [user?.id, sessionId, isInitialized, getInitialMessages]);
+
+  // ✅ BREAKOUT SESSION PATTERN: Isolated real-time listener for breakout sessions only
+  const realTimeListenerActive = useRef(false);
+  
+  useEffect(() => {
+    // Only use real-time listener when not actively messaging (isLoading = false)
+    // This prevents conflicts with our isolated state management
+    if (!user?.id || !isInitialized || isLoading || !sessionId) return;
+
+    // Prevent multiple listeners
+    if (realTimeListenerActive.current) return;
+    
+    // CRITICAL SECURITY: Validate session ID before setting up listener
+    const validatedSessionId = getSessionId();
+    if (validatedSessionId === 'anonymous') {
+      console.error('🚨 [SECURITY] Cannot setup real-time listener - invalid session ID');
+      return;
     }
-  }, [messages, sessionId, saveMessagesToFirestore]);
+    
+    console.log('🔄 [REALTIME] Setting up isolated real-time listener for breakout session:', validatedSessionId);
+    realTimeListenerActive.current = true;
+
+    const unsubscribe = onSnapshot(
+      doc(db, 'coachingSessions', validatedSessionId),
+      (docSnap) => {
+        // Skip updates if currently messaging to avoid conflicts
+        if (isLoading) {
+          console.log('🔄 [REALTIME] Skipping update - messaging in progress');
+          return;
+        }
+        
+        if (docSnap.exists()) {
+          console.log('🔄 [REALTIME] Breakout session updated, refreshing isolated messages...');
+          const sessionData = docSnap.data();
+          const firestoreMessages = sessionData.messages || [];
+          
+          // Convert to our message format
+          const convertedMessages: CoachingMessage[] = firestoreMessages.map((msg: any, index: number) => ({
+            id: msg.id || `msg_${index}`,
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content || '',
+            timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
+          }));
+          
+          // Only update if message count changed (prevent unnecessary re-renders)
+          if (convertedMessages.length !== messages.length) {
+            setMessages(convertedMessages);
+            console.log(`✅ [REALTIME] Updated isolated breakout session with ${convertedMessages.length} messages from real-time listener`);
+          }
+        } else {
+          console.log('🔄 [REALTIME] No breakout session document found');
+        }
+      },
+      (error) => {
+        console.error('❌ [REALTIME] Error in isolated breakout session real-time listener:', error);
+        realTimeListenerActive.current = false;
+      }
+    );
+
+    return () => {
+      console.log('🧹 [REALTIME] Cleaning up isolated breakout session real-time listener');
+      realTimeListenerActive.current = false;
+      unsubscribe();
+    };
+  }, [user?.id, sessionId, isInitialized, isLoading, messages.length]);
 
   
 
-  // Auto-scroll to position new messages below header
-  const scrollToNewMessageRef = useRef(false);
+  // ✅ COACHING SCREEN PATTERN: Enhanced loading indicator logic
+  const [aiResponseStarted, setAiResponseStarted] = useState(false);
   
-  // Store refs for each message to measure their positions
-  const messageRefs = useRef<{ [key: string]: View | null }>({});
+  // Monitor when AI response actually starts
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      const isLastMessageAI = lastMessage?.role === 'assistant';
+      
+      if (isLastMessageAI && isLoading) {
+        // AI response has started
+        setAiResponseStarted(true);
+      } else if (!isLoading && aiResponseStarted) {
+        // AI response has completed
+        setAiResponseStarted(false);
+      }
+    }
+  }, [messages, isLoading, aiResponseStarted]);
+
+  const shouldShowLoadingIndicator = useMemo(() => {
+    return isLoading || (aiResponseStarted && messages.length > 0);
+  }, [isLoading, aiResponseStarted, messages.length]);
   
-  // Store the target scroll position after user message positioning
-  const targetScrollPosition = useRef<number | null>(null);
+  // ✅ COACHING SCREEN PATTERN: Use the coaching scroll hook
+  const scrollHook = useCoachingScroll({
+    messages,
+    isLoading,
+    shouldShowLoadingIndicator,
+    progress
+  });
+
+  const {
+    contentHeight,
+    scrollViewHeight,
+    showScrollToBottom,
+    scrollViewRef,
+    messageRefs,
+    scrollToNewMessageRef,
+    targetScrollPosition,
+    hasUserScrolled,
+    didInitialAutoScroll,
+    dynamicContentHeight,
+    dynamicBottomPadding,
+    scrollLimits,
+    setContentHeight,
+    setScrollViewHeight,
+    setShowScrollToBottom,
+    scrollToShowLastMessage,
+    handleScrollToBottom: hookHandleScrollToBottom,
+    handleScroll: hookHandleScroll,
+    triggerPositioning,
+    debugLog
+  } = scrollHook;
+
+  // ✅ COACHING SCREEN PATTERN: Trigger positioning when new user message appears
+  const lastMessageRef = useRef<string | null>(null);
   
-  // Track if user has manually scrolled
-  const hasUserScrolled = useRef<boolean>(false);
-  // One-time initial auto-scroll flag
-  const didInitialAutoScroll = useRef<boolean>(false);
-  
-    // 3. Completely rewrite scrollToShowLastMessage:
-  const scrollToShowLastMessage = useCallback(() => {
-    if (!scrollViewRef.current || messages.length === 0) return;
+  useEffect(() => {
+    if (messages.length === 0) return;
     
     const lastMessage = messages[messages.length - 1];
+    const isNewUserMessage = lastMessage.role === 'user' && lastMessage.id !== lastMessageRef.current;
     
-    // Only position user messages
-    if (lastMessage.role !== 'user') return;
-    
-    debugLog('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
-    
-    // Target position: MESSAGE_TARGET_OFFSET pixels below header
-    const targetFromTop = MESSAGE_TARGET_OFFSET;
-    
-    // Get user message ref
-    const lastMessageRef = messageRefs.current[lastMessage.id];
-    
-    if (lastMessageRef) {
-      // Measure current position of the message
-      setTimeout(() => {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-            // Target scroll position = message Y position - target position
-            const targetScrollY = Math.max(0, msgY - targetFromTop);
-            
-            debugLog('📐 Measurement:', {
-              messageY: msgY,
-              targetFromTop,
-              targetScrollY
-            });
-            
-            // Perform scroll
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            // Save position
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
-            
-            debugLog('✅ User message positioned at scroll:', targetScrollY);
-          },
-          () => {
-            debugLog('❌ Measurement failed, using estimation');
-            
-            // Fallback: estimate message position
-            let estimatedY = 12; // paddingTop
-            
-            // Sum up height of all previous messages
-            for (let i = 0; i < messages.length - 1; i++) {
-              const msg = messages[i];
-              const lines = Math.max(1, Math.ceil(msg.content.length / 40));
-              const msgHeight = lines * 22 + 48; // text + padding
-              estimatedY += msgHeight + 16; // marginBottom
-            }
-            
-            // Last message Y position
-            const targetScrollY = Math.max(0, estimatedY - targetFromTop);
-            
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
-          }
-        );
-      }, 150); // Wait for layout to stabilize
+    if (isNewUserMessage && scrollToNewMessageRef.current) {
+      debugLog('🎯 New user message detected, triggering positioning:', lastMessage.content.substring(0, 30));
+      lastMessageRef.current = lastMessage.id;
+      triggerPositioning();
     }
-  }, [messages]);
-  
-  // 4. Simplify useEffect:
-  useEffect(() => {
-    // Only scroll when user sends a message
-    if (scrollToNewMessageRef.current && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollToShowLastMessage();
-        scrollToNewMessageRef.current = false;
-      }, 100);
-    }
-  }, [messages.length, scrollToShowLastMessage]);
+  }, [messages, triggerPositioning, debugLog]);
 
-  // 5. Remove position maintenance during AI response - too complex
-  // Instead, adjust position once when AI response starts:
-  useEffect(() => {
-    if (isLoading && targetScrollPosition.current !== null) {
-      // Adjust position once when AI response starts
-      const maintainedPosition = targetScrollPosition.current;
-      
-      setTimeout(() => {
-        if (scrollViewRef.current && !hasUserScrolled.current) {
-          scrollViewRef.current.scrollTo({
-            y: maintainedPosition,
-            animated: false
-          });
-        }
-      }, 100);
-    }
-  }, [isLoading]);
-
-  // 6. Clear when progress reaches 100%:
-  useEffect(() => {
-    if (progress === 100) {
-      setTimeout(() => {
-        targetScrollPosition.current = null;
-        hasUserScrolled.current = false;
-        debugLog('🧹 Positioning cleared after AI response');
-      }, 1000);
-    }
-  }, [progress]);
+  // ✅ COACHING SCREEN PATTERN: Enhanced loading indicator logic (already defined above)
 
   // Check for completion when progress reaches 100%
   useEffect(() => {
@@ -1623,7 +1831,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
         // Count words from user messages
         const userMessages = messages.filter(msg => msg.role === 'user');
         const totalWords = userMessages.reduce((count, msg) => {
-          return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
+           return count + msg.content.trim().split(/\s+/).filter((word: string) => word.length > 0).length;
         }, 0);
 
         // Parse coaching completion data if available
@@ -1808,8 +2016,23 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    // Use breakout sessionId
-    const currentSessionId = sessionId;
+    // Use breakout sessionId with security validation
+    const currentSessionId = getSessionId();
+    
+    // 🔍 DEBUG: Log all session ID related values
+    console.log('🔍 [DEBUG] Session ID Analysis:', {
+      routeSessionId: sessionId,
+      currentSessionId: currentSessionId,
+      userId: user?.id,
+      firebaseUid: firebaseUser?.uid,
+      getSessionIdResult: getSessionId()
+    });
+    
+    // CRITICAL SECURITY: Prevent sending messages if session ID is invalid
+    if (currentSessionId === 'anonymous') {
+      console.error('🚨 [SECURITY] Cannot send message - invalid session ID');
+      return;
+    }
     
     // Log breakout coaching session
     console.log('🎯 [COACHING] Breakout coaching session...', {
@@ -1846,9 +2069,24 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
 
     debugLog('📤 Sending message, positioning will be triggered');
 
+    // ✅ WEB PATTERN: No local state - let API handle everything and Firestore sync
+    try {
+      // 🔍 DEBUG: Log API call details
+      console.log('🔍 [DEBUG] API Call Details:', {
+        messageContent: messageContent.substring(0, 50) + '...',
+        sessionIdBeingUsed: currentSessionId,
+        sessionType: 'default-session',
+        apiUrl: `${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`
+      });
+
     await sendMessage(messageContent, currentSessionId, {
         sessionType: 'default-session'
     });
+      
+      console.log('✅ Message sent successfully - Firestore will sync automatically');
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+    }
   };
 
   const handleStopGeneration = () => {
@@ -1908,115 +2146,9 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     }
   };
 
-  const handleScrollToBottom = (animated: boolean = true) => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      const lastMessageRef = messageRefs.current[lastMessage.id];
-      
-      if (lastMessageRef) {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (x, y, width, height) => {
-            // Check if it's a long AI response
-            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
-            
-            if (isLongResponse) {
-              // For long responses: scroll to the very end of the message
-              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated
-              });
-            } else {
-              // For short responses: scroll to show the message with minimal space below
-              const targetY = Math.max(0, y - 20); // Small offset
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated
-              });
-            }
-          },
-          () => {
-            // Fallback: scroll to a position that shows the last message
-            const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
-            scrollViewRef.current?.scrollTo({
-              y: estimatedPosition,
-              animated
-            });
-          }
-        );
-      } else {
-        // Fallback: scroll to a position that shows the last message
-        const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
-        scrollViewRef.current?.scrollTo({
-          y: estimatedPosition,
-          animated
-        });
-      }
-    } else {
-    scrollViewRef.current?.scrollToEnd({ animated });
-    }
-  };
+  // ✅ COACHING SCREEN PATTERN: handleScrollToBottom is now provided by useCoachingScroll hook
 
-  // Initial auto-scroll to bottom once after messages initialize
-  useEffect(() => {
-    if (!isInitialized) return;
-    if (didInitialAutoScroll.current) return;
-    if (!scrollViewRef.current) return;
-    if (messages.length === 0) return;
-
-    // Allow layout to settle, then scroll to last message precisely (no blank overscroll)
-    setTimeout(() => {
-      if (!hasUserScrolled.current && scrollViewRef.current) {
-        handleScrollToBottom(false);
-        didInitialAutoScroll.current = true;
-      }
-    }, 100);
-  }, [isInitialized, messages.length]);
-
-  // 7. Simplify handleScroll with pagination:
-  const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const scrollY = contentOffset.y;
-    
-    // User scroll detection
-    if (targetScrollPosition.current !== null) {
-      const savedPosition = targetScrollPosition.current;
-      const scrollDifference = Math.abs(scrollY - savedPosition);
-      
-      if (scrollDifference > 50) { // Larger threshold
-        debugLog('👆 User scrolled manually, clearing positioning');
-        hasUserScrolled.current = true;
-        targetScrollPosition.current = null;
-      }
-    }
-    
-    // Pagination: Load more messages when pulling to very top (like pull-to-refresh)
-    const isAtVeryTop = scrollY <= 10; // Must be within 10px of absolute top
-    const isPullingUp = scrollY < 0; // Negative scroll (over-scroll/bounce)
-    const now = Date.now();
-    const timeSinceLastLoad = now - lastLoadTimeRef.current;
-    
-    if ((isAtVeryTop || isPullingUp) && hasMoreMessages && !isLoadingMore && !isLoading && timeSinceLastLoad > LOAD_THROTTLE_MS) {
-      console.log('📄 User pulled to top, loading more messages...');
-      lastLoadTimeRef.current = now;
-      loadMoreMessages();
-    }
-    
-    // Scroll to bottom button - show when content is scrollable and not at bottom
-    const hasMessages = messages.length > 0;
-    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
-    const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
-    
-    if (isAIResponseComplete) {
-      const contentHeight = contentSize.height;
-      const screenHeight = layoutMeasurement.height;
-      const distanceFromBottom = contentHeight - screenHeight - scrollY;
-      setShowScrollToBottom(distanceFromBottom > 200);
-    } else {
-      setShowScrollToBottom(false);
-    }
-  };
+  // ✅ COACHING SCREEN PATTERN: Initial auto-scroll and handleScroll are now provided by useCoachingScroll hook
 
   const handleCompletionAction = async () => {
     console.log('User clicked End this session');
@@ -2223,8 +2355,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
             ]}
             scrollEventThrottle={16}
             onScroll={(event) => {
-              // Call existing handleScroll function
-              handleScroll(event);
+              // Call coaching scroll hook's handleScroll function
+              hookHandleScroll(event);
               
               // Update content height
               const { contentSize } = event.nativeEvent;
@@ -2299,19 +2431,54 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
-                                 <View>
-                   <Text
-                     style={[
-                       styles.messageText,
-                       message.role === 'user'
-                         ? { color: `${colors.text}99` }
-                         : { color: colors.text }
-                     ]}
-                   >
-                     {getDisplayContent(message.content)}
-                   </Text>
+                                  <View style={message.role === 'user' ? [
+                                    styles.userMessageBubble,
+                                    {
+                                      backgroundColor: colorScheme === 'dark' 
+                                        ? 'rgba(255, 255, 255, 0.12)' 
+                                        : 'rgba(0, 0, 0, 0.06)',
+                                      borderWidth: colorScheme === 'dark' ? 0.5 : 0,
+                                      borderColor: colorScheme === 'dark' 
+                                        ? 'rgba(255, 255, 255, 0.15)' 
+                                        : 'transparent'
+                                    }
+                                  ] : undefined}>
+                    <Text
+                      style={[
+                        styles.messageText,
+                        message.role === 'user'
+                          ? [
+                              styles.userMessageText, 
+                              { 
+                                color: colorScheme === 'dark' 
+                                  ? 'rgba(255, 255, 255, 0.85)' 
+                                  : 'rgba(0, 0, 0, 0.75)' 
+                              }
+                            ]
+                          : { color: colors.text }
+                      ]}
+                      numberOfLines={message.role === 'user' ? undefined : undefined}
+                      ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
+                    >
+                      {getDisplayContent(message.content)}
+                    </Text>
 
                    {/* Render coaching cards for AI messages */}
+                   <CoachingCardRenderer 
+                     message={message} 
+                     rendererProps={coachingCardRendererProps} 
+                   />
+
+                   {/* Show error message for failed AI responses */}
+                   {message.role === 'assistant' && message.isError && (
+                     <ErrorMessage
+                       onRetry={() => handleRetryMessage(message.id)}
+                       colorScheme={colorScheme}
+                       isRetrying={retryingMessageId === message.id}
+                     />
+                   )}
+
+                   {/* Legacy coaching cards rendering - remove after CoachingCardRenderer is fully integrated */}
                    {message.role === 'assistant' && (() => {
                      const coachingCards = parseCoachingCards(message.content);
                      if (coachingCards.length > 0) {
@@ -2385,7 +2552,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                     : containerHeight + 80, // When keyboard closed: position above input with margin
                 }
               ]}
-              onPress={() => handleScrollToBottom(true)}
+              onPress={() => hookHandleScrollToBottom(true)}
             >
               <ArrowDown size={20} color={colors.text} />
             </TouchableOpacity>
@@ -2407,7 +2574,6 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
             {
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-                height: containerHeight, // Dinamik yükseklik
                 shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
                 shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
               }
@@ -2460,42 +2626,21 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   textBreakStrategy="balanced" // Kelime kırma stratejisi
                 />
                 
-                {/* Button Container at the bottom - Voice + Send buttons side by side */}
+                {/* ✅ COACHING SCREEN PATTERN: Button Container at the bottom - Separate Mic and Send buttons */}
                 <View style={styles.buttonContainer}>
-                  {chatInput.trim().length > 0 ? (
-                <TouchableOpacity
-                      style={[styles.microphoneButtonRound, { 
-                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
-                      }]}
-                      onPress={handleMicrophonePress}
-                    >
-                      <Mic
-                        size={18}
-                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
-                        strokeWidth={1.5}
-                  />
-                </TouchableOpacity>
-                  ) : (
+                  {/* Microphone Button - Always visible for transcription */}
                   <TouchableOpacity
-                      style={[styles.voiceButton, { 
-                        backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
-                      }]}
-                      onPress={handleMicrophonePress}
-                      onLongPress={handleVoiceModePress}
-                      delayLongPress={500}
-                    >
-                      <Text style={[styles.voiceButtonText, { 
-                        color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.50)' 
-                      }]}>
-                        Voice
-                      </Text>
-                      <IconSymbol
-                        name="waveform"
-                        size={12}
-                        color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                    style={[styles.microphoneButtonRound, { 
+                      backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                    }]}
+                    onPress={handleMicrophonePress}
+                  >
+                    <Mic
+                      size={18}
+                      color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                      strokeWidth={1.5}
                     />
                   </TouchableOpacity>
-            )}
 
                   <TouchableOpacity
                     style={[styles.sendButtonRound, { 
@@ -2507,28 +2652,20 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                       shadowOpacity: 0.2,
                       shadowRadius: 4,
                       elevation: 3,
+                      opacity: chatInput.trim().length > 0 || isLoading ? 1 : 0.5,
                     }]}
-                    onPress={
-                      isLoading 
-                        ? handleStopGeneration 
-                        : (chatInput.trim().length > 0 ? handleSendMessage : handleMicrophonePress)
-                    }
+                    onPress={isLoading ? handleStopGeneration : handleSendMessage}
+                    disabled={chatInput.trim().length === 0 && !isLoading}
                   >
                     {isLoading ? (
                       <Square
                         size={14}
-                        color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
-                        fill={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
+                        fill={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
                         strokeWidth={0}
                       />
-                    ) : chatInput.trim().length > 0 ? (
-                      <ArrowUp
-                        size={18}
-                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
-                        strokeWidth={1.5}
-                      />
                     ) : (
-                      <Mic
+                      <ArrowUp
                         size={18}
                         color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
                         strokeWidth={1.5}
@@ -2593,7 +2730,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   chatHeaderText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     textAlign: 'left',
   },
@@ -2622,10 +2759,21 @@ const styles = StyleSheet.create({
   aiMessageContainer: {
     alignItems: 'flex-start',
   },
+  userMessageBubble: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    maxWidth: '85%',
+    alignSelf: 'flex-end',
+  },
   messageText: {
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
+  },
+  userMessageText: {
+    textAlign: 'left',
   },
   typingIndicator: {
     flexDirection: 'row',
@@ -2633,12 +2781,12 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 8,
     paddingHorizontal: 4,
-    minHeight: 32, // Sabit minimum height
+    minHeight: 32, // Fixed minimum height
   },
   
-  // Loading state'te message container için
+  // For message container in loading state
   loadingMessageContainer: {
-    minHeight: 60, // Loading indicator için sabit alan
+    minHeight: 60, // Fixed space for loading indicator
     justifyContent: 'center',
   },
   typingDot: {
@@ -2925,5 +3073,17 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     lineHeight: 16,
     marginTop: 2,
+  },
+  errorContainer: {
+    alignItems: 'flex-start',
+    marginTop: 6,
+  },
+  retryButton: {
+    borderRadius: 18,
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 36,
+    height: 36,
   },
 }); 

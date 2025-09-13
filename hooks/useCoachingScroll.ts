@@ -43,6 +43,7 @@ interface UseCoachingScrollReturn {
   scrollToShowLastMessage: () => void;
   handleScrollToBottom: (animated?: boolean) => void;
   handleScroll: (event: any) => void;
+  triggerPositioning: () => void;
   
   // Debug function
   debugLog: (message: string, ...args: any[]) => void;
@@ -472,6 +473,21 @@ export const useCoachingScroll = ({
     }, 300); // Increased timeout for initial auto-scroll reliability
   }, [messages.length, handleScrollToBottom]);
 
+  // Manual positioning trigger function
+  const triggerPositioning = useCallback(() => {
+    debugLog('🎯 Manual positioning trigger called');
+    scrollToNewMessageRef.current = true;
+    
+    // Force positioning immediately
+    setTimeout(() => {
+      if (scrollToNewMessageRef.current && scrollViewRef.current && messages.length > 0) {
+        debugLog('🎯 Manual positioning executing');
+        scrollToNewMessageRef.current = false;
+        scrollToShowLastMessage();
+      }
+    }, 300); // Give time for message to be added to DOM
+  }, [scrollToShowLastMessage, messages.length]);
+
   return {
     // State
     contentHeight,
@@ -498,6 +514,7 @@ export const useCoachingScroll = ({
     scrollToShowLastMessage,
     handleScrollToBottom,
     handleScroll,
+    triggerPositioning,
     
     // Debug function
     debugLog

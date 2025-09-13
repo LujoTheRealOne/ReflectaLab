@@ -151,14 +151,22 @@ export default function ScheduledSessionCard({
         styles.container, 
         { 
           backgroundColor: colors.background,
+          borderColor: colors.border,
           shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
           shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
         }
       ]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
-            Scheduled Session
-          </Text>
+          <View style={styles.statusRow}>
+            <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+              Scheduled Session
+            </Text>
+            <View style={[styles.typeBadge, { backgroundColor: '#10B981' }]}>
+              <Text style={[styles.typeText, { color: '#FFFFFF' }]}>
+                ✅ Started
+              </Text>
+            </View>
+          </View>
           <Text style={[styles.title, { color: colors.text }]}>
             Session started
           </Text>
@@ -178,51 +186,63 @@ export default function ScheduledSessionCard({
       styles.container, 
       { 
         backgroundColor: colors.background,
+        borderColor: colors.border,
         shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
         shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
       }
     ]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
-          Scheduled Session
-        </Text>
+        <View style={styles.statusRow}>
+          <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+            Scheduled Session
+          </Text>
+          <View style={[styles.typeBadge, { backgroundColor: '#3B82F6' }]}>
+            <Text style={[styles.typeText, { color: '#FFFFFF' }]}>
+              📅 {selectedDuration}
+            </Text>
+          </View>
+        </View>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {session.title}
         </Text>
-        <Text style={[styles.description, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
+        <Text style={[styles.description, { color: colors.text, opacity: 0.7 }]} numberOfLines={3}>
           {session.goal}
         </Text>
       </View>
 
       {/* Duration Selection */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-          Suggested duration: {selectedDuration}
+      <View style={styles.configSection}>
+        <Text style={[styles.configLabel, { color: colors.text, opacity: 0.7 }]}>
+          Duration: {selectedDuration}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
+        <View style={styles.optionsRow}>
           {DURATION_OPTIONS.map((duration) => (
             <TouchableOpacity
               key={duration}
               style={[
                 styles.optionButton,
-                selectedDuration === duration 
-                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
-                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
+                {
+                  backgroundColor: selectedDuration === duration 
+                    ? colors.text 
+                    : (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2')
+                }
               ]}
               onPress={() => handleDurationChange(duration)}
             >
               <Text style={[
                 styles.optionText,
-                selectedDuration === duration 
-                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
-                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
+                { 
+                  color: selectedDuration === duration 
+                    ? colors.background 
+                    : colors.text 
+                }
               ]}>
                 {duration}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Action Button */}
@@ -250,52 +270,64 @@ export default function ScheduledSessionCard({
 const styles = StyleSheet.create({
   container: {
     marginVertical: 8,
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
     elevation: 2,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  badge: {
-    fontSize: 11,
-    fontWeight: '500',
-    lineHeight: 16,
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
-    marginBottom: 6,
-  },
-  description: {
-    fontSize: 13,
-    fontWeight: '400',
-    lineHeight: 18,
-  },
-  section: {
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    lineHeight: 16,
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  optionsContainer: {
+  label: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  typeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  description: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  configSection: {
+    marginBottom: 16,
+  },
+  configLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  optionsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   optionButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    marginRight: 8,
   },
   optionText: {
     fontSize: 12,

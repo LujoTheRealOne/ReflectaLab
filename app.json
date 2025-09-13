@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.10.11",
+    "version": "0.10.12",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -44,7 +44,7 @@
           "backgroundColor": "#ffffff",
           "dark": {
             "image": "./assets/images/splash-icon-light.png",
-            "backgroundColor": "#000000"
+            "backgroundColor": "#111111"
           },
           "imageWidth": 200
         }

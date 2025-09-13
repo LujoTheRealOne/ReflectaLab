@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Mic, X, Check, ArrowUp, ArrowDown, Square } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
+import * as SplashScreen from 'expo-splash-screen';
 import { Colors } from '@/constants/Colors';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -745,6 +746,20 @@ export default function CoachingScreen() {
     initializeChat();
     }, [user?.id, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
 
+  // Hide splash screen when coaching is fully initialized and ready
+  useEffect(() => {
+    if (isInitialized) {
+      console.log('✅ [COACHING INIT] Coaching is ready, hiding splash screen with fade animation');
+      
+      // Wait 2 seconds to ensure everything is fully rendered and provide smooth user experience
+      setTimeout(() => {
+        SplashScreen.hideAsync().catch(error => {
+          console.log('ℹ️ [COACHING SPLASH] Splash screen already hidden:', error.message);
+        });
+      }, 2000); // 2 second delay for smooth user experience
+    }
+  }, [isInitialized]);
+
   // Debounced save to prevent multiple rapid saves
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveRef = useRef<string>('');
@@ -1231,13 +1246,13 @@ export default function CoachingScreen() {
     if (!scrollViewRef.current) return;
     if (messages.length === 0) return;
 
-    // Allow layout to settle, then scroll to last message precisely (no blank overscroll)
+    // Allow layout to settle, then scroll to last message with smooth animation
     setTimeout(() => {
       if (!hasUserScrolled.current && scrollViewRef.current) {
-        hookHandleScrollToBottom(false);
+        hookHandleScrollToBottom(true); // Changed to true for smooth animation
         didInitialAutoScroll.current = true;
       }
-    }, 300); // Increased timeout for initial auto-scroll reliability
+    }, 100); // Reduced timeout for more responsive initial scroll
   }, [isInitialized, messages.length]);
 
   // ========================================================================
@@ -1526,6 +1541,12 @@ export default function CoachingScreen() {
     }
   };
 
+
+  // Keep splash screen visible by not rendering content until initialization is complete
+  if (!isInitialized) {
+    console.log('🔄 [COACHING SPLASH] Keeping splash screen visible during initialization');
+    return null; // Don't render anything, keep splash screen visible
+  }
 
   return (
     <CoachingErrorBoundary 

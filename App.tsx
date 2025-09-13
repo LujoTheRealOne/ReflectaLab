@@ -17,6 +17,12 @@ import { tokenCache } from '@clerk/clerk-expo/token-cache';
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+// Configure splash screen fade animation
+SplashScreen.setOptions({
+  duration: 500,
+  fade: true,
+});
+
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 
 if (!publishableKey) {
@@ -37,7 +43,7 @@ function AppContent() {
       // Small delay to ensure smooth transition
       setTimeout(() => {
         SplashScreen.hideAsync();
-      }, 300); // Reduced delay for faster app startup
+      }, 1500); // Reduced delay for faster app startup
     }
   }, [isLoaded]);
 

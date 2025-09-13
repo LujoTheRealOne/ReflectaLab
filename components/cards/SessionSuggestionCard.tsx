@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, Alert } from 'react-native';
+import { Calendar, Clock, CheckCircle, XCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import * as Haptics from 'expo-haptics';
 
 interface SessionSuggestionToken {
   type: 'sessionSuggestion';
@@ -25,22 +25,26 @@ interface SessionSuggestionCardProps {
   onStateChange?: (newState: 'scheduled' | 'dismissed', additionalData?: { scheduledDate?: string; scheduledTime?: string }) => void;
 }
 
-export default function SessionSuggestionCard({ 
-  sessionSuggestion, 
-  coachingSessionId, 
-  messageId, 
-  onSchedule, 
-  onDismiss, 
-  onStateChange 
+export default function SessionSuggestionCard({
+  sessionSuggestion,
+  coachingSessionId,
+  messageId,
+  onSchedule,
+  onDismiss,
+  onStateChange
 }: SessionSuggestionCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, getToken } = useAuth();
 
-  const [selectedDuration, setSelectedDuration] = useState(sessionSuggestion.duration);
-  const [selectedDate, setSelectedDate] = useState(sessionSuggestion.scheduledDate || '');
-  const [selectedTime, setSelectedTime] = useState(sessionSuggestion.scheduledTime || '');
-  
+  // ✅ COMMITMENT CARD PATTERN: Initialize with default values immediately
+  const getDefaultDate = () => {
+    if (sessionSuggestion.scheduledDate) return sessionSuggestion.scheduledDate;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  };
+
   const getInitialState = (): 'default' | 'scheduled' | 'dismissed' => {
     switch (sessionSuggestion.state) {
       case 'scheduled': return 'scheduled';
@@ -49,22 +53,15 @@ export default function SessionSuggestionCard({
       default: return 'default';
     }
   };
-  
+
+  const [selectedDuration, setSelectedDuration] = useState(sessionSuggestion.duration || '60m');
+  const [selectedDate, setSelectedDate] = useState(getDefaultDate());
+  const [selectedTime, setSelectedTime] = useState(sessionSuggestion.scheduledTime || '10:00');
   const [cardState, setCardState] = useState<'default' | 'scheduled' | 'dismissed'>(getInitialState());
   const [isLoading, setIsLoading] = useState(false);
 
-  // Update cardState when sessionSuggestion.state changes
-  useEffect(() => {
-    const newState = (() => {
-      switch (sessionSuggestion.state) {
-        case 'scheduled': return 'scheduled';
-        case 'dismissed': return 'dismissed';
-        case 'none':
-        default: return 'default';
-      }
-    })();
-    setCardState(newState);
-  }, [sessionSuggestion.state]);
+  // ✅ COMMITMENT CARD PATTERN: Use computed state (no useEffect to avoid render loops)
+  const currentState = sessionSuggestion.state && sessionSuggestion.state !== 'none' ? sessionSuggestion.state : cardState;
 
   const durations = ['15m', '30m', '45m', '60m', '90m'];
 
@@ -74,7 +71,7 @@ export default function SessionSuggestionCard({
     for (let i = 0; i < 7; i++) {
       const date = new Date();
       date.setDate(date.getDate() + i);
-      const value = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+      const value = date.toISOString().split('T')[0];
       const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       dates.push({ value, label });
     }
@@ -99,8 +96,9 @@ export default function SessionSuggestionCard({
     return times;
   };
 
+  // ✅ COMMITMENT CARD PATTERN: Schedule handler with API call first, then state update
   const handleSchedule = async () => {
-    if (isLoading || !selectedDate || !selectedTime || !firebaseUser?.uid) return;
+    if (!onStateChange || isLoading || !selectedDate || !selectedTime) return;
     
     setIsLoading(true);
     
@@ -112,19 +110,8 @@ export default function SessionSuggestionCard({
         throw new Error('No authentication token available');
       }
 
-      // Convert duration string to number (e.g., "60m" -> 60)
       const durationNumber = parseInt(selectedDuration.replace('m', ''));
-      
-      // Create ISO datetime string
       const scheduledDateTime = new Date(`${selectedDate}T${selectedTime}:00`).toISOString();
-      
-      console.log('🎯 Scheduling session:', {
-        title: sessionSuggestion.title,
-        duration: durationNumber,
-        scheduledFor: scheduledDateTime,
-        coachingSessionId,
-        messageId
-      });
 
       const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/sessions/schedule`, {
         method: 'POST',
@@ -144,279 +131,233 @@ export default function SessionSuggestionCard({
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to schedule session: ${response.status} - ${errorText}`);
+        throw new Error(`API call failed: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log('✅ Session scheduled successfully:', result);
-
-      // Update card state
+      
+      // ✅ COMMITMENT CARD PATTERN: Update local state after successful API call
       setCardState('scheduled');
       
-      // Call callbacks
       onSchedule?.(sessionSuggestion.title, selectedDuration, scheduledDateTime);
-      onStateChange?.('scheduled', { 
+      onStateChange('scheduled', { 
         scheduledDate: selectedDate, 
         scheduledTime: selectedTime 
       });
 
     } catch (error) {
       console.error('❌ Error scheduling session:', error);
-      Alert.alert(
-        'Error',
-        'Failed to schedule session. Please try again.',
-        [{ text: 'OK', style: 'default' }]
-      );
+      Alert.alert('Error', 'Failed to schedule session. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDismiss = async () => {
-    if (isLoading) return;
-    
-    setIsLoading(true);
+  // ✅ COMMITMENT CARD PATTERN: Dismiss handler with immediate state update (no API call)
+  const handleDismiss = () => {
+    if (!onStateChange || isLoading) return;
     
     try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      
-      setCardState('dismissed');
-      onDismiss?.(sessionSuggestion.title);
-      onStateChange?.('dismissed');
-      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      console.error('❌ Error dismissing session:', error);
-    } finally {
-      setIsLoading(false);
+      // Haptics might fail on simulator, ignore
     }
+    
+    // ✅ COMMITMENT CARD PATTERN: Immediate state update for dismissal
+    setCardState('dismissed');
+    onDismiss?.(sessionSuggestion.title);
+    onStateChange('dismissed');
   };
 
-  // Set default date and time if not selected
-  useEffect(() => {
-    if (!selectedDate) {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setSelectedDate(tomorrow.toISOString().split('T')[0]);
-    }
-    if (!selectedTime) {
-      setSelectedTime('10:00');
-    }
-  }, []);
+  const formatScheduledDateTime = () => {
+    if (!selectedDate || !selectedTime) return '';
+    const dateOption = getDateOptions().find(d => d.value === selectedDate);
+    const timeOption = getTimeOptions().find(t => t.value === selectedTime);
+    return `${dateOption?.label} at ${timeOption?.label}`;
+  };
 
-  if (cardState === 'scheduled') {
+  // ✅ COMMITMENT CARD PATTERN: Render different UI based on current state
+  if (currentState === 'scheduled') {
     return (
-      <View style={[
-        styles.container, 
-        { 
-          backgroundColor: colors.background,
-          shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-          shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
-        }
-      ]}>
+      <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border }]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
-            Session Suggestion
-          </Text>
-          <Text style={[styles.title, { color: colors.text }]}>
-            Session scheduled
-          </Text>
-        </View>
-
-        <View style={[styles.scheduledInfo, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
-          <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-            Scheduled: <Text style={styles.scheduledBold}>{sessionSuggestion.title}</Text>
-          </Text>
-          {selectedDate && selectedTime && (
-            <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-              {new Date(`${selectedDate}T${selectedTime}`).toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                month: 'short', 
-                day: 'numeric' 
-              })} at {new Date(`${selectedDate}T${selectedTime}`).toLocaleTimeString('en-US', { 
-                hour: 'numeric', 
-                minute: '2-digit' 
-              })}
+          <View style={styles.statusRow}>
+            <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+              Session Suggestion
             </Text>
-          )}
+            <View style={[styles.statusBadge, { backgroundColor: '#3B82F6' }]}>
+              <CheckCircle size={12} color="#FFFFFF" />
+              <Text style={[styles.statusText, { color: '#FFFFFF' }]}>Scheduled</Text>
+            </View>
+          </View>
+          <Text style={[styles.title, { color: colors.text }]}>{sessionSuggestion.title}</Text>
+          <Text style={[styles.metadata, { color: colors.text, opacity: 0.5 }]}>
+            {formatScheduledDateTime()} • {selectedDuration}
+          </Text>
         </View>
       </View>
     );
   }
 
-  if (cardState === 'dismissed') {
+  if (currentState === 'dismissed') {
     return (
-      <View style={[
-        styles.container, 
-        { 
-          backgroundColor: colors.background,
-          shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-          shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
-        }
-      ]}>
+      <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border, opacity: 0.75 }]}>
         <View style={styles.header}>
-          <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
-            Session Suggestion
-          </Text>
-          <Text style={[styles.title, { color: colors.text }]}>
-            Suggestion dismissed
-          </Text>
-        </View>
-
-        <View style={[styles.scheduledInfo, { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : '#F2F2F2' }]}>
-          <Text style={[styles.scheduledText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-            Dismissed: <Text style={styles.scheduledBold}>{sessionSuggestion.title}</Text>
-          </Text>
+          <View style={styles.statusRow}>
+            <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+              Session Suggestion
+            </Text>
+            <View style={[styles.statusBadge, { backgroundColor: '#EF4444' }]}>
+              <XCircle size={12} color="#FFFFFF" />
+              <Text style={[styles.statusText, { color: '#FFFFFF' }]}>Dismissed</Text>
+            </View>
+          </View>
+          <Text style={[styles.title, { color: colors.text, opacity: 0.6 }]}>{sessionSuggestion.title}</Text>
         </View>
       </View>
     );
   }
 
+  // ✅ COMMITMENT CARD PATTERN: Default state - show interactive card
   return (
-    <View style={[
-      styles.container, 
-      { 
-        backgroundColor: colors.background,
-        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-      }
-    ]}>
+    <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.badge, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.40)' }]}>
-          Session Suggestion
-        </Text>
-        <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-          {sessionSuggestion.title}
-        </Text>
-        <Text style={[styles.reason, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]} numberOfLines={3}>
-          {sessionSuggestion.reason}
-        </Text>
+        <View style={styles.statusRow}>
+          <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+            Session Suggestion
+          </Text>
+          <View style={[styles.typeBadge, { backgroundColor: '#8B5CF6' }]}>
+            <Text style={[styles.typeText, { color: '#FFFFFF' }]}>
+              📅 {selectedDuration}
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.title, { color: colors.text }]}>{sessionSuggestion.title}</Text>
+        <Text style={[styles.description, { color: colors.text, opacity: 0.7 }]}>{sessionSuggestion.reason}</Text>
       </View>
 
       {/* Duration Selection */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
+      <View style={styles.configSection}>
+        <Text style={[styles.configLabel, { color: colors.text, opacity: 0.7 }]}>
           Duration: {selectedDuration}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
+        <View style={styles.optionsRow}>
           {durations.map((duration) => (
             <TouchableOpacity
               key={duration}
               style={[
                 styles.optionButton,
-                selectedDuration === duration 
-                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
-                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
+                {
+                  backgroundColor: selectedDuration === duration 
+                    ? colors.text 
+                    : (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2')
+                }
               ]}
               onPress={() => setSelectedDuration(duration)}
             >
               <Text style={[
                 styles.optionText,
-                selectedDuration === duration 
-                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
-                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
+                { 
+                  color: selectedDuration === duration 
+                    ? colors.background 
+                    : colors.text 
+                }
               ]}>
                 {duration}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Date Selection */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-          Date
+      <View style={styles.configSection}>
+        <Text style={[styles.configLabel, { color: colors.text, opacity: 0.7 }]}>
+          Date: {getDateOptions().find(d => d.value === selectedDate)?.label}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
-          {getDateOptions().map((date) => (
+        <View style={styles.optionsRow}>
+          {getDateOptions().slice(0, 4).map((date) => (
             <TouchableOpacity
               key={date.value}
               style={[
                 styles.optionButton,
-                selectedDate === date.value 
-                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
-                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
+                {
+                  backgroundColor: selectedDate === date.value 
+                    ? colors.text 
+                    : (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2'),
+                }
               ]}
               onPress={() => setSelectedDate(date.value)}
             >
               <Text style={[
                 styles.optionText,
-                selectedDate === date.value 
-                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
-                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
+                { 
+                  color: selectedDate === date.value 
+                    ? colors.background 
+                    : colors.text 
+                }
               ]}>
                 {date.label}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Time Selection */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-          Time
+      <View style={styles.configSection}>
+        <Text style={[styles.configLabel, { color: colors.text, opacity: 0.7 }]}>
+          Time: {getTimeOptions().find(t => t.value === selectedTime)?.label}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionsContainer}>
-          {getTimeOptions().map((time) => (
+        <View style={styles.optionsRow}>
+          {getTimeOptions().slice(0, 6).map((time) => (
             <TouchableOpacity
               key={time.value}
               style={[
                 styles.optionButton,
-                selectedTime === time.value 
-                  ? { backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' }
-                  : { backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2' }
+                {
+                  backgroundColor: selectedTime === time.value 
+                    ? colors.text 
+                    : (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2'),
+                }
               ]}
               onPress={() => setSelectedTime(time.value)}
             >
               <Text style={[
                 styles.optionText,
-                selectedTime === time.value 
-                  ? { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }
-                  : { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }
+                { 
+                  color: selectedTime === time.value 
+                    ? colors.background 
+                    : colors.text 
+                }
               ]}>
                 {time.label}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
       {/* Action Buttons */}
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.dismissButton,
-            { 
-              backgroundColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#F2F2F2',
-              opacity: isLoading ? 0.6 : 1
-            }
-          ]}
-          onPress={handleDismiss}
-          disabled={isLoading}
-        >
-          <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.60)' }]}>
-            {isLoading ? 'Processing...' : 'Dismiss'}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.scheduleButton,
-            { 
-              backgroundColor: isLoading 
-                ? (colorScheme === 'dark' ? '#666666' : '#CCCCCC')
-                : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
-              opacity: isLoading || !selectedDate || !selectedTime ? 0.6 : 1
-            }
-          ]}
+      <View style={styles.actions}>
+        <TouchableOpacity 
+          style={[styles.button, styles.acceptButton, { backgroundColor: colors.text }]}
           onPress={handleSchedule}
           disabled={isLoading || !selectedDate || !selectedTime}
         >
-          <Text style={[styles.buttonText, { color: colorScheme === 'dark' ? 'rgba(0, 0, 0, 0.91)' : 'rgba(255, 255, 255, 0.91)' }]}>
+          <Text style={[styles.buttonText, { color: colors.background }]}>
             {isLoading ? 'Scheduling...' : 'Schedule'}
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.button, styles.rejectButton, { borderColor: colors.border }]}
+          onPress={handleDismiss}
+          disabled={isLoading}
+        >
+          <Text style={[styles.buttonText, { color: colors.text, opacity: 0.6 }]}>
+            Not Now
           </Text>
         </TouchableOpacity>
       </View>
@@ -424,95 +365,111 @@ export default function SessionSuggestionCard({
   );
 }
 
+// ✅ COMMITMENT CARD PATTERN: Exact same styles structure
 const styles = StyleSheet.create({
   container: {
     marginVertical: 8,
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 0,
-    shadowColor: '#000',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  badge: {
-    fontSize: 11,
-    fontWeight: '500',
-    lineHeight: 16,
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
-    marginBottom: 6,
-  },
-  reason: {
-    fontSize: 13,
-    fontWeight: '400',
-    lineHeight: 18,
-  },
-  section: {
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    lineHeight: 16,
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  optionsContainer: {
+  label: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  statusBadge: {
     flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  typeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  description: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  metadata: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  configSection: {
+    marginBottom: 16,
+  },
+  configLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  optionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   optionButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    marginRight: 8,
   },
   optionText: {
     fontSize: 12,
     fontWeight: '500',
-    lineHeight: 16,
   },
-  buttonContainer: {
+  actions: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4,
   },
   button: {
     flex: 1,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
   },
-  dismissButton: {
-    // Additional dismiss button styles if needed
+  acceptButton: {
+    // backgroundColor set dynamically
   },
-  scheduleButton: {
-    // Additional schedule button styles if needed
+  rejectButton: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
   },
   buttonText: {
     fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  scheduledInfo: {
-    padding: 12,
-    borderRadius: 12,
-    marginTop: 4,
-  },
-  scheduledText: {
-    fontSize: 11,
-    fontWeight: '400',
-    lineHeight: 16,
-  },
-  scheduledBold: {
-    fontWeight: '500',
+    fontWeight: '600',
   },
 });

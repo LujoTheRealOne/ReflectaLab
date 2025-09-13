@@ -1,7 +1,8 @@
 import React, { Suspense } from 'react';
 import { View, Text, useColorScheme } from 'react-native';
-import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, InsightCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard } from '@/components/cards';
+import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, InsightCard, JournalingPromptCard, LifeCompassUpdatedCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard, SessionEndCard } from '@/components/cards';
 import { CoachingMessage } from '@/hooks/useAICoaching';
+import { useAuth } from '@/hooks/useAuth';
 
 // Types for coaching card components
 export interface CoachingCardComponent {
@@ -154,6 +155,48 @@ export const getDisplayContent = (content: string): string => {
   return cleanContent;
 };
 
+// ✅ WEB PATTERN: Token update utility function
+function updateTokenInContent(content: string, tokenType: string, tokenIndex: number, newState: string, additionalAttributes?: Record<string, string>): string {
+  const tokenRegex = new RegExp(`\\[${tokenType}:([^\\]]+)\\]`, 'g');
+  let occurrence = 0;
+  
+  return content.replace(tokenRegex, (match, attributesStr) => {
+    if (occurrence !== tokenIndex) { 
+      occurrence++; 
+      return match; 
+    }
+    occurrence++;
+
+    try {
+      // Parse existing attributes
+      const existingProps: Record<string, string> = {};
+      const propRegex = /(\w+)="([^"]+)"/g;
+      let propMatch;
+      while ((propMatch = propRegex.exec(attributesStr)) !== null) {
+        const [, k, v] = propMatch;
+        existingProps[k] = v;
+      }
+      
+      // Update state
+      existingProps.state = newState;
+      
+      // Add additional attributes if provided
+      if (additionalAttributes) {
+        Object.assign(existingProps, additionalAttributes);
+      }
+
+      // Reconstruct token
+      const newPropsString = Object.entries(existingProps)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(',');
+      return `[${tokenType}:${newPropsString}]`;
+    } catch (error) {
+      console.warn('Failed to update token:', match, error);
+      return match;
+    }
+  });
+}
+
 // Function to render a coaching card based on type and props
 export const renderCoachingCard = (
   type: string, 
@@ -163,6 +206,10 @@ export const renderCoachingCard = (
   rendererProps: CoachingCardRendererProps
 ) => {
   const { messages, setMessages, firebaseUser, getToken, saveMessagesToFirestore } = rendererProps;
+  
+  // ✅ Get Clerk user directly from useAuth hook for current user context
+  const { user } = useAuth();
+  
   const colorScheme = useColorScheme();
   
   const baseProps = {
@@ -212,43 +259,43 @@ export const renderCoachingCard = (
         />
       );
     case 'commitmentDetected': {
-      // EXACT WEB BEHAVIOR: Use commitment state if available and not 'none', otherwise use local state
-      // This matches web app Line 95: commitment.state && commitment.state !== 'none' ? commitment.state : cardState
-      const commitmentState = props.state && props.state !== 'none' ? props.state : 'none';
-      
       // Web uses 'commitmentType' but mobile/backend uses 'type' - handle both for compatibility
       const commitmentType = props.commitmentType || props.type || 'one-time';
       
       return (
         <CommitmentCard
           key={baseProps.key}
-          editable={baseProps.editable}
           title={props.title || 'Commitment'}
           description={props.description || ''}
           type={(commitmentType as 'one-time' | 'recurring')}
           deadline={props.deadline}
           cadence={props.cadence}
-          state={commitmentState as 'none' | 'accepted' | 'rejected'}
+          state={(props.state as 'none' | 'accepted' | 'rejected') || 'none'}
           commitmentId={props.commitmentId}
+          editable={baseProps.editable}
           onUpdate={async (data) => {
             console.log('🎯 CommitmentCard onUpdate called:', data);
             
-            if (!firebaseUser?.uid) {
+            const userId = user?.id || firebaseUser?.uid;
+            if (!userId) {
               console.error('❌ No authenticated user for commitment update');
-              return;
+              throw new Error('User not authenticated');
             }
 
             try {
-              // EXACT WEB BEHAVIOR: Only call API, let backend handle message updates
-              // This matches web app pattern - simple, reliable, backend-driven
+              // ✅ WEB PATTERN: Handle accept vs reject differently
               
               if (data.state === 'accepted') {
+                console.log('🟢 Processing acceptance...');
+                
+                // Get auth token
                 const token = await getToken();
                 if (!token) {
                   console.error('❌ No auth token available');
-                  return;
+                  throw new Error('No auth token available');
                 }
 
+                // Call API to create commitment
                 console.log('🔥 Creating commitment via API...');
                 const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/create`, {
                   method: 'POST',
@@ -259,38 +306,75 @@ export const renderCoachingCard = (
                   body: JSON.stringify({
                     title: props.title,
                     description: props.description,
-                    type: commitmentType, // Use the resolved type (handles both 'type' and 'commitmentType')
+                    type: commitmentType,
                     deadline: props.deadline,
                     cadence: props.cadence,
-                    coachingSessionId: firebaseUser.uid,
+                    coachingSessionId: userId,
                     messageId: hostMessageId || `msg_${Date.now()}`
                   }),
                 });
 
-                if (response.ok) {
-                  const result = await response.json();
-                  console.log('✅ Commitment created successfully:', result);
-                  
-                  // Backend already updated the message content with commitmentId and state
-                  // The real-time listener will automatically sync the updated message
-                  // No need for manual message manipulation - just like web!
-                  
-                } else {
+                if (!response.ok) {
                   const errorText = await response.text();
-                  console.error('❌ Failed to create commitment:', {
+                  console.error('❌ API call failed:', {
                     status: response.status,
                     error: errorText
                   });
+                  throw new Error(`API call failed: ${response.status}`);
                 }
+
+                const result = await response.json();
+                console.log('✅ Commitment created successfully:', result);
+                
+                // ✅ WEB PATTERN: Update message with accepted state and commitmentId
+                const updatedMessages = messages.map((message) => {
+                  if (message.role !== 'assistant') return message;
+                  if (hostMessageId && message.id !== hostMessageId) return message;
+
+                  const updatedContent = updateTokenInContent(
+                    message.content, 
+                    'commitmentDetected', 
+                    index, 
+                    'accepted',
+                    result.commitment?.id ? { commitmentId: result.commitment.id } : undefined
+                  );
+                  
+                  return { ...message, content: updatedContent };
+                });
+
+                // Update local state and save to Firestore
+                setMessages(updatedMessages);
+                await saveMessagesToFirestore(updatedMessages, userId);
+                console.log('✅ Message updated with accepted state');
+                
               } else if (data.state === 'rejected') {
-                // Web doesn't have special handling for rejection, just local state
-                // Mobile should follow the same pattern
-                console.log('🔴 Commitment rejected - handled by local state');
+                console.log('🔴 Processing rejection...');
+                
+                // ✅ WEB PATTERN: Rejection just updates message content (no API call)
+                const updatedMessages = messages.map((message) => {
+                  if (message.role !== 'assistant') return message;
+                  if (hostMessageId && message.id !== hostMessageId) return message;
+
+                  const updatedContent = updateTokenInContent(
+                    message.content, 
+                    'commitmentDetected', 
+                    index, 
+                    'rejected'
+                  );
+                  
+                  return { ...message, content: updatedContent };
+                });
+
+                // Update local state and save to Firestore
+                setMessages(updatedMessages);
+                await saveMessagesToFirestore(updatedMessages, userId);
+                console.log('✅ Message updated with rejected state');
               }
               
               console.log('✅ Commitment update completed successfully');
             } catch (error) {
               console.error('❌ Failed to update commitment:', error);
+              throw error; // Re-throw so CommitmentCard can handle the error
             }
           }}
         />
@@ -313,49 +397,81 @@ export const renderCoachingCard = (
           coachingSessionId={firebaseUser?.uid || 'unknown'}
           messageId={hostMessageId || 'unknown'}
           onSchedule={(sessionTitle, duration, dateTime) => {
-            console.log('✅ Session scheduled:', { sessionTitle, duration, dateTime });
+            console.log('✅ Session scheduled callback:', { sessionTitle, duration, dateTime });
           }}
           onDismiss={(sessionTitle) => {
-            console.log('✅ Session dismissed:', sessionTitle);
+            console.log('✅ Session dismissed callback:', sessionTitle);
           }}
           onStateChange={async (newState, additionalData) => {
-            console.log('🎯 SessionSuggestion state change:', { newState, additionalData });
+            console.log('🎯 SessionSuggestion onStateChange:', { newState, additionalData });
+            
+            const userId = user?.id || firebaseUser?.uid;
+            if (!userId) {
+              console.error('❌ No authenticated user for session suggestion update');
+              throw new Error('User not authenticated');
+            }
+
             try {
-              const updatedMessages = messages.map((message) => {
-                if (message.role !== 'assistant') return message;
-                if (hostMessageId && message.id !== hostMessageId) return message;
-                const tokenRegex = /\[sessionSuggestion:([^\]]+)\]/g;
-                let occurrence = 0;
-                const updatedContent = message.content.replace(tokenRegex, (match, propsString) => {
-                  if (occurrence !== index) { occurrence++; return match; }
-                  occurrence++;
-                  const existingProps: Record<string, string> = {};
-                  const propRegex = /(\w+)="([^"]+)"/g;
-                  let propMatch;
-                  while ((propMatch = propRegex.exec(propsString)) !== null) {
-                    const [, k, v] = propMatch;
-                    existingProps[k] = v;
-                  }
-                  existingProps.state = newState;
-                  if (additionalData?.scheduledDate) existingProps.scheduledDate = additionalData.scheduledDate;
-                  if (additionalData?.scheduledTime) existingProps.scheduledTime = additionalData.scheduledTime;
-                  const newPropsString = Object.entries(existingProps)
-                    .map(([k, v]) => `${k}="${v}"`)
-                    .join(',');
-                  return `[sessionSuggestion:${newPropsString}]`;
+              // ✅ WEB PATTERN: Handle schedule vs dismiss differently
+              
+              if (newState === 'scheduled') {
+                console.log('📅 Processing session scheduling...');
+                
+                // For scheduled state, the API call was already made by SessionSuggestionCard
+                // Just update the message content with the new state and additional data
+                const updatedMessages = messages.map((message) => {
+                  if (message.role !== 'assistant') return message;
+                  if (hostMessageId && message.id !== hostMessageId) return message;
+
+                  const updatedContent = updateTokenInContent(
+                    message.content, 
+                    'sessionSuggestion', 
+                    index, 
+                    'scheduled',
+                    additionalData ? Object.fromEntries(
+                      Object.entries({
+                        scheduledDate: additionalData.scheduledDate,
+                        scheduledTime: additionalData.scheduledTime
+                      }).filter(([, value]) => value !== undefined)
+                    ) as Record<string, string> : undefined
+                  );
+                  
+                  return { ...message, content: updatedContent };
                 });
-                return { ...message, content: updatedContent };
-              });
+
+                // Update local state and save to Firestore
+                setMessages(updatedMessages);
+                await saveMessagesToFirestore(updatedMessages, userId);
+                console.log('✅ Message updated with scheduled state');
+                
+              } else if (newState === 'dismissed') {
+                console.log('🔴 Processing session dismissal...');
+                
+                // ✅ WEB PATTERN: Dismissal just updates message content (no API call)
+                const updatedMessages = messages.map((message) => {
+                  if (message.role !== 'assistant') return message;
+                  if (hostMessageId && message.id !== hostMessageId) return message;
+
+                  const updatedContent = updateTokenInContent(
+                    message.content, 
+                    'sessionSuggestion', 
+                    index, 
+                    'dismissed'
+                  );
+                  
+                  return { ...message, content: updatedContent };
+                });
+
+                // Update local state and save to Firestore
+                setMessages(updatedMessages);
+                await saveMessagesToFirestore(updatedMessages, userId);
+                console.log('✅ Message updated with dismissed state');
+              }
               
-              // Update messages state
-              setMessages(updatedMessages);
-              
-              // Save to Firestore
-              await saveMessagesToFirestore(updatedMessages, firebaseUser!.uid);
-              
-              console.log('✅ SessionSuggestion state updated and saved to Firestore');
+              console.log('✅ SessionSuggestion update completed successfully');
             } catch (error) {
-              console.error('❌ Failed to update session suggestion state:', error);
+              console.error('❌ Failed to update session suggestion:', error);
+              throw error; // Re-throw so SessionSuggestionCard can handle the error
             }
           }}
         />
@@ -432,6 +548,95 @@ export const renderCoachingCard = (
             console.log('✅ Insight discussion requested:', fullInsight.substring(0, 100) + '...');
             // TODO: Handle insight discussion - could navigate to a discussion screen
             // or add the insight to the current conversation
+          }}
+        />
+      );
+    }
+    case 'journalingPrompt': {
+      return (
+        <JournalingPromptCard
+          key={baseProps.key}
+          journalingPrompt={{
+            type: 'journalingPrompt',
+            prompt: props.prompt || 'Reflect on your day',
+            context: props.context
+          }}
+          onStartJournaling={(prompt) => {
+            console.log('✅ Journaling started:', prompt.substring(0, 50) + '...');
+          }}
+          onDismiss={(prompt) => {
+            console.log('✅ Journaling prompt dismissed:', prompt.substring(0, 50) + '...');
+          }}
+          onStateChange={async (newState) => {
+            console.log('🎯 JournalingPrompt state change:', { newState });
+            
+            const userId = user?.id || firebaseUser?.uid;
+            if (!userId) {
+              console.error('❌ No authenticated user for journaling prompt update');
+              return;
+            }
+
+            try {
+              // ✅ WEB PATTERN: Update message content with new state
+              const updatedMessages = messages.map((message) => {
+                if (message.role !== 'assistant') return message;
+                if (hostMessageId && message.id !== hostMessageId) return message;
+
+                const updatedContent = updateTokenInContent(
+                  message.content, 
+                  'journalingPrompt', 
+                  index, 
+                  newState
+                );
+                
+                return { ...message, content: updatedContent };
+              });
+
+              // Update local state and save to Firestore
+              setMessages(updatedMessages);
+              await saveMessagesToFirestore(updatedMessages, userId);
+              console.log('✅ JournalingPrompt state updated in Firestore');
+              
+            } catch (error) {
+              console.error('❌ Failed to update journaling prompt state:', error);
+            }
+          }}
+        />
+      );
+    }
+    case 'lifeCompassUpdated': {
+      return (
+        <LifeCompassUpdatedCard
+          key={baseProps.key}
+          data={{
+            type: 'lifeCompassUpdated'
+          }}
+        />
+      );
+    }
+    case 'sessionEnd': {
+      return (
+        <SessionEndCard
+          key={baseProps.key}
+          data={{
+            type: 'sessionEnd',
+            title: props.title,
+            message: props.message
+          }}
+          onCompleteSession={async () => {
+            console.log('🎯 SessionEnd completion requested');
+            
+            // This callback should be provided by the parent component
+            // For now, we'll just log it - the actual completion logic
+            // should be handled by the parent (e.g., OnboardingChatScreen)
+            
+            // In a real implementation, this might:
+            // 1. Complete the current session
+            // 2. Navigate to compass results
+            // 3. Trigger insight extraction
+            // 4. Update user onboarding status
+            
+            console.log('🎯 SessionEnd completion logic should be implemented by parent component');
           }}
         />
       );

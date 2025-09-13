@@ -461,18 +461,58 @@ export default function OnboardingChatScreen() {
     return components;
   };
 
-  // Function to parse coaching completion data between finish tokens
+  // Function to parse coaching completion data from sessionEnd tokens
   const parseCoachingCompletion = (content: string) => {
-    // Check for traditional finish tokens first
+    // ✅ NEW: Check for sessionEnd tokens (web standard)
+    const sessionEndMatch = content.match(/\[sessionEnd(?::([^\]]+))?\]/);
+    
+    if (sessionEndMatch) {
+      console.log('🎯 Found sessionEnd token:', sessionEndMatch[0]);
+      
+      // Parse sessionEnd attributes if present
+      const attributesStr = sessionEndMatch[1] || '';
+      const sessionEndProps: Record<string, string> = {};
+      
+      if (attributesStr) {
+        const propRegex = /(\w+)="([^"]+)"/g;
+        let propMatch;
+        while ((propMatch = propRegex.exec(attributesStr)) !== null) {
+          const [, key, value] = propMatch;
+          sessionEndProps[key] = value;
+        }
+      }
+      
+      // Create sessionEnd component
+      const sessionEndComponent = {
+        type: 'sessionEnd',
+        props: {
+          title: sessionEndProps.title || 'Ready to Complete Your Session',
+          message: sessionEndProps.message || 'I have gathered enough context to create your personalized life compass.'
+        }
+      };
+      
+      // Also parse any other coaching cards in the message
+      const otherComponents = parseCoachingCards(content);
+      const allComponents = [...otherComponents, sessionEndComponent];
+      
+      console.log('🎯 Parsed coaching completion (sessionEnd):', { 
+        componentsCount: allComponents.length, 
+        components: allComponents,
+        sessionEndProps
+      });
+      
+      return { components: allComponents, rawData: content };
+    }
+    
+    // ❌ LEGACY: Still support old finish tokens for backward compatibility
     const finishStartIndex = content.indexOf('[finish-start]');
     const finishEndIndex = content.indexOf('[finish-end]');
     
     if (finishStartIndex !== -1 && finishEndIndex !== -1) {
-      // Extract content between finish tokens
       const finishContent = content.slice(finishStartIndex + '[finish-start]'.length, finishEndIndex).trim();
       const components = parseCoachingCards(finishContent);
       
-      console.log('🎯 Parsed coaching completion (finish tokens):', { 
+      console.log('🎯 Parsed coaching completion (legacy finish tokens):', { 
         componentsCount: components.length, 
         components,
         rawFinishContent: finishContent
@@ -480,7 +520,6 @@ export default function OnboardingChatScreen() {
       
       return { components, rawData: finishContent };
     }
-    
     
     return { components: [], rawData: '' };
   };
@@ -595,11 +634,14 @@ export default function OnboardingChatScreen() {
     }
   };
 
-  // Function to clean message content by removing finish tokens and coaching cards
+  // Function to clean message content by removing sessionEnd tokens and coaching cards
   const getDisplayContent = (content: string) => {
     let cleanContent = content;
     
-    // Remove content between finish tokens, but preserve content after [finish-end]
+    // ✅ NEW: Remove sessionEnd tokens
+    cleanContent = cleanContent.replace(/\[sessionEnd(?::[^\]]+)?\]/g, '').trim();
+    
+    // ❌ LEGACY: Remove content between finish tokens for backward compatibility
     const finishStartIndex = cleanContent.indexOf('[finish-start]');
     const finishEndIndex = cleanContent.indexOf('[finish-end]');
     
@@ -616,6 +658,10 @@ export default function OnboardingChatScreen() {
     // Remove coaching card syntax like [checkin:...], [focus:...], etc.
     const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
     cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
+    
+    // Remove simple coaching cards like [checkin], [lifeCompassUpdated]
+    const simpleCardRegex = /\[(\w+)\]/g;
+    cleanContent = cleanContent.replace(simpleCardRegex, '').trim();
     
     // Clean up extra whitespace/newlines that might be left
     cleanContent = cleanContent.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple newlines with double newlines
@@ -992,13 +1038,30 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     if (progress >= 100 && !showCompletionForMessage) {
       console.log('🎯 Progress reached 100%! Showing completion popup...');
       
-      // Find the final AI message that contains finish tokens
+      // ✅ NEW: Find the final AI message that contains sessionEnd token
       const lastAIMessage = [...messages].reverse().find(msg => 
+        msg.role === 'assistant' && 
+        msg.content.includes('[sessionEnd')
+      );
+      
+      // ❌ LEGACY: Fallback to old finish tokens for backward compatibility
+      if (!lastAIMessage) {
+        const legacyMessage = [...messages].reverse().find(msg => 
+          msg.role === 'assistant' && 
+          (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
+        );
+        
+        if (legacyMessage) {
+          console.log('🎯 Found legacy finish tokens, using for completion');
+        }
+      }
+      
+      const finalMessage = lastAIMessage || [...messages].reverse().find(msg => 
         msg.role === 'assistant' && 
         (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
       );
       
-      if (lastAIMessage) {
+      if (finalMessage) {
         // Calculate session statistics
         const sessionEndTime = new Date();
         const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
@@ -1011,7 +1074,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         }, 0);
         
         // Parse coaching completion data to get accurate insights count
-        const parsedData = parseCoachingCompletion(lastAIMessage.content);
+        const parsedData = parseCoachingCompletion(finalMessage.content);
         const keyInsights = Math.max(parsedData.components.length, 3); // Use actual parsed components count
         
         setCompletionStats({
@@ -1046,7 +1109,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         }
         
         // Show completion popup for this specific message
-        setShowCompletionForMessage(lastAIMessage.id);
+        setShowCompletionForMessage(finalMessage.id);
       }
     }
   }, [progress, showCompletionForMessage, messages, sessionStartTime]);

@@ -2574,8 +2574,9 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
             {
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
-                shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-                shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.2,
+                height: containerHeight, // Dinamik yükseklik
+                shadowColor: '#000000',
+                shadowOpacity: colorScheme === 'dark' ? 0.2 : 0.1,
               }
             ]}
           >

@@ -74,7 +74,9 @@ export const useActiveCommitments = () => {
   useEffect(() => {
     const listener = () => forceUpdate({});
     globalListeners.add(listener);
-    return () => globalListeners.delete(listener);
+    return () => {
+      globalListeners.delete(listener);
+    };
   }, []);
 
   const fetchActiveCommitments = useCallback(async () => {
@@ -215,6 +217,7 @@ export const useActiveCommitments = () => {
     commitments: globalCommitments,
     loading: globalLoading,
     error: globalError,
+    isInitialized,
     refetch: fetchActiveCommitments,
     checkInCommitment,
   };

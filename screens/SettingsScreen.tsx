@@ -67,11 +67,15 @@ export default function SettingsScreen() {
   const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
 
   // Active commitments hook
-  const { commitments, loading: commitmentsLoading, checkInCommitment, refetch: refetchCommitments } = useActiveCommitments();
+  const { commitments, loading: commitmentsLoading, isInitialized: commitmentsInitialized, checkInCommitment, refetch: refetchCommitments } = useActiveCommitments();
   
   // Use ref to store the refetch function to avoid dependency issues
   const refetchCommitmentsRef = useRef(refetchCommitments);
   refetchCommitmentsRef.current = refetchCommitments;
+  
+  // Use ref to store refreshSettings function to avoid dependency issues
+  const refreshSettingsRef = useRef(refreshSettings);
+  refreshSettingsRef.current = refreshSettings;
   
   const {
     isSupported: biometricSupported,
@@ -288,15 +292,15 @@ export default function SettingsScreen() {
       console.log('⚙️ Settings screen focused - checking if refresh needed');
       if (firebaseUser?.uid) {
         // Only refresh settings cache, commitments will auto-load if needed
-        refreshSettings();
+        refreshSettingsRef.current();
         
-        // Only refresh commitments if we don't have any loaded yet
-        if (commitments.length === 0 && !commitmentsLoading) {
-          console.log('⚙️ No commitments loaded, triggering refresh');
+        // Only refresh commitments if they haven't been initialized yet
+        if (!commitmentsInitialized && !commitmentsLoading) {
+          console.log('⚙️ Commitments not yet initialized, triggering refresh');
           refetchCommitmentsRef.current();
         }
       }
-    }, [firebaseUser?.uid, refreshSettings, commitments.length, commitmentsLoading])
+    }, [firebaseUser?.uid, commitmentsInitialized, commitmentsLoading])
   );
 
   // Handle push notification toggle
@@ -417,7 +421,7 @@ export default function SettingsScreen() {
       // Refresh all data in parallel
       await Promise.all([
         refetchCommitmentsRef.current(),
-        refreshSettings(),
+        refreshSettingsRef.current(),
         loadPushNotificationPreference(),
         loadCoachingMessagesPreference(),
         checkPermissions()
@@ -429,7 +433,7 @@ export default function SettingsScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, refreshSettings, loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
+  }, [isRefreshing, loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
 
   // Handle biometric authentication toggle
   const handleBiometricToggle = useCallback(async (newValue: boolean) => {
@@ -738,7 +742,7 @@ export default function SettingsScreen() {
             {/* Active Commitments Section */}
             <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 10, marginBottom: 10 }]}>Active Commitments</Text>
             
-            {commitmentsLoading ? (
+            {!commitmentsInitialized || commitmentsLoading ? (
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}

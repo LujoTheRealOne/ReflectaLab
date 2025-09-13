@@ -79,13 +79,7 @@ export default function SourcesModal({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  // Debug: Log received sources
-  console.log('🔍 SourcesModal received:', {
-    isVisible,
-    title,
-    sourcesCount: sources?.length,
-    sources: sources?.slice(0, 2) // Show first 2 sources for debugging
-  });
+  // Sources modal is ready to display
 
   if (!isVisible) return null;
 

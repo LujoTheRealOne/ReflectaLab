@@ -23,7 +23,15 @@ export default function LoginScreen({ navigation }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
-  const { signInWithGoogle, signInWithApple, isLoading } = useAuth();
+  const { signInWithGoogle, signInWithApple, isLoading, isSignedIn, needsOnboarding } = useAuth();
+  
+  // Auto-navigate if user is already signed in
+  useEffect(() => {
+    if (isSignedIn && needsOnboarding) {
+      console.log('🔄 LoginScreen: User already signed in, navigating to Onboarding');
+      navigation.replace('Onboarding');
+    }
+  }, [isSignedIn, needsOnboarding, navigation]);
   
   // ========== ANIMATION CODE (COMMENTED OUT) ==========
   // // Animation states

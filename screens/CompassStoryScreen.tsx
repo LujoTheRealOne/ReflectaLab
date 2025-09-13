@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,10 +12,12 @@ import {
   Image,
 } from 'react-native';
 import { X } from 'lucide-react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { useColorScheme } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { AppStackParamList } from '@/navigation/AppNavigator';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import SourcesModal, { InsightSource } from '@/components/SourcesModal';
@@ -140,7 +142,9 @@ export default function CompassStoryScreen() {
   const route = useRoute<CompassStoryRouteProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { completeOnboarding } = useAuth();
+  const { completeOnboarding, firebaseUser } = useAuth();
+  const { trackLifeCompassViewed, trackOnboardingStep } = useAnalytics();
+  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   
   // Real insights data
   const { insights, loading: insightsLoading, error: insightsError, hasInsights } = useInsights();
@@ -165,6 +169,53 @@ export default function CompassStoryScreen() {
   } | undefined;
   
   const { fromOnboarding = false, fromCoaching = false, sessionId, parsedCoachingData } = routeParams || {};
+  
+  // Guard refs for subscription check
+  const paywallShownRef = useRef<boolean>(false);
+  const accessCheckedRef = useRef<boolean>(false);
+  
+  // Gate access: ALL compass features require Pro. Run once per focus, after RevenueCat initialized.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const check = async () => {
+        if (accessCheckedRef.current) return;
+        if (!initialized) return; // wait for RC init
+        accessCheckedRef.current = true;
+        
+        // Allow onboarding completion without subscription check
+        if (fromOnboarding) {
+          console.log('✅ Allowing compass access for onboarding completion - no premium required');
+          console.log('🎯 Route params:', { fromOnboarding, fromCoaching, sessionId });
+          return;
+        }
+        
+        // Prevent multiple paywall presentations
+        if (paywallShownRef.current) {
+          return;
+        }
+        
+        console.log('🔒 Compass access check:', { isPro, fromCoaching });
+        if (!isPro) {
+          console.log('🚫 Not Pro, showing paywall for compass access');
+          paywallShownRef.current = true;
+          const unlocked = await presentPaywallIfNeeded('reflecta_pro', currentOffering || undefined);
+          if (!unlocked && !cancelled) {
+            console.log('🔙 Paywall cancelled, going back');
+            navigation.goBack();
+          } else if (unlocked) {
+            console.log('✅ Pro unlocked via paywall for compass');
+            // Reset flag so future navigation works
+            paywallShownRef.current = false;
+          }
+        } else {
+          console.log('✅ Pro user, allowing compass access');
+        }
+      };
+      check();
+      return () => { cancelled = true; accessCheckedRef.current = false; };
+    }, [initialized, isPro, presentPaywallIfNeeded, currentOffering, navigation, fromOnboarding])
+  );
   
   // Debug: Log the received coaching data and insights status
   useEffect(() => {
@@ -219,6 +270,27 @@ export default function CompassStoryScreen() {
       console.log('🔄 Insights should be extracted automatically or need manual trigger...');
     }
   }, [sessionId]);
+
+  // Track life compass viewed when component mounts
+  useEffect(() => {
+    trackLifeCompassViewed({
+      viewed_via: fromOnboarding ? 'onboarding' : fromCoaching ? 'coaching' : 'navigation',
+      compass_data: insights ? {
+        mainFocus: insights.mainFocus.headline,
+        keyBlockers: insights.keyBlockers.headline,
+        plan: insights.plan.headline,
+      } : parsedCoachingData || undefined,
+    });
+
+    // If viewed from onboarding, also track as onboarding step completion
+    if (fromOnboarding) {
+      trackOnboardingStep({
+        step_name: 'life_compass_viewed',
+        step_number: 18, // After coaching session completion
+        time_spent: 0, // Just viewed
+      });
+    }
+  }, [fromOnboarding, fromCoaching, insights, parsedCoachingData, trackLifeCompassViewed, trackOnboardingStep]);
   
   // Process real insights data or fallback to coaching/placeholder data
   const processCompassData = () => {

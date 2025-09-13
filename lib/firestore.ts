@@ -433,6 +433,29 @@ export class FirestoreService {
       return () => {}; // Return empty unsubscribe function
     }
   }
+
+  /**
+   * Delete all user insights
+   */
+  static async deleteUserInsights(userId: string): Promise<void> {
+    try {
+      const q = query(
+        collection(db, this.INSIGHTS_COLLECTION_NAME),
+        where('userId', '==', userId)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      // Delete all insights documents for this user
+      const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log(`✅ Deleted ${querySnapshot.docs.length} insights documents for user:`, userId);
+    } catch (error) {
+      console.error('Error deleting user insights:', error);
+      throw new Error('Failed to delete insights from Firestore');
+    }
+  }
 }
 
 /**

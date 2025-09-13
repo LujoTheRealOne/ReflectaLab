@@ -268,7 +268,8 @@ export default function OnboardingChatScreen() {
     trackNotificationPermissionRequested,
     trackNotificationPermissionGranted,
     trackNotificationPermissionDenied,
-    trackCoachingMessagesOptIn
+    trackCoachingMessagesOptIn,
+    trackOnboardingCompleted
   } = useAnalytics();
 
   // Save progress as step 17 (OnboardingChat) when entering this screen
@@ -296,8 +297,8 @@ export default function OnboardingChatScreen() {
               onboardingCompletedAt: 0,
               whatDoYouDoInLife: selectedRoles,
               selfReflectionPracticesTried: selectedSelfReflection,
-              clarityInLife: clarityLevel,
-              stressInLife: stressLevel,
+              clarityInLife: clarityLevel * 10,
+              stressInLife: stressLevel * 10,
             },
             updatedAt: new Date(),
           });

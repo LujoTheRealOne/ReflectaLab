@@ -14,28 +14,49 @@ import { ChevronLeft, Headphones } from 'lucide-react-native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import { useAudioPlayer } from 'expo-audio';
 import { setAudioModeAsync } from 'expo-audio';
 import { FirestoreService } from '@/lib/firestore';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 
 type OnboardingScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Onboarding'>;
+type OnboardingScreenRouteProp = RouteProp<AuthStackParamList, 'Onboarding'>;
 
 export default function OnboardingScreen() {
   const navigation = useNavigation<OnboardingScreenNavigationProp>();
+  const route = useRoute<OnboardingScreenRouteProp>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, signOut } = useAuth();
-  const { trackOnboardingCompleted } = useAnalytics();
+  const { trackOnboardingCompleted, trackOnboardingStep } = useAnalytics();
+  const { 
+    progress, 
+    isLoading: isProgressLoading, 
+    saveProgress, 
+    clearProgress,
+    getInitialStep, 
+    shouldResumeOnboarding,
+    canNavigateToChat 
+  } = useOnboardingProgress();
+  
   const accentColors = {
     'blue': '#2563EB',
     'orange': '#FF4500'
   };
 
-  const [currentStep, setCurrentStep] = useState(1);
+  const routeStartStep = (route.params as any)?.startStep;
+  console.log('📱 Route startStep:', routeStartStep);
+  // Initialize as null and show nothing until we know the step
+  const [currentStep, setCurrentStep] = useState<number | null>(routeStartStep ?? null);
+  
+  // Debug currentStep changes
+  useEffect(() => {
+    console.log('📱 Current step changed to:', currentStep);
+  }, [currentStep]);
   const [name, setName] = useState('');
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [selectedSelfReflection, setSelectedSelfReflection] = useState<string[]>([]);
@@ -72,6 +93,66 @@ export default function OnboardingScreen() {
   const selfReflectionOptions = [
     'Journaling', 'Meditation', 'Mindfulness', 'Breathing', 'Exercise', 'Other'
   ];
+
+  // Track if we've already restored progress to prevent loops
+  const [hasRestoredProgress, setHasRestoredProgress] = useState(false);
+
+  // Restore saved progress at screen level (not inside a subcomponent)
+  useEffect(() => {
+    if (!isProgressLoading && !hasRestoredProgress) {
+      if (progress) {
+        console.log('📱 Restoring onboarding progress:', progress);
+        console.log('📱 Setting currentStep to:', progress.currentStep || 1);
+
+        // If step 17 (OnboardingChat), navigate there directly
+        if (progress.currentStep === 17) {
+          console.log('📱 Step 17 detected, navigating to OnboardingChat');
+          navigation.navigate('OnboardingChat', {
+            name: progress.name,
+            selectedRoles: progress.selectedRoles,
+            selectedSelfReflection: progress.selectedSelfReflection,
+            clarityLevel: progress.clarityLevel,
+            stressLevel: progress.stressLevel,
+            coachingStylePosition: progress.coachingStylePosition,
+            timeDuration: progress.timeDuration
+          });
+          return;
+        }
+
+        // Restore all state values
+        setName(progress.name || '');
+        setSelectedRoles(progress.selectedRoles || []);
+        setSelectedSelfReflection(progress.selectedSelfReflection || []);
+        setClarityLevel(progress.clarityLevel || 0.7);
+        setStressLevel(progress.stressLevel || 0.2);
+        setHasInteractedWithClaritySlider(progress.hasInteractedWithClaritySlider || false);
+        setHasInteractedWithStressSlider(progress.hasInteractedWithStressSlider || false);
+        setCoachingStylePosition(progress.coachingStylePosition || { x: 5.5, y: 5.5 });
+        setHasInteractedWithCoachingStyle(progress.hasInteractedWithCoachingStyle || false);
+        setTimeDuration(progress.timeDuration || 10);
+
+        // Set step directly without animation on initial load (prefer route param if present)
+        const targetStep = (routeStartStep as number | undefined) ?? progress.currentStep ?? 1;
+        setCurrentStep(targetStep);
+
+        // Reset interaction states for the current step
+        if (targetStep === 4) {
+          setHasInteractedWithClaritySlider(false);
+        } else if (targetStep === 5) {
+          setHasInteractedWithStressSlider(false);
+        } else if (targetStep === 11) {
+          setHasInteractedWithCoachingStyle(false);
+        } else if (targetStep === 12) {
+          setHasInteractedWithTimeSlider(false);
+        }
+      } else {
+        // If no progress, default to step 1
+        setCurrentStep(1);
+      }
+      
+      setHasRestoredProgress(true);
+    }
+  }, [isProgressLoading, progress, hasRestoredProgress]);
 
   // Initialize audio player for meditation bell
   const bellPlayer = useAudioPlayer(require('@/assets/mediation_bell.mp3'));
@@ -246,6 +327,8 @@ export default function OnboardingScreen() {
     const maxX = (selectorSize - controlSize - labelPadding) / 2; // Max horizontal movement
     const maxY = (selectorSize - controlSize - labelPadding) / 2; // Max vertical movement
 
+    // Progress restore handled at screen level
+
     // Initialize position from existing state when component mounts
     useEffect(() => {
       // Convert from 1-10 scale back to -1 to 1 scale, then multiply by maxX/maxY
@@ -388,7 +471,41 @@ export default function OnboardingScreen() {
     );
   };
 
+  // Helper function to get meaningful step names for tracking - detailed onboarding funnel
+  const getStepName = (step: number): 'name_entered' | 'roles_selected' | 'self_reflection_selected' | 'clarity_level_set' | 'stress_level_set' | 'motivation_viewed' | 'research_viewed' | 'figures_viewed' | 'ready_confirmed' | 'coaching_style_configured' | 'time_duration_set' | 'configuration_loading' | 'meditation_intro_viewed' | 'meditation_prepared' | 'meditation_started' | null => {
+    switch (step) {
+      case 1: return 'name_entered'; // User entered their name
+      case 2: return 'roles_selected'; // User selected their life roles
+      case 3: return 'self_reflection_selected'; // User selected self-reflection practices
+      case 4: return 'clarity_level_set'; // User set their life clarity level
+      case 5: return 'stress_level_set'; // User set their stress level
+      case 6: return 'motivation_viewed'; // User viewed motivational message
+      case 8: return 'research_viewed'; // User viewed research-backed benefits
+      case 9: return 'figures_viewed'; // User viewed world leading figures
+      case 10: return 'ready_confirmed'; // User confirmed they're ready
+      case 11: return 'coaching_style_configured'; // User configured coaching style
+      case 12: return 'time_duration_set'; // User set session duration
+      case 13: return 'configuration_loading'; // System loading custom configuration
+      case 14: return 'meditation_intro_viewed'; // User viewed meditation introduction
+      case 15: return 'meditation_prepared'; // User prepared for meditation (headphones step)
+      case 16: return 'meditation_started'; // User started 5-minute meditation
+      default: return null; // Steps 7 (studying yourself) not tracked individually
+    }
+  };
+
+  // Helper function to get user input for tracking
+  const getStepUserInput = (step: number) => {
+    switch (step) {
+      case 2: return { roles: selectedRoles };
+      case 11: return { coaching_style: coachingStylePosition };
+      case 15: return { meditation_duration: timeDuration };
+      default: return undefined;
+    }
+  };
+
   const animateToStep = (newStep: number) => {
+    if (currentStep == null) return; // Safety check
+    
     // Handle button animations for case 13
     if (newStep === 13 || newStep === 16) {
       // Slide buttons down when entering case 13
@@ -416,6 +533,35 @@ export default function OnboardingScreen() {
     }).start(() => {
       // Change step
       setCurrentStep(newStep);
+      
+      // Save progress when step changes (async but don't wait)
+      // For step 16 (meditation), don't save progress here - it's handled in useEffect
+      if (newStep !== 16) {
+        saveProgress({
+          currentStep: newStep,
+          name,
+          selectedRoles,
+          selectedSelfReflection,
+          clarityLevel,
+          stressLevel,
+          hasInteractedWithClaritySlider,
+          hasInteractedWithStressSlider,
+          coachingStylePosition,
+          hasInteractedWithCoachingStyle,
+          timeDuration,
+        }).catch(error => console.error('Failed to save progress:', error));
+      }
+
+      // Track onboarding step completion for key steps
+      const stepName = getStepName(newStep);
+      if (stepName) {
+        trackOnboardingStep({
+          step_name: stepName,
+          step_number: newStep,
+          user_input: getStepUserInput(newStep),
+          time_spent: Math.floor((Date.now() - onboardingStartTime) / 1000),
+        });
+      }
 
       // Reset interaction states when moving to or from interactive steps
       if (newStep === 4) {
@@ -535,7 +681,8 @@ export default function OnboardingScreen() {
         // Start timer after audio is loaded
         startTimeoutId = setTimeout(() => {
           setIsTimerRunning(true);
-          // Start meditation audio when timer starts
+          // Note: We don't save progress here to avoid infinite loops
+          // If user exits during meditation, they'll return to step 15 (last saved step)
         }, 2000);
       };
       
@@ -608,26 +755,37 @@ export default function OnboardingScreen() {
   }, []);
 
   const handleContinue = async () => {
+    if (isLoading || currentStep == null) return; // Prevent double-tap
+    
     if (currentStep < 16) {
-      animateToStep(currentStep + 1);
+      setIsLoading(true); // Block further clicks
+      const nextStep = currentStep + 1;
+      
+      try {
+        // animateToStep will handle saving progress
+        animateToStep(nextStep);
+      } finally {
+        // Re-enable button after animation starts
+        setTimeout(() => setIsLoading(false), 500);
+      }
       if (currentStep === 12) {
         // Handle data submission - save data to user object in database
         if (firebaseUser?.uid) {
           try {
             const onboardingDuration = Math.floor((Date.now() - onboardingStartTime) / 1000);
             
-            // Update user account in Firestore with onboarding data and completion status
+            // Update user account in Firestore with onboarding data (but NOT completion status)
             await FirestoreService.updateUserAccount(firebaseUser.uid, {
-              // Mark onboarding as completed
               // Store all onboarding data for future reference
-              firstName:name,
+              firstName: name,
               onboardingData: {
-                onboardingCompleted: true,
-                onboardingCompletedAt: Date.now(),
+                // DO NOT mark onboarding as completed here - only when user clicks "Enter App" in deep dive
+                onboardingCompleted: false,
+                onboardingCompletedAt: 0,
                 whatDoYouDoInLife: selectedRoles,
                 selfReflectionPracticesTried: selectedSelfReflection,
-                clarityInLife: clarityLevel,
-                stressInLife: stressLevel,
+                clarityInLife: clarityLevel * 10,
+                stressInLife: stressLevel * 10,
               },
               coachingConfig: {
                 challengeDegree: coachingStylePosition.x < 3.7 ? 'gentle' : coachingStylePosition.x < 6.4 ? 'moderate' : coachingStylePosition.x < 8.2 ? 'challenging' : 'intense',
@@ -641,11 +799,11 @@ export default function OnboardingScreen() {
               userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             });
             
-            // Track onboarding completion
-            trackOnboardingCompleted({
-              onboarding_duration: onboardingDuration,
-              steps_completed: 13, // Steps 1-12 completed at this point
-              user_responses: selectedRoles.length + selectedSelfReflection.length + 4, // roles + reflections + clarity + stress + coaching style + time
+            // Track onboarding step completion (not full completion yet)
+            trackOnboardingStep({
+              step_name: 'time_duration_set',
+              step_number: 12,
+              time_spent: onboardingDuration,
             });
           } catch (error) {
             console.error('Failed to save onboarding data:', error);
@@ -653,27 +811,44 @@ export default function OnboardingScreen() {
         }
       }
     } else if (currentStep === 16) {
-      // Fade out current screen before navigating
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        // Navigate to chat screen with all onboarding data
-        navigation.navigate('OnboardingChat', {
-          name,
-          selectedRoles,
-          selectedSelfReflection,
-          clarityLevel,
-          stressLevel,
-          coachingStylePosition,
-          timeDuration
+      setIsLoading(true);
+      
+      try {
+        // IMPORTANT: Stop meditation audio before navigating to prevent audio leak
+        console.log('🔇 Stopping meditation audio before navigating to OnboardingChat...');
+        stopMeditationAudio();
+        deactivateKeepAwake();
+        
+        // Clear onboarding progress since we're completing it
+        await clearProgress();
+        
+        // Fade out current screen before navigating
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          // Navigate to chat screen with all onboarding data
+          navigation.navigate('OnboardingChat', {
+            name,
+            selectedRoles,
+            selectedSelfReflection,
+            clarityLevel,
+            stressLevel,
+            coachingStylePosition,
+            timeDuration
+          });
         });
-      });
+      } catch (error) {
+        console.error('Failed to clear progress:', error);
+        setIsLoading(false);
+      }
     }
   };
 
   const handleBack = () => {
+    if (isLoading || currentStep == null) return; // Prevent double-tap
+    
     if (currentStep <= 1) {
       // Go back to login screen
       Alert.alert('Go back?', 'Are you sure you want to cancel this onboarding? You will lose all your progress.', [
@@ -688,7 +863,9 @@ export default function OnboardingScreen() {
         } }
       ]);
     } else {
+      setIsLoading(true); // Block further clicks
       animateToStep(currentStep - 1);
+      setTimeout(() => setIsLoading(false), 500); // Re-enable after animation
     }
   };
 
@@ -1322,8 +1499,16 @@ close your eyes...`}
                           }).start(() => {
                             setTimerMinutes(0);
                             setTimerSeconds(0);
-                            setIsTimerRunning(true);
+                            setIsTimerRunning(false);
+                            setTimerEnded(true); // Mark timer as ended so continue button becomes active
                             setShowPauseOverlay(false);
+                            
+                            // Slide continue button back up (same as when timer naturally ends)
+                            Animated.timing(buttonSlideAnim, {
+                              toValue: 0,
+                              duration: 500,
+                              useNativeDriver: true,
+                            }).start();
                           });
                         }
                       }
@@ -1372,6 +1557,10 @@ close your eyes...`}
     return false;
   };
 
+  if (currentStep == null) {
+    return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} />;
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: currentStep === 7 ? '#111111' : currentStep >= 14 ? '#000000' : colors.background }]}>
       <Animated.View
@@ -1400,7 +1589,7 @@ close your eyes...`}
         ]}
       >
         <View style={styles.buttonRow}>
-          {currentStep < 14 && (
+          {(currentStep < 14 || (currentStep === 16 && timerEnded)) && (
             <Button
               variant="secondary"
               onPress={handleBack}

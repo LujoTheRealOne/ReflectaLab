@@ -1,10 +1,22 @@
 "use dom";
 
+// WebView bridge safety check - prevent webkit messageHandlers errors in DOM context
+if (typeof window !== 'undefined' && !window.webkit) {
+  window.webkit = {
+    messageHandlers: {
+      ReactNativeWebView: {
+        postMessage: () => {
+          console.warn('WebView postMessage called in DOM context - ignoring');
+        }
+      }
+    }
+  } as any;
+}
+
 import React from "react";
 import styles from "@/styles/tiptap.css";
 import Link from "@tiptap/extension-link";
 import Typography from "@tiptap/extension-typography";
-import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,9 +45,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Placeholder.configure({
-        placeholder: 'Start writing... (Press space on a new line to get AI coaching)',
-      }),
+
       Link.configure({
         openOnClick: false,
       }),
@@ -52,6 +62,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
       attributes: {
         style: `
           width: 100%;
+          max-width: 100%;
           margin: 0 auto;
           padding: 0;
           outline: none;
@@ -62,6 +73,10 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
           font-size: 16px;
           color: ${colorScheme === 'dark' ? '#ffffff' : '#000000'};
           background: transparent;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          white-space: pre-wrap;
+          box-sizing: border-box;
         `
       },
       handleClick: (view, pos, event) => {
@@ -374,7 +389,7 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   // Update editor content when content prop changes
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content);
     }
   }, [editor, content]);
 
@@ -418,20 +433,35 @@ export default function Editor({ content, onUpdate, isLoaded, getAuthToken, apiB
   const editorStyles = {
     flex: 1,
     height: '100%',
+    width: '100%',
+    maxWidth: '100%',
     border: 'none',
     outline: 'none',
     background: 'transparent',
     overflow: 'auto',
+    boxSizing: 'border-box' as 'border-box',
   };
 
   return (
     <>
-      <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column' }} ref={editorRef}>
+      <div 
+        style={{ 
+          flex: 1, 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          width: '100%',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          boxSizing: 'border-box'
+        }} 
+        ref={editorRef}
+      >
         <style dangerouslySetInnerHTML={{ __html: styles }} />
         <EditorContent editor={editor} style={editorStyles} />
         <div
           onClick={handleEditorClick}
-          style={{ flex: 1, width: '100%', minHeight: '100px' }}
+          style={{ flex: 1, width: '100%', maxWidth: '100%', minHeight: '100px' }}
         />
       </div>
 

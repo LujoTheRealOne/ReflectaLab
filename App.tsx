@@ -17,6 +17,12 @@ import { tokenCache } from '@clerk/clerk-expo/token-cache';
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+// Configure splash screen fade animation
+SplashScreen.setOptions({
+  duration: 500,
+  fade: true,
+});
+
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 
 if (!publishableKey) {
@@ -32,10 +38,13 @@ function AppContent() {
   const { trackAppOpened } = useAnalytics();
 
   useEffect(() => {
-    // Hide splash screen when authentication state is determined
-    setTimeout(() => {
-      SplashScreen.hideAsync();
-    }, 2000);
+    // Only hide splash screen when Clerk auth is fully loaded
+    if (isLoaded) {
+      // Small delay to ensure smooth transition
+      setTimeout(() => {
+        SplashScreen.hideAsync();
+      }, 1500); // Reduced delay for faster app startup
+    }
   }, [isLoaded]);
 
   // Track app opened when the app loads
@@ -62,7 +71,7 @@ function AppContent() {
   }, [trackAppOpened]);
 
   // Show offline modal if there's no internet connection
-  const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
+  // const isOffline = networkState.isConnected === false || networkState.isInternetReachable === false;
 
   return (
     <>
@@ -78,9 +87,6 @@ function AppContent() {
       >
         <Navigation />
       </PostHogProvider>
-      <NetworkStatusModal
-        visible={isOffline}
-      />
       <BiometricProtectionOverlay />
     </>
   );

@@ -1508,14 +1508,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         triggerInsightExtraction(finalSessionId); // Don't await - run in background
       }
 
-      // After compass story, navigate to main app
-      setTimeout(() => {
-        // @ts-ignore - allow parent navigator access
-        navigation.getParent()?.reset({
-          index: 0,
-          routes: [{ name: 'App' as never }],
-        });
-      }, 2000); // Give time for compass story to show
+      // Note: Navigation to main app is now handled by CompassStoryScreen
+      // when user manually closes the compass or completes viewing it
 
     } catch (error) {
       console.error('❌ Error completing onboarding from deep dive:', error);

@@ -465,13 +465,13 @@ export default function CompassStoryScreen() {
 
   const handleCompassComplete = async () => {
     if (fromOnboarding) {
-      // Complete onboarding and navigate to home
-      try {
-        await completeOnboarding();
-        console.log('✅ Onboarding completed successfully from compass');
-      } catch (error) {
-        console.error('❌ Failed to complete onboarding:', error);
-      }
+      // Navigate to main app after compass completion during onboarding
+      console.log('🧭 Compass completed from onboarding - navigating to main app');
+      // @ts-ignore - allow parent navigator access  
+      navigation.getParent()?.reset({
+        index: 0,
+        routes: [{ name: 'App' as never }],
+      });
     } else {
       // Just navigate back (for regular coaching or manual compass viewing)
       navigation.goBack();
@@ -690,7 +690,16 @@ export default function CompassStoryScreen() {
         <TouchableOpacity
           style={[styles.closeButton, { backgroundColor: `${colors.text}15` }]}
           onPress={() => {
-            navigation.goBack();
+            if (fromOnboarding) {
+              console.log('🧭 Closing compass from onboarding - navigating to main app');
+              // @ts-ignore - allow parent navigator access  
+              navigation.getParent()?.reset({
+                index: 0,
+                routes: [{ name: 'App' as never }],
+              });
+            } else {
+              navigation.goBack();
+            }
           }}
         >
           <X size={24} color={colors.text} />

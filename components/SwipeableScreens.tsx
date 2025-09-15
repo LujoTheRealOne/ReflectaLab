@@ -7,6 +7,7 @@ import CoachingScreen from '@/screens/CoachingScreen';
 import SettingsScreen from '@/screens/SettingsScreen';
 import BottomNavBar from '@/components/BottomNavBar';
 import { Colors } from '@/constants/Colors';
+import { useNotificationPermissionModal } from '@/hooks/useNotificationPermissionModal';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -23,6 +24,9 @@ export default function SwipeableScreens() {
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
   const [currentPage, setCurrentPage] = useState(1); // 0: Notes, 1: Coaching, 2: Settings
+  
+  // Check and show notification permission modal if needed
+  useNotificationPermissionModal();
 
   // Handle page change from swipe
   const onMomentumScrollEnd = useCallback((event: any) => {

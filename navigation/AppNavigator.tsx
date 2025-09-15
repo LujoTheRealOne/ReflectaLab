@@ -13,6 +13,7 @@ import CompassStoryScreen from '@/screens/CompassStoryScreen';
 import NotesScreen from '@/screens/NotesScreen';
 import VoiceModeScreen from '@/screens/VoiceModeScreen';
 import BreakoutSessionScreen from '@/screens/BreakoutSessionScreen';
+import NotificationPermissionScreen from '@/screens/NotificationPermissionScreen';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useAuth } from '@/hooks/useAuth';
 import SwipeableScreens from '@/components/SwipeableScreens';
@@ -24,6 +25,7 @@ export type AppStackParamList = {
   Home: undefined;
   Info: undefined;
   JournalEdit: { entryId: string };
+  NotificationPermission: undefined;
   CompassStory: { 
     fromOnboarding?: boolean;
     fromCoaching?: boolean;
@@ -251,6 +253,17 @@ export default function AppNavigator() {
         }}
       >
         {(props) => <BreakoutSessionScreen {...props} />}
+      </Stack.Screen>
+      
+      <Stack.Screen
+        name="NotificationPermission"
+        options={{
+          gestureEnabled: true,
+          presentation: 'modal',
+          animationTypeForReplace: 'push',
+        }}
+      >
+        {() => <NotificationPermissionScreen />}
       </Stack.Screen>
     </Stack.Navigator>
     

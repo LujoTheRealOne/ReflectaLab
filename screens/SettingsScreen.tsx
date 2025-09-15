@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useInsights } from '@/hooks/useInsights';
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
+import { useNotificationPermissionModal } from '@/hooks/useNotificationPermissionModal';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useSettingsCache } from '@/hooks/useSettingsCache';
@@ -35,6 +36,7 @@ import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, 
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { FirestoreService } from '@/lib/firestore';
+import { clearNotificationPermissionData } from '@/utils/debugNotifications';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -53,6 +55,8 @@ export default function SettingsScreen() {
     permissionStatus,
     checkPermissions
   } = useNotificationPermissions();
+  
+  const { showModal: showNotificationModal } = useNotificationPermissionModal();
   
   const { 
     initialized: rcInitializedLive, 
@@ -601,6 +605,36 @@ export default function SettingsScreen() {
             } catch (error) {
               console.error('❌ Settings - Error resetting compass:', error);
               Alert.alert('Error', 'Failed to reset compass. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleForceNotificationModal = () => {
+    Alert.alert(
+      'Reset Notification Modal',
+      'This will clear notification permission data and immediately show the notification permission modal.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Show Modal',
+          style: 'default',
+          onPress: async () => {
+            try {
+              console.log('🔔 Settings - Forcing notification modal...');
+              
+              // Clear notification permission data to reset state
+              await clearNotificationPermissionData();
+              
+              // Force show the modal
+              showNotificationModal();
+              
+              console.log('✅ Settings - Notification modal forced successfully');
+            } catch (error) {
+              console.error('❌ Settings - Error forcing notification modal:', error);
+              Alert.alert('Error', 'Failed to force notification modal. Please try again.');
             }
           }
         }
@@ -1324,6 +1358,15 @@ export default function SettingsScreen() {
               onPress={handleResetCompass}
             >
               Reset Life Compass
+            </Button>
+            <View style={[styles.separator, { backgroundColor: colorScheme === 'dark' ? '#222' : '#E5E5E7' }]} />
+            <Button
+              variant="ghost"
+              iconLeft={<Bell size={20} color={colors.text} />}
+              style={styles.infoButton}
+              onPress={handleForceNotificationModal}
+            >
+              Reset Notification Modal
             </Button>
           </View>
           <Button

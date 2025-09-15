@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, Animated } from 'react-native';
-import { CheckCircle, ArrowRight } from 'lucide-react-native';
+import { CheckCircle, ArrowRight, Clock } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import * as Haptics from 'expo-haptics';
 
@@ -90,20 +90,21 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
   };
 
   return (
-    <View style={[styles.container, { 
-      backgroundColor: colors.background, 
-      borderColor: '#10B981',
-      // Gradient effect simulation with shadow
-      shadowColor: '#10B981',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 8,
-      elevation: 4,
-    }]}>
+    <View style={[
+      styles.container, 
+      { 
+        backgroundColor: colors.background,
+        borderColor: colors.border,
+        shadowColor: colorScheme === 'dark' ? '#000000' : '#000000',
+      }
+    ]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.statusRow}>
-          <View style={styles.statusIndicator}>
+          <Text style={[styles.label, { color: colors.text, opacity: 0.6 }]}>
+            Session Status
+          </Text>
+          <View style={[styles.statusBadge, { backgroundColor: '#10B981' + '15' }]}>
             <Animated.View 
               style={[
                 styles.pulseIndicator, 
@@ -113,8 +114,8 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
                 }
               ]} 
             />
-            <Text style={[styles.statusLabel, { color: '#10B981' }]}>
-              Session Complete
+            <Text style={[styles.statusText, { color: '#10B981' }]}>
+              Complete
             </Text>
           </View>
         </View>
@@ -126,6 +127,14 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
         <Text style={[styles.description, { color: colors.text, opacity: 0.7 }]}>
           {data.message || "I have gathered enough context to create your personalized life compass. Click below to complete the session and generate your insights."}
         </Text>
+
+        {/* Session metadata */}
+        <View style={styles.metadataRow}>
+          <Clock size={12} color={colors.text} style={{ opacity: 0.5 }} />
+          <Text style={[styles.metadata, { color: colors.text, opacity: 0.5 }]}>
+            Session ready for completion
+          </Text>
+        </View>
       </View>
 
       {/* Action Button */}
@@ -133,9 +142,9 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
         <TouchableOpacity 
           style={[
             styles.button, 
+            styles.primaryButton,
             { 
-              backgroundColor: isCompleting ? '#9CA3AF' : '#10B981',
-              opacity: isCompleting ? 0.7 : 1
+              backgroundColor: isCompleting ? (colors.text + '80') : colors.text,
             }
           ]}
           onPress={handleCompleteSession}
@@ -156,17 +165,17 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
                   }
                 ]} 
               />
-              <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>
-                Completing Session...
+              <Text style={[styles.buttonText, { color: colors.background }]}>
+                Completing...
               </Text>
             </>
           ) : (
             <>
-              <CheckCircle size={16} color="#FFFFFF" />
-              <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>
-                Complete Session & Generate Life Compass
+              <CheckCircle size={16} color={colors.background} />
+              <Text style={[styles.buttonText, { color: colors.background }]}>
+                Complete & View Compass
               </Text>
-              <ArrowRight size={16} color="#FFFFFF" />
+              <ArrowRight size={16} color={colors.background} />
             </>
           )}
         </TouchableOpacity>
@@ -180,27 +189,41 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     padding: 16,
     borderRadius: 12,
-    borderWidth: 2,
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   header: {
     marginBottom: 16,
   },
   statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  statusIndicator: {
+  label: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   pulseIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   title: {
     fontSize: 16,
@@ -211,6 +234,15 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 14,
     lineHeight: 18,
+    marginBottom: 8,
+  },
+  metadataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metadata: {
+    fontSize: 12,
   },
   actions: {
     flexDirection: 'row',
@@ -222,9 +254,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: 'row',
     gap: 8,
+  },
+  primaryButton: {
+    // Primary button styling
   },
   buttonText: {
     fontSize: 14,
@@ -235,8 +270,8 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
-    borderTopColor: 'transparent',
+    borderColor: 'transparent',
+    borderTopColor: 'currentColor',
     borderRadius: 8,
   },
 });

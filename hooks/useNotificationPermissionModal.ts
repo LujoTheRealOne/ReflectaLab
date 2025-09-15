@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -21,30 +21,45 @@ export interface UseNotificationPermissionModalReturn {
   checkAndShowIfNeeded: () => Promise<void>;
 }
 
+/**
+ * Production-grade notification permission modal hook
+ * Handles showing notification permission prompts with proper state management
+ */
 export function useNotificationPermissionModal(): UseNotificationPermissionModalReturn {
   const [shouldShow, setShouldShow] = useState(false);
   const navigation = useNavigation<NavigationProp>();
   const { permissionStatus } = useNotificationPermissions();
   const { firebaseUser } = useAuth();
 
-  // Check if push notifications are fully enabled (both system permissions and user preference)
+  // Refs to prevent stale closures and track state
+  const isInitializedRef = useRef(false);
+  const isCheckingRef = useRef(false);
+  const lastCheckParamsRef = useRef<string>('');
+
+  /**
+   * Check if push notifications are fully enabled
+   * Returns true only if: system permission granted + user preference enabled + valid tokens
+   */
   const checkPushNotificationsEnabled = useCallback(async (): Promise<boolean> => {
-    if (!firebaseUser?.uid) {
+    const userId = firebaseUser?.uid;
+    const currentPermissionStatus = permissionStatus;
+
+    if (!userId) {
       console.log('🔍 [NotificationModal] No firebase user, returning false');
       return false;
     }
 
     try {
-      // Check system permissions
-      console.log('🔍 [NotificationModal] Checking system permission status:', permissionStatus);
-      if (permissionStatus !== 'granted') {
+      // Check system permissions first (fastest check)
+      console.log('🔍 [NotificationModal] Checking system permission status:', currentPermissionStatus);
+      if (currentPermissionStatus !== 'granted') {
         console.log('🔍 [NotificationModal] System permissions not granted');
         return false;
       }
 
-      // Check user account preference
+      // Check user account preference (slower Firestore check)
       console.log('🔍 [NotificationModal] Checking user account preferences...');
-      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      const userDocRef = doc(db, 'users', userId);
       const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
@@ -62,18 +77,36 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
       console.log('🔍 [NotificationModal] Push enabled:', pushNotificationsEnabled, 'Has tokens:', hasValidTokens);
 
       // User needs both: system permission granted AND account preference enabled AND valid tokens
-      return pushNotificationsEnabled && hasValidTokens;
+      return Boolean(pushNotificationsEnabled && hasValidTokens);
     } catch (error) {
       console.error('❌ [NotificationModal] Error checking push notification status:', error);
       return false;
     }
-  }, [firebaseUser?.uid, permissionStatus]);
+  }, []); // No dependencies - uses latest values via closure
 
+  /**
+   * Show the notification permission modal
+   */
   const showModal = useCallback(() => {
-    setShouldShow(true);
-    navigation.navigate('NotificationPermission');
+    try {
+      // Validate navigation availability
+      if (!navigation || typeof navigation.navigate !== 'function') {
+        console.error('❌ [NotificationModal] Navigation not ready');
+        return;
+      }
+      
+      console.log('🎯 [NotificationModal] Showing notification permission modal');
+      setShouldShow(true);
+      navigation.navigate('NotificationPermission');
+    } catch (error) {
+      console.error('❌ [NotificationModal] Error navigating to notification permission:', error);
+      setShouldShow(false); // Reset state on error
+    }
   }, [navigation]);
 
+  /**
+   * Dismiss the notification permission modal
+   */
   const dismissModal = useCallback(async () => {
     console.log('❌ [NotificationModal] Dismissing modal');
     setShouldShow(false);
@@ -87,16 +120,43 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
     }
   }, []);
 
-  const checkAndShowIfNeeded = useCallback(async () => {
-    // Only check for authenticated users
-    if (!firebaseUser?.uid) {
+  /**
+   * Check if modal should be shown and show it if needed
+   * This is the main logic function
+   */
+  const checkAndShowIfNeeded = useCallback(async (): Promise<void> => {
+    const userId = firebaseUser?.uid;
+    const currentPermissionStatus = permissionStatus;
+
+    // Create a unique key for this check to prevent duplicate calls
+    const checkParams = `${userId}-${currentPermissionStatus}`;
+    
+    // Skip if:
+    // 1. No authenticated user
+    // 2. Already checking (prevent concurrent execution)
+    // 3. Same parameters as last check (prevent duplicate work)
+    if (!userId) {
+      console.log('🔍 [NotificationModal] No user, skipping check');
+      return;
+    }
+
+    if (isCheckingRef.current) {
+      console.log('🔍 [NotificationModal] Already checking, skipping');
+      return;
+    }
+
+    if (lastCheckParamsRef.current === checkParams && isInitializedRef.current) {
+      console.log('🔍 [NotificationModal] Same check parameters, skipping');
       return;
     }
 
     try {
-      console.log('🔍 [NotificationModal] Checking if modal should be shown...');
+      isCheckingRef.current = true;
+      lastCheckParamsRef.current = checkParams;
       
-      // Check if push notifications are fully enabled (system + user preference + tokens)
+      console.log('🔍 [NotificationModal] Starting permission check...', { userId, currentPermissionStatus });
+      
+      // Step 1: Check if push notifications are fully enabled
       const pushNotificationsEnabled = await checkPushNotificationsEnabled();
       console.log('📱 [NotificationModal] Push notifications enabled:', pushNotificationsEnabled);
       
@@ -105,29 +165,17 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
         return;
       }
 
-      // Check if modal was already shown in this session or recently dismissed
-      let shownKey: string | null = null;
-      let dismissedKey: string | null = null;
+      // Step 2: Check storage for previous actions
+      const [shownTimestamp, dismissedTimestamp] = await Promise.all([
+        AsyncStorage.getItem(NOTIFICATION_PERMISSION_SHOWN_KEY).catch(() => null),
+        AsyncStorage.getItem(NOTIFICATION_PERMISSION_DISMISSED_KEY).catch(() => null),
+      ]);
       
-      try {
-        [shownKey, dismissedKey] = await Promise.all([
-          AsyncStorage.getItem(NOTIFICATION_PERMISSION_SHOWN_KEY),
-          AsyncStorage.getItem(NOTIFICATION_PERMISSION_DISMISSED_KEY),
-        ]);
-        console.log('📦 [NotificationModal] Storage values - shown:', shownKey, 'dismissed:', dismissedKey);
-      } catch (storageError) {
-        console.error('❌ [NotificationModal] AsyncStorage error:', storageError);
-        // Clear corrupted data and continue
-        try {
-          await AsyncStorage.multiRemove([NOTIFICATION_PERMISSION_SHOWN_KEY, NOTIFICATION_PERMISSION_DISMISSED_KEY]);
-        } catch (clearError) {
-          console.error('❌ [NotificationModal] Failed to clear storage:', clearError);
-        }
-      }
+      console.log('📦 [NotificationModal] Storage values - shown:', shownTimestamp, 'dismissed:', dismissedTimestamp);
 
-      // If dismissed recently (within 24 hours), don't show again
-      if (dismissedKey && !isNaN(parseInt(dismissedKey, 10))) {
-        const dismissedTime = parseInt(dismissedKey, 10);
+      // Step 3: Apply dismissal cooldown (24 hours)
+      if (dismissedTimestamp && !isNaN(parseInt(dismissedTimestamp, 10))) {
+        const dismissedTime = parseInt(dismissedTimestamp, 10);
         const twentyFourHours = 24 * 60 * 60 * 1000;
         if (Date.now() - dismissedTime < twentyFourHours) {
           console.log('⏰ [NotificationModal] Recently dismissed, not showing again');
@@ -135,9 +183,9 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
         }
       }
 
-      // If shown before and user denied, wait longer (7 days) before showing again
-      if (shownKey && !isNaN(parseInt(shownKey, 10)) && permissionStatus === 'denied') {
-        const shownTime = parseInt(shownKey, 10);
+      // Step 4: Apply longer cooldown for denied permissions (7 days)
+      if (shownTimestamp && !isNaN(parseInt(shownTimestamp, 10)) && currentPermissionStatus === 'denied') {
+        const shownTime = parseInt(shownTimestamp, 10);
         const sevenDays = 7 * 24 * 60 * 60 * 1000;
         if (Date.now() - shownTime < sevenDays) {
           console.log('🚫 [NotificationModal] Previously denied, waiting longer');
@@ -145,35 +193,62 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
         }
       }
 
-      // Show the modal
-      console.log('🎯 [NotificationModal] Showing notification permission modal');
+      // Step 5: Show the modal and mark as shown
+      console.log('🎯 [NotificationModal] All checks passed - showing modal');
       showModal();
       
       // Mark as shown
       try {
         await AsyncStorage.setItem(NOTIFICATION_PERMISSION_SHOWN_KEY, Date.now().toString());
+        console.log('✅ [NotificationModal] Marked as shown in storage');
       } catch (setError) {
         console.error('❌ [NotificationModal] Failed to mark as shown:', setError);
       }
     } catch (error) {
-      console.error('❌ [NotificationModal] Error checking notification permission modal:', error);
+      console.error('❌ [NotificationModal] Error in checkAndShowIfNeeded:', error);
+    } finally {
+      isCheckingRef.current = false;
     }
-  }, [firebaseUser?.uid, permissionStatus, checkPushNotificationsEnabled, showModal]);
+  }, []); // No dependencies - uses latest values via closure
 
-  // Auto-check when user logs in or permission status changes
+  /**
+   * Initialize the hook once when user becomes available
+   * Uses a single effect with proper dependency management
+   */
   useEffect(() => {
-    // Small delay to ensure navigation is ready
-    console.log('⏰ [NotificationModal] Setting up auto-check...');
-    const timeoutId = setTimeout(() => {
-      console.log('⏰ [NotificationModal] Auto-check timeout triggered');
-      checkAndShowIfNeeded();
-    }, 1000); // Reduced from 2 seconds to 1 second
+    const userId = firebaseUser?.uid;
+    const currentPermissionStatus = permissionStatus;
 
+    // Only initialize once when we have a user and permission status is determined
+    if (!userId || !currentPermissionStatus || currentPermissionStatus === 'undetermined') {
+      console.log('🔍 [NotificationModal] Waiting for user and permission status...', { 
+        hasUser: !!userId, 
+        permissionStatus: currentPermissionStatus 
+      });
+      return;
+    }
+
+    // Prevent multiple initializations
+    if (isInitializedRef.current) {
+      console.log('🔍 [NotificationModal] Already initialized, skipping');
+      return;
+    }
+
+    console.log('🚀 [NotificationModal] Initializing permission check...', { userId, currentPermissionStatus });
+    isInitializedRef.current = true;
+
+    // Delay the check to ensure navigation is ready and avoid blocking the main thread
+    const timeoutId = setTimeout(() => {
+      checkAndShowIfNeeded().catch(error => {
+        console.error('❌ [NotificationModal] Error in delayed initialization:', error);
+      });
+    }, 3000); // 3 second delay for stability
+
+    // Cleanup
     return () => {
-      console.log('⏰ [NotificationModal] Clearing auto-check timeout');
       clearTimeout(timeoutId);
     };
-  }, [checkAndShowIfNeeded]);
+  }, [firebaseUser?.uid, permissionStatus]); // Only depend on essential external values
 
   return {
     shouldShow,

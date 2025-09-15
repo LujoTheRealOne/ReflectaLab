@@ -18,6 +18,8 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { CoachingCardRenderer, parseCoachingCards } from '@/components/coaching/CoachingCardRenderer';
+import { SessionEndCard } from '@/components/cards';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -374,7 +376,7 @@ export default function OnboardingChatScreen() {
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
-  const [showCompletionForMessage, setShowCompletionForMessage] = useState<string | null>(null);
+  // Completion is now handled directly by sessionEnd cards, no separate popup needed
   const [showSchedulingForMessage, setShowSchedulingForMessage] = useState<string | null>(null);
   const [selectedFrequency, setSelectedFrequency] = useState<string>('daily');
   const [confirmedSchedulingForMessage, setConfirmedSchedulingForMessage] = useState<string | null>(null);
@@ -422,7 +424,7 @@ export default function OnboardingChatScreen() {
   const parseCoachingCards = (content: string) => {
     const components: Array<{ type: string; props: Record<string, string> }> = [];
     
-    // First check for simple card format without parameters (e.g., [checkin])
+    // First check for simple card format without parameters (e.g., [checkin], [sessionEnd])
     const simpleComponentRegex = /\[(\w+)\]/g;
     let simpleMatch;
     while ((simpleMatch = simpleComponentRegex.exec(content)) !== null) {
@@ -433,21 +435,23 @@ export default function OnboardingChatScreen() {
       components.push({ type: componentType, props });
     }
     
-    // Also parse component markers with parameters like [checkin:frequency="once a day",what="morning routine progress",notes="..."]
-    const componentRegex = /\[(\w+):([^\]]+)\]/g;
+    // Also parse component markers with parameters like [checkin:frequency="once a day"] or [sessionEnd:title="...",message="..."]
+    // Use improved regex that handles escaped quotes and newlines like the backend
+    const componentRegex = /\[(\w+):((?:[^\]\\]|\\.)*)\]/g;
     let match;
     while ((match = componentRegex.exec(content)) !== null) {
       const componentType = match[1];
       const propsString = match[2];
       
-      // Parse props from key="value" format
+      // Parse props from key="value" format with proper escaping
       const props: Record<string, string> = {};
-      const propRegex = /(\w+)="([^"]+)"/g;
+      const propRegex = /(\w+)="((?:[^"\\]|\\.)*)"/g;
       let propMatch;
       
       while ((propMatch = propRegex.exec(propsString)) !== null) {
         const [, key, value] = propMatch;
-        props[key] = value;
+        // Unescape quotes and newlines in the value like backend tokenParser
+        props[key] = value.replace(/\\"/g, '"').replace(/\\n/g, '\n');
       }
       
       // Replace simple version if we have a parameterized version
@@ -475,15 +479,17 @@ export default function OnboardingChatScreen() {
       const sessionEndProps: Record<string, string> = {};
       
       if (attributesStr) {
-        const propRegex = /(\w+)="([^"]+)"/g;
+        // Use improved regex that handles escaped quotes and newlines like the backend
+        const propRegex = /(\w+)="((?:[^"\\]|\\.)*)"/g;
         let propMatch;
         while ((propMatch = propRegex.exec(attributesStr)) !== null) {
           const [, key, value] = propMatch;
-          sessionEndProps[key] = value;
+          // Unescape quotes and newlines in the value like backend tokenParser
+          sessionEndProps[key] = value.replace(/\\"/g, '"').replace(/\\n/g, '\n');
         }
       }
       
-      // Create sessionEnd component
+      // Create sessionEnd component with consistent structure
       const sessionEndComponent = {
         type: 'sessionEnd',
         props: {
@@ -639,8 +645,8 @@ export default function OnboardingChatScreen() {
   const getDisplayContent = (content: string) => {
     let cleanContent = content;
     
-    // ✅ NEW: Remove sessionEnd tokens
-    cleanContent = cleanContent.replace(/\[sessionEnd(?::[^\]]+)?\]/g, '').trim();
+    // ✅ NEW: Remove sessionEnd tokens (improved regex to match backend behavior)
+    cleanContent = cleanContent.replace(/\[sessionEnd(?::(?:[^\]\\]|\\.)*)?]/g, '').trim();
     
     // ❌ LEGACY: Remove content between finish tokens for backward compatibility
     const finishStartIndex = cleanContent.indexOf('[finish-start]');
@@ -656,11 +662,11 @@ export default function OnboardingChatScreen() {
       cleanContent = cleanContent.slice(0, finishStartIndex).trim();
     }
     
-    // Remove coaching card syntax like [checkin:...], [focus:...], etc.
-    const coachingCardRegex = /\[(\w+):[^\]]+\]/g;
+    // Remove coaching card syntax like [checkin:...], [focus:...], [sessionEnd:...], etc. (with proper escaping support)
+    const coachingCardRegex = /\[(\w+):((?:[^\]\\]|\\.)*)\]/g;
     cleanContent = cleanContent.replace(coachingCardRegex, '').trim();
     
-    // Remove simple coaching cards like [checkin], [lifeCompassUpdated]
+    // Remove simple coaching cards like [checkin], [lifeCompassUpdated], [sessionEnd]
     const simpleCardRegex = /\[(\w+)\]/g;
     cleanContent = cleanContent.replace(simpleCardRegex, '').trim();
     
@@ -699,6 +705,23 @@ export default function OnboardingChatScreen() {
         } else {
           messageHeight += 80;
         }
+        
+        // Add height for coaching cards (sessionEnd, commitment, etc.)
+        const coachingCards = parseCoachingCards(message.content);
+        if (coachingCards.length > 0) {
+          // Each coaching card adds approximately 120px height + 12px margin
+          const cardHeight = coachingCards.reduce((height, card) => {
+            if (card.type === 'sessionEnd') {
+              return height + 140; // SessionEnd cards are taller
+            } else if (card.type === 'commitment') {
+              return height + 120; // Commitment cards
+            } else {
+              return height + 100; // Other cards
+            }
+          }, 0);
+          
+          messageHeight += cardHeight + (coachingCards.length * 12); // Add margin for each card
+        }
       }
       
       totalHeight += messageHeight + 16;
@@ -712,7 +735,7 @@ export default function OnboardingChatScreen() {
     return totalHeight;
   }, [messages, isLoading]);
 
-  // 2. Simplify dynamicBottomPadding - only two states:
+  // 2. Dynamic bottom padding with coaching card awareness:
   const dynamicBottomPadding = useMemo(() => {
     const screenHeight = 700; 
     const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
@@ -724,6 +747,18 @@ export default function OnboardingChatScreen() {
     if (isUserWaitingForAI) {
       return availableHeight + 100; // Sufficient space for precise positioning
     } else {
+      // Check if last message has coaching cards that need extra space
+      if (lastMessage && lastMessage.role === 'assistant') {
+        const coachingCards = parseCoachingCards(lastMessage.content);
+        const hasSessionEnd = coachingCards.some(card => card.type === 'sessionEnd');
+        
+        if (hasSessionEnd) {
+          return 100; // Extra padding for sessionEnd card scrollability
+        } else if (coachingCards.length > 0) {
+          return 80; // Medium padding for other coaching cards
+        }
+      }
+      
       return 50; // Minimal padding - just bottom space
     }
   }, [messages, isLoading]);
@@ -929,41 +964,61 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         lastMessageRef.measureLayout(
           scrollViewRef.current as any,
           (x, y, width, height) => {
-            // Check if it's a long AI response
-            const isLongResponse = lastMessage.role === 'assistant' && lastMessage.content.length >= 200;
+            // Check if message has coaching cards (especially sessionEnd)
+            let hasCoachingCards = false;
+            let hasSessionEnd = false;
             
-            if (isLongResponse) {
-              // For long responses: scroll to the very end of the message
-              const targetY = Math.max(0, y + height - 100); // Show end of message with some space
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated: true
-              });
+            if (lastMessage.role === 'assistant') {
+              const coachingCards = parseCoachingCards(lastMessage.content);
+              hasCoachingCards = coachingCards.length > 0;
+              hasSessionEnd = coachingCards.some(card => card.type === 'sessionEnd');
+            }
+            
+            let targetY;
+            
+            if (hasSessionEnd) {
+              // For sessionEnd cards: scroll to show the entire card with extra space
+              targetY = Math.max(0, y + height - 50); // Show sessionEnd card fully
+            } else if (hasCoachingCards) {
+              // For other coaching cards: scroll to show cards with medium space
+              targetY = Math.max(0, y + height - 80);
+            } else if (lastMessage.role === 'assistant' && lastMessage.content.length >= 200) {
+              // For long AI responses: scroll to the very end of the message
+              targetY = Math.max(0, y + height - 100);
             } else {
               // For short responses: scroll to show the message with minimal space below
-              const targetY = Math.max(0, y - 20); // Small offset
-              scrollViewRef.current?.scrollTo({
-                y: targetY,
-                animated: true
-              });
+              targetY = Math.max(0, y - 20);
             }
+            
+            scrollViewRef.current?.scrollTo({
+              y: targetY,
+              animated: true
+            });
           },
           () => {
-            // Fallback: scroll to a position that shows the last message
-            const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
+            // Fallback: improved estimation based on message content
+            let estimatedPosition = 0;
+            messages.forEach((msg, index) => {
+              estimatedPosition += 80; // Base message height
+              if (msg.role === 'assistant') {
+                const coachingCards = parseCoachingCards(msg.content);
+                if (coachingCards.some(card => card.type === 'sessionEnd')) {
+                  estimatedPosition += 140; // Add sessionEnd card height
+                } else if (coachingCards.length > 0) {
+                  estimatedPosition += 100; // Add other card heights
+                }
+              }
+            });
+            
             scrollViewRef.current?.scrollTo({
-              y: estimatedPosition,
+              y: Math.max(0, estimatedPosition - 100),
               animated: true
             });
           }
         );
       } else {
-        // Fallback: scroll to a position that shows the last message
-        const estimatedPosition = Math.max(0, (messages.length - 1) * 80 - 30);
-        scrollViewRef.current?.scrollTo({
-          y: estimatedPosition,
-          animated: true
-        });
+        // Fallback: scroll to end
+        scrollViewRef.current?.scrollToEnd({ animated: true });
       }
     } else {
       scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -1004,7 +1059,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         lastMessage.content.length > 0 &&
         !showSchedulingForMessage &&
         !showPopupForMessage &&
-        !showCompletionForMessage &&
         !confirmedSchedulingForMessage) {
       
       // Parse coaching cards from the message
@@ -1021,7 +1075,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         }, 300);
       }
     }
-  }, [messages, showSchedulingForMessage, showPopupForMessage, showCompletionForMessage, confirmedSchedulingMessages]);
+  }, [messages, showSchedulingForMessage, showPopupForMessage, confirmedSchedulingMessages]);
 
   // Track when progress reaches 100% to keep Enter App button visible
   const [hasReached100, setHasReached100] = useState(false);
@@ -1034,86 +1088,55 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [progress]);
 
-  // Check for completion when progress reaches 100%
+  // Calculate completion stats when progress reaches 100% (for sessionEnd card use)
   useEffect(() => {
-    if (progress >= 100 && !showCompletionForMessage) {
-      console.log('🎯 Progress reached 100%! Showing completion popup...');
+    if (progress >= 100) {
+      console.log('🎯 Progress reached 100%! Calculating completion stats...');
       
-      // ✅ NEW: Find the final AI message that contains sessionEnd token
-      const lastAIMessage = [...messages].reverse().find(msg => 
+      // Calculate session statistics for sessionEnd card
+      const sessionEndTime = new Date();
+      const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
+      const sessionMinutes = Math.round(sessionDurationMs / 60000);
+      
+      // Count words from user messages
+      const userMessages = messages.filter(msg => msg.role === 'user');
+      const totalWords = userMessages.reduce((count, msg) => {
+        return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
+      }, 0);
+      
+      // Find sessionEnd token for insights count
+      const sessionEndMessage = [...messages].reverse().find(msg => 
         msg.role === 'assistant' && 
-        msg.content.includes('[sessionEnd')
+        /\[sessionEnd(?::(?:[^\]\\]|\\.)*)?]/.test(msg.content)
       );
       
-      // ❌ LEGACY: Fallback to old finish tokens for backward compatibility
-      if (!lastAIMessage) {
-        const legacyMessage = [...messages].reverse().find(msg => 
-          msg.role === 'assistant' && 
-          (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
-        );
-        
-        if (legacyMessage) {
-          console.log('🎯 Found legacy finish tokens, using for completion');
-        }
+      let keyInsights = 3; // Default
+      if (sessionEndMessage) {
+        const parsedData = parseCoachingCompletion(sessionEndMessage.content);
+        keyInsights = Math.max(parsedData.components.length, 3);
+        setParsedCoachingData(parsedData);
       }
       
-      const finalMessage = lastAIMessage || [...messages].reverse().find(msg => 
-        msg.role === 'assistant' && 
-        (msg.content.includes('[finish-start]') || msg.content.includes('[finish-end]'))
-      );
+      setCompletionStats({
+        minutes: Math.max(sessionMinutes, 1),
+        words: totalWords,
+        keyInsights
+      });
       
-      if (finalMessage) {
-        // Calculate session statistics
-        const sessionEndTime = new Date();
-        const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
-        const sessionMinutes = Math.round(sessionDurationMs / 60000); // Convert to minutes
-        
-        // Count words from user messages
-        const userMessages = messages.filter(msg => msg.role === 'user');
-        const totalWords = userMessages.reduce((count, msg) => {
-          return count + msg.content.trim().split(/\s+/).filter(word => word.length > 0).length;
-        }, 0);
-        
-        // Parse coaching completion data to get accurate insights count
-        const parsedData = parseCoachingCompletion(finalMessage.content);
-        const keyInsights = Math.max(parsedData.components.length, 3); // Use actual parsed components count
-        
-        setCompletionStats({
-          minutes: Math.max(sessionMinutes, 1), // At least 1 minute
-          words: totalWords,
-          keyInsights
+      // Track session completion analytics
+      const currentSessionId = getSessionId();
+      if (currentSessionId && currentSessionId !== 'anonymous-onboarding') {
+        trackCoachingSessionCompleted({
+          session_id: currentSessionId,
+          duration_minutes: Math.max(sessionMinutes, 1),
+          message_count: messages.length,
+          words_written: totalWords,
+          insights_generated: keyInsights,
+          session_type: 'initial_life_deep_dive',
         });
-        
-        // Store parsed coaching data for future use
-        setParsedCoachingData(parsedData);
-        
-        // Log initial life deep dive session completion
-        const currentSessionId = getSessionId();
-        console.log('✅ [COACHING] Completing initial life deep dive session...', {
-          sessionId: currentSessionId,
-          duration: sessionMinutes,
-          messageCount: messages.length,
-          wordsWritten: totalWords,
-          insights: keyInsights
-        });
-        
-        // Track initial life deep dive session completion
-        if (currentSessionId && currentSessionId !== 'anonymous-onboarding') {
-          trackCoachingSessionCompleted({
-            session_id: currentSessionId,
-            duration_minutes: Math.max(sessionMinutes, 1),
-            message_count: messages.length,
-            words_written: totalWords,
-            insights_generated: keyInsights,
-            session_type: 'initial_life_deep_dive',
-          });
-        }
-        
-        // Show completion popup for this specific message
-        setShowCompletionForMessage(finalMessage.id);
       }
     }
-  }, [progress, showCompletionForMessage, messages, sessionStartTime]);
+  }, [progress, messages, sessionStartTime]);
 
   // Keep screen awake while recording
   useEffect(() => {
@@ -1476,7 +1499,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         sessionId: getSessionId(), // Pass sessionId for insight tracking
         parsedCoachingData: parsedCoachingData || undefined
       });
-      setShowCompletionForMessage(null);
+      // Completion popup no longer needed - handled by sessionEnd card
 
       // Trigger insight extraction in background if we have a session ID
       const finalSessionId = getSessionId();
@@ -1657,6 +1680,51 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   >
                     {getDisplayContent(message.content)}
                   </Text>
+                  
+                  {/* Render coaching cards for AI messages */}
+                  {message.role === 'assistant' && (() => {
+                    const coachingCards = parseCoachingCards(message.content);
+                    
+                    return coachingCards.map((card, index) => {
+                      // Special handling for sessionEnd cards to use our completion logic
+                      if (card.type === 'sessionEnd') {
+                        return (
+                          <View key={`${message.id}-sessionend-${index}`} style={{ marginTop: 12 }}>
+                            <SessionEndCard
+                              data={{
+                                type: 'sessionEnd',
+                                title: card.props.title,
+                                message: card.props.message
+                              }}
+                              onCompleteSession={handleCompletionAction}
+                            />
+                          </View>
+                        );
+                      }
+                      
+                      // For other cards, use the standard renderer
+                      return (
+                        <View key={`${message.id}-card-${index}`} style={{ marginTop: 12 }}>
+                          <CoachingCardRenderer
+                            message={{
+                              ...message,
+                              content: `[${card.type}:${Object.entries(card.props).map(([k, v]) => `${k}="${v}"`).join(',')}]`
+                            }}
+                            rendererProps={{
+                              messages,
+                              setMessages,
+                              firebaseUser,
+                              getToken,
+                              saveMessagesToFirestore: async (msgs: any[], userId: string) => {
+                                // For onboarding, we don't need to save messages to Firestore
+                                console.log('📝 Onboarding: Skipping message save to Firestore');
+                              }
+                            }}
+                          />
+                        </View>
+                      );
+                    });
+                  })()}
                 </View>
 
                                 {/* AI Chat Popup */}
@@ -1799,42 +1867,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   );
                 })()}
 
-                {/* Completion Popup - appears on final message when progress reaches 100% */}
-                {message.role === 'assistant' && showCompletionForMessage === message.id && (
-                  <View style={[
-                    styles.aiPopup,
-                    {
-                      backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-                      borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
-                    }
-                  ]}>
-                    <View style={styles.aiPopupContent}>
-                      <Text style={[styles.aiPopupHeader, { color: colors.text }]}>
-                        You've invested in yourself.
-                      </Text>
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}80` }]}>
-                        Now let's see what is reflecting.
-                      </Text>
-                      
-                      <Text style={[styles.aiPopupText, { color: `${colors.text}66`, fontSize: 13, marginTop: 4 }]}>
-                        {completionStats.minutes} min • {completionStats.words} words • {completionStats.keyInsights} key insights
-                      </Text>
-
-                      <View style={styles.aiPopupButtons}>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={handleCompletionAction}
-                          style={{ flex: 1 }}
-                          disabled={isCompletingOnboarding}
-                          isLoading={isCompletingOnboarding}
-                        >
-                          {isCompletingOnboarding ? 'Completing...' : 'View Compass Results'}
-                        </Button>
-                      </View>
-                    </View>
-                  </View>
-                )}
+                {/* Completion is now handled by sessionEnd card directly in the message */}
               </View>
             ))}
             {isLoading && (

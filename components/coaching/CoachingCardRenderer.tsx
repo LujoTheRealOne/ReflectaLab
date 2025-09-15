@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { View, Text, useColorScheme } from 'react-native';
 import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, InsightCard, JournalingPromptCard, LifeCompassUpdatedCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard, SessionEndCard } from '@/components/cards';
 import { CoachingMessage } from '@/hooks/useAICoaching';
@@ -203,14 +203,11 @@ export const renderCoachingCard = (
   props: Record<string, string>, 
   index: number, 
   hostMessageId: string | undefined,
-  rendererProps: CoachingCardRendererProps
+  rendererProps: CoachingCardRendererProps,
+  user: any, // ✅ HOOKS FIX: Pass user from parent to avoid hooks in function
+  colorScheme: any // ✅ HOOKS FIX: Pass colorScheme from parent
 ) => {
   const { messages, setMessages, firebaseUser, getToken, saveMessagesToFirestore } = rendererProps;
-  
-  // ✅ Get Clerk user directly from useAuth hook for current user context
-  const { user } = useAuth();
-  
-  const colorScheme = useColorScheme();
   
   const baseProps = {
     key: `coaching-card-${type}-${index}`,
@@ -665,9 +662,16 @@ export const CoachingCardRenderer: React.FC<{
   message: CoachingMessage;
   rendererProps: CoachingCardRendererProps;
 }> = ({ message, rendererProps }) => {
+  // ✅ HOOKS FIX: Move all hooks to the top level of the component
+  const { user } = useAuth();
+  const colorScheme = useColorScheme();
+  
   if (message.role !== 'assistant') return null;
   
-  const coachingCards = parseCoachingCards(message.content);
+  // ✅ PERFORMANCE FIX: Memoize parsing to prevent render loops
+  const coachingCards = useMemo(() => {
+    return parseCoachingCards(message.content);
+  }, [message.content]);
   
   if (coachingCards.length === 0) return null;
   
@@ -675,7 +679,7 @@ export const CoachingCardRenderer: React.FC<{
     <View style={{ marginTop: 8, marginBottom: 16 }}>
       {coachingCards.map((card, index) => {
         try {
-          return renderCoachingCard(card.type, card.props, index, message.id, rendererProps);
+          return renderCoachingCard(card.type, card.props, index, message.id, rendererProps, user, colorScheme);
         } catch (error) {
           console.error('🚨 [COACHING CARD] Error rendering card:', card.type, error);
           return (

@@ -31,7 +31,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as Application from 'expo-application';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, Star, RotateCcw, Compass } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, Crown, ExternalLink, FileText, Info, LogOut, Star, RotateCcw, Compass, Bell, Shield, Brain } from 'lucide-react-native';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { FirestoreService } from '@/lib/firestore';
@@ -1084,6 +1084,7 @@ export default function SettingsScreen() {
         {biometricSupported && (
           <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
             <View style={styles.settingHeader}>
+              <Shield size={24} color={colors.text} />
               <Text style={[styles.settingTitle, { color: colors.text }]}>{getAuthTypeLabel()}</Text>
             </View>
             <View style={styles.settingRow}>
@@ -1119,6 +1120,7 @@ export default function SettingsScreen() {
 
         {!shouldShowSkeleton && <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
+            <Bell size={24} color={colors.text} />
             <Text style={[styles.settingTitle, { color: colors.text }]}>Push Notifications</Text>
           </View>
           <View style={styles.settingRow}>
@@ -1203,6 +1205,7 @@ export default function SettingsScreen() {
         {/* Push Notifications for AI */}
         <View style={[styles.settingItem, { backgroundColor: colors.background, borderColor: colorScheme === 'dark' ? '#222' : '#EAEAEA' }]}>
           <View style={styles.settingHeader}>
+            <Brain size={24} color={colors.text} />
             <Text style={[styles.settingTitle, { color: colors.text }]}>AI Coaching Config</Text>
           </View>
           {/* <View style={styles.settingRow}>
@@ -1395,8 +1398,9 @@ const styles = StyleSheet.create({
   settingHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     marginBottom: 14,
+    gap: 10,
   },
   settingTitle: {
     fontSize: 20,

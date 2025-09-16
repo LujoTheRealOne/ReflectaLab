@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, ScrollView, A
 import { Calendar, Clock, CheckCircle, XCircle } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import * as Haptics from 'expo-haptics';
 
 interface SessionSuggestionToken {
@@ -36,6 +37,7 @@ export default function SessionSuggestionCard({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, getToken } = useAuth();
+  const { trackScheduledSessionAccepted } = useAnalytics();
 
   // ✅ COMMITMENT CARD PATTERN: Initialize with default values immediately
   const getDefaultDate = () => {
@@ -135,6 +137,18 @@ export default function SessionSuggestionCard({
       }
 
       const result = await response.json();
+      
+      // Track scheduled session acceptance in PostHog
+      trackScheduledSessionAccepted({
+        user_id: firebaseUser?.uid,
+        session_title: sessionSuggestion.title,
+        session_reason: sessionSuggestion.reason,
+        duration_minutes: durationNumber,
+        scheduled_date: selectedDate,
+        scheduled_time: selectedTime,
+        coaching_session_id: coachingSessionId,
+        source: 'session_suggestion'
+      });
       
       // ✅ COMMITMENT CARD PATTERN: Update local state after successful API call
       setCardState('scheduled');

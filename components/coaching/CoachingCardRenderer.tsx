@@ -3,6 +3,7 @@ import { View, Text, useColorScheme } from 'react-native';
 import { ActionPlanCard, BlockersCard, CommitmentCard, FocusCard, InsightCard, JournalingPromptCard, LifeCompassUpdatedCard, MeditationCard, SessionSuggestionCard, ScheduledSessionCard, SessionCard, SessionEndCard } from '@/components/cards';
 import { CoachingMessage } from '@/hooks/useAICoaching';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
 // Types for coaching card components
 export interface CoachingCardComponent {
@@ -209,6 +210,7 @@ export const renderCoachingCard = (
   
   // ✅ Get Clerk user directly from useAuth hook for current user context
   const { user } = useAuth();
+  const { trackCommitmentCreated } = useAnalytics();
   
   const colorScheme = useColorScheme();
   
@@ -325,6 +327,30 @@ export const renderCoachingCard = (
 
                 const result = await response.json();
                 console.log('✅ Commitment created successfully:', result);
+                
+                // Track commitment creation in PostHog
+                console.log('🔍 [COMMITMENT TRACKING] About to track commitment:', {
+                  hasTrackingFunction: !!trackCommitmentCreated,
+                  userId,
+                  commitmentType,
+                  deadline: props.deadline,
+                  cadence: props.cadence
+                });
+                
+                if (trackCommitmentCreated) {
+                  trackCommitmentCreated({
+                    user_id: userId,
+                    commitment_type: commitmentType as 'one-time' | 'recurring',
+                    deadline: props.deadline,
+                    cadence: props.cadence,
+                    title_length: props.title?.length || 0,
+                    description_length: props.description?.length || 0,
+                    coaching_session_id: userId,
+                    source: 'coaching_card'
+                  });
+                } else {
+                  console.error('❌ [COMMITMENT TRACKING] trackCommitmentCreated is not available');
+                }
                 
                 // ✅ WEB PATTERN: Update message with accepted state and commitmentId
                 const updatedMessages = messages.map((message) => {

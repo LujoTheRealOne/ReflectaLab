@@ -264,14 +264,11 @@ export default function OnboardingChatScreen() {
   const { completeOnboarding, firebaseUser, getToken } = useAuth();
   const { clearProgress, saveProgress } = useOnboardingProgress();
   const { 
-    trackCoachingSessionStarted, 
-    trackCoachingSessionCompleted, 
     trackOnboardingStep,
     trackNotificationPermissionRequested,
     trackNotificationPermissionGranted,
     trackNotificationPermissionDenied,
-    trackCoachingMessagesOptIn,
-    trackOnboardingCompleted
+    trackCoachingMessagesOptIn
   } = useAnalytics();
 
   // Save progress as step 17 (OnboardingChat) when entering this screen
@@ -382,6 +379,12 @@ export default function OnboardingChatScreen() {
   const [confirmedSchedulingForMessage, setConfirmedSchedulingForMessage] = useState<string | null>(null);
   const [confirmedSchedulingMessages, setConfirmedSchedulingMessages] = useState<Set<string>>(new Set());
   const [sessionStartTime] = useState(new Date());
+  const [sessionStats, setSessionStats] = useState<{
+    duration_minutes?: number;
+    message_count?: number;
+    insights_generated?: number;
+    session_id?: string;
+  }>({});
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
   const isOnboardingCompletedRef = useRef(false);
@@ -1117,6 +1120,14 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         setParsedCoachingData(parsedData);
       }
       
+      // Update session stats for SessionEndCard
+      setSessionStats({
+        duration_minutes: sessionMinutes,
+        message_count: userMessages.length,
+        insights_generated: keyInsights,
+        session_id: 'onboarding'
+      });
+      
       setCompletionStats({
         minutes: Math.max(sessionMinutes, 1),
         words: totalWords,
@@ -1691,6 +1702,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                                 message: card.props.message
                               }}
                               onCompleteSession={handleCompletionAction}
+                              sessionStats={sessionStats}
                             />
                           </View>
                         );

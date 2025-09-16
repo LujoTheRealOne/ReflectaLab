@@ -14,6 +14,10 @@ import { useNetworkConnectivity } from './useNetworkConnectivity';
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
 
+// Global tracking to prevent duplicates across hook re-renders
+const GLOBAL_TRACKED_SIGN_INS = new Set<string>();
+let GLOBAL_LAST_TRACKED_USER: string | null = null;
+
 export function useAuth() {
   const { signOut, isSignedIn, getToken, isLoaded: isClerkLoaded } = useClerkAuth();
   const { user } = useUser();
@@ -58,8 +62,7 @@ export function useAuth() {
   const userAccountTimeout = 10000; // 10 seconds
   const signOutCooldownMs = 2000; // 2 seconds cooldown after sign out
   
-  // Track which user we've already logged analytics for in this session
-  const lastTrackedUserIdRef = useRef<string | null>(null);
+  // Note: Analytics tracking now uses global variables to prevent duplicates across hook re-renders
   
   const { trackSignUp, trackSignIn, trackSignOut, trackFirstTimeAppOpened } = useAnalytics();
 
@@ -86,8 +89,9 @@ export function useAuth() {
         setUserAccountLoading(false);
         setAuthAttempts(0);
         
-        // Clear tracking state so next user can be tracked properly
-        lastTrackedUserIdRef.current = null;
+        // Clear global tracking state so next user can be tracked properly
+        GLOBAL_TRACKED_SIGN_INS.clear();
+        GLOBAL_LAST_TRACKED_USER = null;
         
         // Reset signing out state when Firebase user is actually gone
         setIsSigningOut(false);
@@ -243,10 +247,11 @@ export function useAuth() {
             setUserAccountLoading(false);
             // setNeedsOnboarding(needsOnboardingValue); // Commented out - wait for backend data
             
-            // Skip duplicate analytics tracking
-            if (lastTrackedUserIdRef.current !== firebaseUser.uid) {
-              lastTrackedUserIdRef.current = firebaseUser.uid;
-              console.log('⏭️ Using cached auth - offline mode');
+            // Skip duplicate analytics tracking (global)
+            if (!GLOBAL_TRACKED_SIGN_INS.has(firebaseUser.uid)) {
+              GLOBAL_TRACKED_SIGN_INS.add(firebaseUser.uid);
+              GLOBAL_LAST_TRACKED_USER = firebaseUser.uid;
+              console.log('⏭️ Using cached auth - offline mode (tracking globally)');
             }
             
             return;
@@ -323,12 +328,27 @@ export function useAuth() {
           onboardingData: account.onboardingData
         });
         
-        // Track analytics events only once per session for this user
-        const hasAlreadyTrackedThisUser = lastTrackedUserIdRef.current === firebaseUser.uid;
+        // Track analytics events only once per session for this user (using global tracking)
+        const hasAlreadyTrackedThisUser = GLOBAL_TRACKED_SIGN_INS.has(firebaseUser.uid);
+        
+        console.log('🔍 [ANALYTICS DEBUG] Global tracking check:', {
+          userId: firebaseUser.uid,
+          hasAlreadyTracked: hasAlreadyTrackedThisUser,
+          trackedUsers: Array.from(GLOBAL_TRACKED_SIGN_INS),
+          setSize: GLOBAL_TRACKED_SIGN_INS.size,
+          lastTrackedUser: GLOBAL_LAST_TRACKED_USER
+        });
         
         if (!hasAlreadyTrackedThisUser) {
-          // Mark this user as tracked for this session
-          lastTrackedUserIdRef.current = firebaseUser.uid;
+          // Mark this user as tracked for this session globally
+          GLOBAL_TRACKED_SIGN_INS.add(firebaseUser.uid);
+          GLOBAL_LAST_TRACKED_USER = firebaseUser.uid;
+          
+          console.log('✅ [ANALYTICS DEBUG] User added to global tracking set:', {
+            userId: firebaseUser.uid,
+            newSetSize: GLOBAL_TRACKED_SIGN_INS.size,
+            allTrackedUsers: Array.from(GLOBAL_TRACKED_SIGN_INS)
+          });
           
           // Track appropriate event based on user type
           if (isNewUser && accountCreatedRecently) {
@@ -363,7 +383,12 @@ export function useAuth() {
             });
           }
         } else {
-          console.log('⏭️ User analytics already tracked for this session, skipping duplicate tracking');
+          console.log('⏭️ [ANALYTICS DEBUG] User analytics already tracked globally, skipping duplicate tracking:', {
+            userId: firebaseUser.uid,
+            trackedUsers: Array.from(GLOBAL_TRACKED_SIGN_INS),
+            setSize: GLOBAL_TRACKED_SIGN_INS.size,
+            lastTrackedUser: GLOBAL_LAST_TRACKED_USER
+          });
         }
 
         // =====================
@@ -444,26 +469,32 @@ export function useAuth() {
             userId: firebaseUser!.uid
           });
           
-          // Track as new user since we had to create fallback account
-          console.log('🆕 Fallback account created - tracking as new user sign up and first time app opened');
-          trackSignUp({
-            method: 'google', // TODO: Detect actual method
-            userId: firebaseUser!.uid,
-            userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName || undefined,
-            isNewUser: true,
-            hasExistingData: false,
-            accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
-          });
-          
-          // Also track first time app opened
-          trackFirstTimeAppOpened({
-            userId: firebaseUser!.uid,
-            userEmail: user?.emailAddresses?.[0]?.emailAddress,
-            userName: user?.fullName || undefined,
-            method: 'google', // TODO: Detect actual method
-            accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
-          });
+          // Track as new user since we had to create fallback account (only if not already tracked globally)
+          if (!GLOBAL_TRACKED_SIGN_INS.has(firebaseUser!.uid)) {
+            GLOBAL_TRACKED_SIGN_INS.add(firebaseUser!.uid);
+            GLOBAL_LAST_TRACKED_USER = firebaseUser!.uid;
+            console.log('🆕 Fallback account created - tracking as new user sign up and first time app opened (global)');
+            trackSignUp({
+              method: 'google', // TODO: Detect actual method
+              userId: firebaseUser!.uid,
+              userEmail: user?.emailAddresses?.[0]?.emailAddress,
+              userName: user?.fullName || undefined,
+              isNewUser: true,
+              hasExistingData: false,
+              accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
+            });
+            
+            // Also track first time app opened
+            trackFirstTimeAppOpened({
+              userId: firebaseUser!.uid,
+              userEmail: user?.emailAddresses?.[0]?.emailAddress,
+              userName: user?.fullName || undefined,
+              method: 'google', // TODO: Detect actual method
+              accountCreatedAt: fallbackAccount.createdAt?.toISOString(),
+            });
+          } else {
+            console.log('⏭️ Fallback analytics already tracked globally for this user, skipping duplicate');
+          }
         } catch (fallbackError) {
           console.error('❌ Critical error: Failed to create fallback user account:', fallbackError);
           // Even fallback failed - this is a critical error state
@@ -574,6 +605,11 @@ export function useAuth() {
         await settingsCache.clearCache(firebaseUser.uid);
         console.log('🧹 Clearing auth cache for user:', firebaseUser.uid);
         await authCache.clearCache();
+        
+        // Clear global analytics tracking cache
+        console.log('🧹 Clearing global analytics tracking cache');
+        GLOBAL_TRACKED_SIGN_INS.clear();
+        GLOBAL_LAST_TRACKED_USER = null;
         console.log('🧹 Clearing coaching cache for user:', firebaseUser.uid);
         // Import coaching cache service dynamically to avoid circular dependencies
         const { coachingCacheService } = await import('../services/coachingCacheService');

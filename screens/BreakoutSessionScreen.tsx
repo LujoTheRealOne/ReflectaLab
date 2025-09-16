@@ -374,9 +374,8 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
   const { 
-    trackCoachingSessionStarted, 
-    trackCoachingSessionCompleted,
-    trackEntryCreated
+    trackEntryCreated,
+    trackCommitmentCreated
   } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
 
@@ -1236,6 +1235,18 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                   if (response.ok) {
                     const result = await response.json();
                     console.log('✅ Commitment created successfully:', result);
+                    
+                    // Track commitment creation in PostHog
+                    trackCommitmentCreated({
+                      user_id: firebaseUser.uid,
+                      commitment_type: props.type as 'one-time' | 'recurring',
+                      deadline: props.deadline,
+                      cadence: props.cadence,
+                      title_length: props.title?.length || 0,
+                      description_length: props.description?.length || 0,
+                      coaching_session_id: firebaseUser.uid,
+                      source: 'coaching_card'
+                    });
                   } else {
                     const errorText = await response.text();
                     console.error('❌ Failed to create commitment:', {
@@ -1561,15 +1572,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
             wordsWritten: totalWords
           });
 
-          // Track coaching session completion
-          trackCoachingSessionCompleted({
-            session_id: currentSessionId,
-            duration_minutes: sessionMinutes,
-            message_count: messageCount,
-            words_written: totalWords,
-            insights_generated: 0,
-            session_type: 'regular',
-          });
+          // Session completion tracking removed for breakout sessions
         }
       };
     }, [firebaseUser?.uid])
@@ -2042,12 +2045,7 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
       trigger: 'manual'
     });
     
-    // Track breakout coaching session activity
-    trackCoachingSessionStarted({
-      session_id: currentSessionId,
-      session_type: 'regular', // Use regular type for breakout sessions
-      trigger: 'manual',
-    });
+    // Session start tracking removed for breakout sessions
 
     const messageContent = chatInput.trim();
     setChatInput('');

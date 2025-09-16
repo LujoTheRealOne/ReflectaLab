@@ -43,8 +43,7 @@ export default function CoachingScreen() {
   const insets = useSafeAreaInsets();
   const { user, firebaseUser, getToken } = useAuth();
   const { 
-    trackCoachingSessionStarted, 
-    trackCoachingSessionCompleted,
+    trackCoachingMessageSent,
     trackEntryCreated
   } = useAnalytics();
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
@@ -430,15 +429,6 @@ export default function CoachingScreen() {
         
         // Use userId as session ID (single session per user)
         const currentSessionId = getSessionId();
-        
-        // Track coaching session activity
-        trackCoachingSessionStarted({
-          session_id: currentSessionId,
-          session_type: 'regular',
-          trigger: 'manual',
-        });
-
-        // Session start logging removed - only errors go to BetterStack
 
         // Clear input immediately
         setChatInput('');
@@ -450,6 +440,15 @@ export default function CoachingScreen() {
         // Set positioning flag
         hasUserScrolled.current = false;
         scrollToNewMessageRef.current = true;
+
+        // Track message sent via voice
+        trackCoachingMessageSent({
+          user_id: user?.id,
+          message_length: newText.length,
+          input_method: 'voice',
+          message_type: 'user',
+          session_context: 'single_session'
+        });
 
         // Send the message
         await sendMessage(newText, currentSessionId, {
@@ -543,17 +542,7 @@ export default function CoachingScreen() {
             wordsWritten: totalWords
           });
 
-          // Track coaching session completion
-          trackCoachingSessionCompleted({
-            session_id: currentSessionId,
-            duration_minutes: sessionMinutes,
-            message_count: messageCount,
-            words_written: totalWords,
-            insights_generated: 0,
-            session_type: 'regular',
-          });
-
-          // Session completion logging removed - only errors go to BetterStack
+          // Session completion tracking removed - using single session approach
         }
       };
     }, [firebaseUser?.uid, setMessages])
@@ -1096,14 +1085,7 @@ export default function CoachingScreen() {
       trigger: 'manual'
     });
     
-    // Track coaching session activity
-    trackCoachingSessionStarted({
-      session_id: currentSessionId,
-      session_type: 'regular',
-      trigger: 'manual',
-    });
-
-    // Session start logging removed - only errors go to BetterStack
+    // Session start tracking removed - using single session approach
     setChatInput('');
     
     // Close keyboard and blur input
@@ -1122,6 +1104,15 @@ export default function CoachingScreen() {
     scrollToNewMessageRef.current = true; // This flag will trigger positioning
 
     debugLog('📤 Sending message, positioning will be triggered');
+
+    // Track message sent via text
+    trackCoachingMessageSent({
+      user_id: user?.id,
+      message_length: messageContent.length,
+      input_method: 'text',
+      message_type: 'user',
+      session_context: 'single_session'
+    });
 
     await sendMessage(messageContent, currentSessionId, {
         sessionType: 'default-session'
@@ -1344,7 +1335,14 @@ export default function CoachingScreen() {
     try {
       const currentSessionId = getSessionId();
       
-      // Retry attempt logging removed - only errors go to BetterStack
+      // Track message retry
+      trackCoachingMessageSent({
+        user_id: user?.id,
+        message_length: 0, // We don't have the original message length for retries
+        input_method: 'text', // Default for retries
+        message_type: 'retry',
+        session_context: 'single_session'
+      });
       
       await resendMessage(messageId, currentSessionId, {
         sessionType: 'default-session'

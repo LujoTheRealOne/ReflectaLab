@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
 interface SessionToken {
   type: 'session';
@@ -38,6 +39,7 @@ export default function ScheduledSessionCard({
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { firebaseUser, getToken } = useAuth();
+  const { trackScheduledSessionUsed } = useAnalytics();
 
   const [selectedDuration, setSelectedDuration] = useState(session.duration);
   const [cardState, setCardState] = useState<'default' | 'started'>('default');
@@ -100,6 +102,18 @@ export default function ScheduledSessionCard({
 
       const result = await response.json();
       console.log('✅ Breakout session created successfully:', result);
+      
+      // Track scheduled session usage in PostHog
+      trackScheduledSessionUsed({
+        user_id: firebaseUser.uid,
+        session_title: session.title,
+        session_goal: session.goal,
+        duration_minutes: parseInt(selectedDuration.replace('m', '')),
+        scheduled_session_id: session.scheduledSessionId,
+        coaching_session_id: coachingSessionId,
+        breakout_session_id: sessionId,
+        source: 'scheduled_card'
+      });
 
       // Generate session card content to replace this scheduled session card
       const sessionCardContent = `[sessionCard:title="${session.title}",sessionId="${sessionId}",duration="${selectedDuration}",question="${session.question}",goal="${session.goal}"]`;

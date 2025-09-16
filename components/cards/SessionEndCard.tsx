@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, Animated } from 'react-native';
 import { CheckCircle, ArrowRight, Clock } from 'lucide-react-native';
 import { Colors } from '@/constants/Colors';
+import { useAuth } from '@/hooks/useAuth';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import * as Haptics from 'expo-haptics';
 
 interface SessionEndToken {
@@ -13,11 +15,19 @@ interface SessionEndToken {
 interface SessionEndCardProps {
   data: SessionEndToken;
   onCompleteSession?: () => void;
+  sessionStats?: {
+    duration_minutes?: number;
+    message_count?: number;
+    insights_generated?: number;
+    session_id?: string;
+  };
 }
 
-export default function SessionEndCard({ data, onCompleteSession }: SessionEndCardProps) {
+export default function SessionEndCard({ data, onCompleteSession, sessionStats }: SessionEndCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { user } = useAuth();
+  const { trackOnboardingCompleted } = useAnalytics();
   const [isCompleting, setIsCompleting] = useState(false);
 
   // Animated pulse for the status indicator
@@ -72,6 +82,16 @@ export default function SessionEndCard({ data, onCompleteSession }: SessionEndCa
     }
     
     try {
+      // Track onboarding completion in PostHog
+      trackOnboardingCompleted({
+        user_id: user?.id,
+        session_duration_minutes: sessionStats?.duration_minutes,
+        message_count: sessionStats?.message_count,
+        insights_generated: sessionStats?.insights_generated,
+        completion_method: 'session_end_card',
+        onboarding_session_id: sessionStats?.session_id || 'onboarding'
+      });
+      
       // Call the completion callback if provided
       if (onCompleteSession) {
         console.log('🎯 SessionEndCard: Calling onCompleteSession callback');

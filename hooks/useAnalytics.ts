@@ -5,6 +5,25 @@ import { useUser } from '@clerk/clerk-expo';
 // Global state to track if user has been identified
 let identifiedUserId: string | null = null;
 
+// Global deduplication cache for analytics events (session-based)
+const sessionEventCache = new Set<string>();
+
+// Helper function to generate unique event key
+const generateEventKey = (eventName: string, userId?: string, additionalId?: string): string => {
+  return `${eventName}_${userId || 'anonymous'}_${additionalId || 'default'}`;
+};
+
+// Helper function to check if event should be tracked (deduplication)
+const shouldTrackEvent = (eventName: string, userId?: string, additionalId?: string): boolean => {
+  const eventKey = generateEventKey(eventName, userId, additionalId);
+  if (sessionEventCache.has(eventKey)) {
+    console.log(`🚫 [POSTHOG] Skipping duplicate event: ${eventName} for user: ${userId}`);
+    return false;
+  }
+  sessionEventCache.add(eventKey);
+  return true;
+};
+
 export function useAnalytics() {
   const posthog = usePostHog();
   const { user } = useUser();
@@ -108,43 +127,7 @@ export function useAnalytics() {
   }, [posthog]);
 
   // Onboarding Events
-  const trackOnboardingCompleted = useCallback((properties?: {
-    onboarding_duration?: number;
-    steps_completed?: number;
-    user_responses?: number;
-    userId?: string;
-    userName?: string;
-    selectedRoles?: string[];
-    clarityLevel?: number;
-    stressLevel?: number;
-    coachingStyle?: string;
-    timeDuration?: number;
-  }) => {
-    console.log('🎯 [POSTHOG] Tracking onboarding_completed:', {
-      userId: properties?.userId,
-      userName: properties?.userName,
-      duration: properties?.onboarding_duration,
-      steps: properties?.steps_completed,
-      clarityLevel: properties?.clarityLevel,
-      stressLevel: properties?.stressLevel
-    });
-    
-    posthog?.capture('onboarding_completed', {
-      timestamp: new Date().toISOString(),
-      onboarding_duration_seconds: properties?.onboarding_duration || 0,
-      steps_completed: properties?.steps_completed || 0,
-      user_responses: properties?.user_responses || 0,
-      user_id: properties?.userId,
-      user_name: properties?.userName,
-      selected_roles: properties?.selectedRoles,
-      clarity_level: properties?.clarityLevel,
-      stress_level: properties?.stressLevel,
-      coaching_style: properties?.coachingStyle,
-      time_duration: properties?.timeDuration,
-      platform: 'mobile',
-      app_version: '1.0.0'
-    });
-  }, [posthog]);
+  // Note: trackOnboardingCompleted is defined later in the file for session end completion
 
   const trackFirstTimeAppOpened = useCallback((properties?: {
     userId?: string;
@@ -318,48 +301,165 @@ export function useAnalytics() {
     });
   }, [posthog]);
 
-  // Coaching Session Tracking
-  const trackCoachingSessionStarted = useCallback((properties?: {
-    session_id?: string;
-    session_type?: 'initial_life_deep_dive' | 'regular';
-    trigger?: 'manual' | 'notification' | 'scheduled';
+  // Coaching Message Tracking - Single session approach
+  const trackCoachingMessageSent = useCallback((properties?: {
+    user_id?: string;
+    message_length?: number;
+    input_method?: 'text' | 'voice';
+    message_type?: 'user' | 'retry';
+    daily_message_count?: number;
+    session_context?: string;
   }) => {
-    // Use different event names based on session type for better analytics clarity
-    const eventName = properties?.session_type === 'initial_life_deep_dive' 
-      ? 'initial_coaching_session_started' 
-      : 'coaching_session_started';
-      
-    console.log(`📊 [POSTHOG] Tracking ${eventName}:`, properties);
-    posthog?.capture(eventName, {
+    console.log('📊 [POSTHOG] Tracking coaching_message_sent:', {
+      userId: properties?.user_id,
+      messageLength: properties?.message_length,
+      inputMethod: properties?.input_method,
+      messageType: properties?.message_type,
+      dailyCount: properties?.daily_message_count
+    });
+    
+    posthog?.capture('coaching_message_sent', {
       timestamp: new Date().toISOString(),
-      ...(properties?.session_id && { session_id: properties.session_id }),
-      session_type: properties?.session_type || 'regular',
-      trigger: properties?.trigger || 'manual',
+      user_id: properties?.user_id,
+      message_length: properties?.message_length || 0,
+      input_method: properties?.input_method || 'text',
+      message_type: properties?.message_type || 'user',
+      daily_message_count: properties?.daily_message_count || 1,
+      session_context: properties?.session_context || 'single_session',
+      platform: 'mobile',
+      app_version: '1.0.0'
     });
   }, [posthog]);
 
-  const trackCoachingSessionCompleted = useCallback((properties?: {
-    session_id?: string;
-    duration_minutes?: number;
-    message_count?: number;
-    words_written?: number;
-    insights_generated?: number;
-    session_type?: 'initial_life_deep_dive' | 'regular';
+  // Commitment Tracking - Track when users create commitments
+  const trackCommitmentCreated = useCallback((properties?: {
+    user_id?: string;
+    commitment_type?: 'one-time' | 'recurring';
+    deadline?: string;
+    cadence?: string;
+    title_length?: number;
+    description_length?: number;
+    coaching_session_id?: string;
+    source?: 'coaching_card' | 'manual' | 'api';
   }) => {
-    // Use different event names based on session type for better analytics clarity
-    const eventName = properties?.session_type === 'initial_life_deep_dive' 
-      ? 'initial_coaching_session_completed' 
-      : 'coaching_session_completed';
-      
-    console.log(`📊 [POSTHOG] Tracking ${eventName}:`, properties);
-    posthog?.capture(eventName, {
+    console.log('📊 [POSTHOG] Tracking commitment_created:', {
+      userId: properties?.user_id,
+      type: properties?.commitment_type,
+      deadline: properties?.deadline,
+      cadence: properties?.cadence,
+      titleLength: properties?.title_length,
+      source: properties?.source
+    });
+    
+    posthog?.capture('commitment_created', {
       timestamp: new Date().toISOString(),
-      ...(properties?.session_id && { session_id: properties.session_id }),
+      ...(properties?.user_id && { user_id: properties.user_id }),
+      ...(properties?.commitment_type && { commitment_type: properties.commitment_type }),
+      ...(properties?.deadline && { deadline: properties.deadline }),
+      ...(properties?.cadence && { cadence: properties.cadence }),
+      title_length: properties?.title_length || 0,
+      description_length: properties?.description_length || 0,
+      ...(properties?.coaching_session_id && { coaching_session_id: properties.coaching_session_id }),
+      source: properties?.source || 'coaching_card',
+      platform: 'mobile',
+      app_version: '1.0.0'
+    });
+  }, [posthog]);
+
+  // Scheduled Session Tracking - Track when users schedule and use sessions
+  const trackScheduledSessionAccepted = useCallback((properties?: {
+    user_id?: string;
+    session_title?: string;
+    session_reason?: string;
+    duration_minutes?: number;
+    scheduled_date?: string;
+    scheduled_time?: string;
+    coaching_session_id?: string;
+    source?: 'session_suggestion' | 'manual';
+  }) => {
+    console.log('📊 [POSTHOG] Tracking scheduled_session_accepted:', {
+      userId: properties?.user_id,
+      title: properties?.session_title,
+      duration: properties?.duration_minutes,
+      scheduledDate: properties?.scheduled_date,
+      source: properties?.source
+    });
+    
+    posthog?.capture('scheduled_session_accepted', {
+      timestamp: new Date().toISOString(),
+      ...(properties?.user_id && { user_id: properties.user_id }),
+      ...(properties?.session_title && { session_title: properties.session_title }),
+      ...(properties?.session_reason && { session_reason: properties.session_reason }),
       ...(properties?.duration_minutes && { duration_minutes: properties.duration_minutes }),
+      ...(properties?.scheduled_date && { scheduled_date: properties.scheduled_date }),
+      ...(properties?.scheduled_time && { scheduled_time: properties.scheduled_time }),
+      ...(properties?.coaching_session_id && { coaching_session_id: properties.coaching_session_id }),
+      source: properties?.source || 'session_suggestion',
+      platform: 'mobile',
+      app_version: '1.0.0'
+    });
+  }, [posthog]);
+
+  const trackScheduledSessionUsed = useCallback((properties?: {
+    user_id?: string;
+    session_title?: string;
+    session_goal?: string;
+    duration_minutes?: number;
+    scheduled_session_id?: string;
+    coaching_session_id?: string;
+    breakout_session_id?: string;
+    source?: 'scheduled_card' | 'manual';
+  }) => {
+    console.log('📊 [POSTHOG] Tracking scheduled_session_used:', {
+      userId: properties?.user_id,
+      title: properties?.session_title,
+      duration: properties?.duration_minutes,
+      scheduledSessionId: properties?.scheduled_session_id,
+      source: properties?.source
+    });
+    
+    posthog?.capture('scheduled_session_used', {
+      timestamp: new Date().toISOString(),
+      ...(properties?.user_id && { user_id: properties.user_id }),
+      ...(properties?.session_title && { session_title: properties.session_title }),
+      ...(properties?.session_goal && { session_goal: properties.session_goal }),
+      ...(properties?.duration_minutes && { duration_minutes: properties.duration_minutes }),
+      ...(properties?.scheduled_session_id && { scheduled_session_id: properties.scheduled_session_id }),
+      ...(properties?.coaching_session_id && { coaching_session_id: properties.coaching_session_id }),
+      ...(properties?.breakout_session_id && { breakout_session_id: properties.breakout_session_id }),
+      source: properties?.source || 'scheduled_card',
+      platform: 'mobile',
+      app_version: '1.0.0'
+    });
+  }, [posthog]);
+
+  // Onboarding Completion Tracking - Track when users complete onboarding via sessionEnd
+  const trackOnboardingCompleted = useCallback((properties?: {
+    user_id?: string;
+    session_duration_minutes?: number;
+    message_count?: number;
+    insights_generated?: number;
+    completion_method?: 'session_end_card' | 'manual' | 'timeout';
+    onboarding_session_id?: string;
+  }) => {
+    console.log('📊 [POSTHOG] Tracking onboarding_completed:', {
+      userId: properties?.user_id,
+      duration: properties?.session_duration_minutes,
+      messageCount: properties?.message_count,
+      insights: properties?.insights_generated,
+      method: properties?.completion_method
+    });
+    
+    posthog?.capture('onboarding_completed', {
+      timestamp: new Date().toISOString(),
+      ...(properties?.user_id && { user_id: properties.user_id }),
+      ...(properties?.session_duration_minutes && { session_duration_minutes: properties.session_duration_minutes }),
       ...(properties?.message_count && { message_count: properties.message_count }),
-      ...(properties?.words_written && { words_written: properties.words_written }),
       ...(properties?.insights_generated && { insights_generated: properties.insights_generated }),
-      session_type: properties?.session_type || 'regular',
+      completion_method: properties?.completion_method || 'session_end_card',
+      ...(properties?.onboarding_session_id && { onboarding_session_id: properties.onboarding_session_id }),
+      platform: 'mobile',
+      app_version: '1.0.0'
     });
   }, [posthog]);
 
@@ -425,7 +525,6 @@ export function useAnalytics() {
     trackSignOut,
 
     // Onboarding
-    trackOnboardingCompleted,
     trackFirstTimeAppOpened,
 
     // App Lifecycle
@@ -445,8 +544,11 @@ export function useAnalytics() {
     trackMeaningfulAction,
     trackOnboardingStep,
     trackOnboardingDropoff,
-    trackCoachingSessionStarted,
-    trackCoachingSessionCompleted,
+    trackCoachingMessageSent,
+    trackCommitmentCreated,
+    trackScheduledSessionAccepted,
+    trackScheduledSessionUsed,
+    trackOnboardingCompleted,
     trackNotificationPermissionRequested,
     trackNotificationPermissionGranted,
     trackNotificationPermissionDenied,

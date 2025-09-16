@@ -25,6 +25,14 @@
   border-radius: 4px;
   min-height: 200px;
   color: black;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  white-space: pre-wrap !important;
+  overflow-x: hidden !important;
 }
 
 .ProseMirror:focus {
@@ -72,6 +80,12 @@
 
 .ProseMirror p {
   margin-bottom: 0.75rem;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  white-space: pre-wrap !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
 }
 
 .ProseMirror ul,
@@ -150,6 +164,13 @@
 .dark .ProseMirror {
   color: #e0e0e0;
   background-color: hsl(var(--background));
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-x: hidden !important;
 }
 
 .dark .ProseMirror:focus {
@@ -326,4 +347,49 @@
   outline: 2px solid #4a90e2;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Global text wrapping for all content */
+.ProseMirror * {
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Handle long URLs and links */
+.ProseMirror a {
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+/* Handle long code blocks */
+.ProseMirror code,
+.ProseMirror pre {
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+  word-break: break-all !important;
+}
+
+/* Force all text content to wrap */
+.ProseMirror div,
+.ProseMirror span,
+.ProseMirror strong,
+.ProseMirror em,
+.ProseMirror b,
+.ProseMirror i {
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+}
+
+/* Ensure no element can extend beyond container */
+.ProseMirror > * {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }

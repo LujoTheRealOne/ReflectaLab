@@ -3,7 +3,7 @@
     "name": "Reflecta",
     "slug": "reflecta",
     "scheme": "reflecta",
-    "version": "0.10.10",
+    "version": "0.10.13",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
@@ -16,7 +16,10 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "We use the camera to capture images for your journal entries and reflections.",
+        "NSMicrophoneUsageDescription": "We use the microphone for real-time voice coaching.",
+        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to access your Face ID biometric data."
       },
       "appleTeamId": "H396GGF5D9"
     },
@@ -41,7 +44,7 @@
           "backgroundColor": "#ffffff",
           "dark": {
             "image": "./assets/images/splash-icon-light.png",
-            "backgroundColor": "#000000"
+            "backgroundColor": "#111111"
           },
           "imageWidth": 200
         }
@@ -58,6 +61,8 @@
       ],
       "expo-audio",
       "expo-localization",
+      "expo-secure-store",
+      "expo-router",
       [
         "expo-local-authentication",
         {

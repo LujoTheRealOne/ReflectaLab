@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { betterStackLogger } from '@/services/betterStackLogger';
 
 // Match the interface from the web app
 export interface CoachingMessage {
@@ -21,6 +22,7 @@ interface UseAICoachingReturn {
   resendMessage: (messageId: string, sessionId: string, options?: { sessionType?: string; sessionDuration?: number }) => Promise<void>;
   clearMessages: () => void;
   setMessages: (messages: CoachingMessage[]) => void;
+  stopGeneration: () => void;
 }
 
 export function useAICoaching(): UseAICoachingReturn {
@@ -28,7 +30,7 @@ export function useAICoaching(): UseAICoachingReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(7);
-  const { getToken } = useAuth();
+  const { getToken, firebaseUser } = useAuth();
   const { trackCoachingCompletion } = useAnalytics();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -174,8 +176,13 @@ export function useAICoaching(): UseAICoachingReturn {
           }
         }
         
+        // Log raw LLM response for inspection
+        console.log('🤖 RAW LLM RESPONSE:', fullContent);
+        console.log('🤖 LLM RESPONSE LENGTH:', fullContent.length);
+        
         // Check for finish tokens
-        const hasFinishToken = fullContent.includes('[finish-start]') || fullContent.includes('[finish-end]');
+        const hasFinishToken = fullContent.includes('[finish-start]') || 
+                              fullContent.includes('[finish-end]');
         
         if (hasFinishToken) {
           console.log('🎯 Finish token detected! Setting progress to 100%');
@@ -231,7 +238,8 @@ export function useAICoaching(): UseAICoachingReturn {
                 ));
               } else if (data.type === 'done') {
                 // Check for finish tokens
-                const hasFinishToken = fullContent.includes('[finish-start]') || fullContent.includes('[finish-end]');
+                const hasFinishToken = fullContent.includes('[finish-start]') || 
+                                      fullContent.includes('[finish-end]');
                 
                 if (hasFinishToken) {
                   console.log('🎯 Finish token detected! Setting progress to 100%');
@@ -264,7 +272,24 @@ export function useAICoaching(): UseAICoachingReturn {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get AI response';
       setError(errorMessage);
 
-      // Add error message to chat
+      // Log AI response error to BetterStack
+      if (err instanceof Error) {
+        betterStackLogger.logAIResponseError(err, {
+          userId: firebaseUser?.uid,
+          sessionId: sessionId,
+          userMessage: content.trim(),
+          metadata: {
+            platform: 'mobile',
+            sessionType: options?.sessionType || 'default',
+            messageCount: messages.length
+          }
+        });
+      }
+
+      // Don't throw here, let the component handle it via error state
+      // The component will check the error state and throw if needed
+
+      // Add error message to chat for non-critical errors
       const errorChatMessage: CoachingMessage = {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
@@ -320,6 +345,15 @@ export function useAICoaching(): UseAICoachingReturn {
     setMessages(newMessages);
   }, []);
 
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      console.log('🛑 Stopping AI generation...');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     messages,
     isLoading,
@@ -328,6 +362,7 @@ export function useAICoaching(): UseAICoachingReturn {
     sendMessage,
     resendMessage,
     clearMessages,
-    setMessages: setMessagesCallback
+    setMessages: setMessagesCallback,
+    stopGeneration
   };
 } 

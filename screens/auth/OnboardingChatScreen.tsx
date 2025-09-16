@@ -9,7 +9,15 @@ import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
-import { useAICoaching, CoachingMessage } from '@/hooks/useAICoaching';
+
+// Define CoachingMessage interface
+interface CoachingMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  isError?: boolean;
+}
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
@@ -20,6 +28,7 @@ import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { CoachingCardRenderer, parseCoachingCards } from '@/components/coaching/CoachingCardRenderer';
 import { SessionEndCard } from '@/components/cards';
+import { onboardingCacheService, OnboardingMessage } from '@/services/onboardingCacheService';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
@@ -258,8 +267,10 @@ export default function OnboardingChatScreen() {
     timeDuration
   } = route.params;
 
-  // Use the new AI coaching hook with progress tracking
-  const { messages, isLoading, sendMessage, setMessages, progress } = useAICoaching();
+  // State for messages and loading - will use backend API directly
+  const [messages, setMessages] = useState<CoachingMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(7);
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding, firebaseUser, getToken } = useAuth();
   const { clearProgress, saveProgress } = useOnboardingProgress();
@@ -365,9 +376,9 @@ export default function OnboardingChatScreen() {
     };
   }, []); // EMPTY DEPENDENCIES - only run on actual unmount
 
-  // Use user ID as session ID for onboarding (consistent with main coaching)
+  // Use consistent session ID for life deep dive (based on user ID + constant)
   const getSessionId = (): string => {
-    return firebaseUser?.uid || 'anonymous-onboarding';
+    return firebaseUser?.uid ? `onboarding-life-deep-dive-${firebaseUser.uid}` : 'anonymous-onboarding';
   };
   
   const [chatInput, setChatInput] = useState('');
@@ -385,8 +396,8 @@ export default function OnboardingChatScreen() {
     insights_generated?: number;
     session_id?: string;
   }>({});
-  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
+  
   const isOnboardingCompletedRef = useRef(false);
 
   // Use the audio transcription hook
@@ -909,22 +920,113 @@ export default function OnboardingChatScreen() {
     }
   }, [progress]);
 
-  // Initialize chat with first message when component mounts
+  // Load saved chat data or initialize with first message
   useEffect(() => {
-    if (messages.length === 0) {
-      setTimeout(() => {
-        const initialMessage: CoachingMessage = {
-          id: '1',
-          content: `Hey, ${name}.\n
+    const loadOnboardingChat = async () => {
+      if (!firebaseUser?.uid) {
+        console.log('⏳ Waiting for user authentication...');
+        return;
+      }
+
+      if (messages.length > 0) {
+        console.log('📱 Chat already has messages, skipping load');
+        return;
+      }
+
+      try {
+        console.log('🔍 Loading saved onboarding data for user:', firebaseUser.uid);
+        const savedData = await onboardingCacheService.loadOnboardingData(firebaseUser.uid);
+        
+        if (savedData.messages.length > 0) {
+          console.log(`💾 Loaded ${savedData.messages.length} saved onboarding messages`);
+          console.log(`📊 Restored progress: ${savedData.progress}%`);
+          
+          // Convert OnboardingMessage to CoachingMessage
+          const coachingMessages: CoachingMessage[] = savedData.messages.map(msg => ({
+            id: msg.id,
+            content: msg.content,
+            role: msg.role,
+            timestamp: msg.timestamp
+          }));
+          
+          setMessages(coachingMessages);
+          setProgress(savedData.progress);
+        } else {
+          // No saved data, create initial message
+          console.log('📝 No saved data found, creating initial message');
+          setTimeout(() => {
+            const initialMessage: CoachingMessage = {
+              id: '1',
+              content: `Hey, ${name}.\n
 Once you're ready, I'd love to hear: If you had to name what's most alive in you right now—what would it be?\n
 Maybe it's a tension you're holding, a quiet longing, or something you don't quite have words for yet. Whatever shows up—start there.`,
-          role: 'assistant',
-          timestamp: new Date()
-        };
-        setMessages([initialMessage]);
-      }, 1000);
-    }
-  }, [name, messages.length, setMessages]);
+              role: 'assistant',
+              timestamp: new Date()
+            };
+            setMessages([initialMessage]);
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('❌ Error loading onboarding data:', error);
+        // Fallback to initial message on error
+        setTimeout(() => {
+          const initialMessage: CoachingMessage = {
+            id: '1',
+            content: `Hey, ${name}.\n
+Once you're ready, I'd love to hear: If you had to name what's most alive in you right now—what would it be?\n
+Maybe it's a tension you're holding, a quiet longing, or something you don't quite have words for yet. Whatever shows up—start there.`,
+            role: 'assistant',
+            timestamp: new Date()
+          };
+          setMessages([initialMessage]);
+        }, 1000);
+      }
+    };
+
+    loadOnboardingChat();
+  }, [name, messages.length, firebaseUser?.uid]);
+
+  // Save messages and progress when they change
+  useEffect(() => {
+    const saveOnboardingData = async () => {
+      if (!firebaseUser?.uid || messages.length === 0) {
+        return;
+      }
+
+      // Don't save if this is just the initial load
+      if (messages.length === 1 && messages[0].id === '1' && progress === 7) {
+        console.log('⏭️ Skipping save for initial message');
+        return;
+      }
+
+      try {
+        const sessionId = getSessionId();
+        
+        // Convert CoachingMessage to OnboardingMessage
+        const onboardingMessages: OnboardingMessage[] = messages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          role: msg.role,
+          timestamp: msg.timestamp
+        }));
+
+        await onboardingCacheService.saveOnboardingData(
+          firebaseUser.uid,
+          sessionId,
+          onboardingMessages,
+          progress
+        );
+
+        console.log(`💾 Saved ${messages.length} messages with ${progress}% progress`);
+      } catch (error) {
+        console.error('❌ Error saving onboarding data:', error);
+      }
+    };
+
+    // Debounce saving to avoid too frequent saves
+    const timeoutId = setTimeout(saveOnboardingData, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [messages, progress, firebaseUser?.uid]);
 
   // 7. Simplify handleScroll:
   const handleScroll = (event: any) => {
@@ -1080,15 +1182,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   }, [messages, showSchedulingForMessage, showPopupForMessage, confirmedSchedulingMessages]);
 
-  // Track when progress reaches 100% to keep Enter App button visible
-  const [hasReached100, setHasReached100] = useState(false);
-  
   useEffect(() => {
     console.log('🎯 OnboardingChat Progress Update:', progress);
-    if (progress >= 100) {
-      setHasReached100(true);
-      console.log('✅ Progress reached 100%, Enter App button will stay visible');
-    }
   }, [progress]);
 
   // Calculate completion stats when progress reaches 100% (for sessionEnd card use)
@@ -1134,18 +1229,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         keyInsights
       });
       
-      // Track session completion analytics
-      const currentSessionId = getSessionId();
-      if (currentSessionId && currentSessionId !== 'anonymous-onboarding') {
-        trackCoachingSessionCompleted({
-          session_id: currentSessionId,
-          duration_minutes: Math.max(sessionMinutes, 1),
-          message_count: messages.length,
-          words_written: totalWords,
-          insights_generated: keyInsights,
-          session_type: 'initial_life_deep_dive',
-        });
-      }
+      // Session completion tracking removed - using single session logic now
     }
   }, [progress, messages, sessionStartTime]);
 
@@ -1174,9 +1258,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
   const handleSendMessage = async () => {
     if (chatInput.trim().length === 0) return;
 
-    // Use user ID as session ID for onboarding
+    // Use consistent session ID for life deep dive (based on user ID)
     const currentSessionId = getSessionId();
-    console.log(`🆔 Using user ID as session ID for onboarding: ${currentSessionId}`);
+    console.log(`🆔 Using consistent session ID for onboarding: ${currentSessionId}`);
     
     // Log initial life deep dive session activity
     console.log('🎯 [COACHING] Initial life deep dive session activity...', {
@@ -1185,12 +1269,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       trigger: 'manual'
     });
     
-    // Track initial life deep dive session started on first user message
-    trackCoachingSessionStarted({
-      session_id: currentSessionId,
-      session_type: 'initial_life_deep_dive',
-      trigger: 'manual',
-    });
+    // Session tracking removed - using single session logic now
     
     // Also track this as an onboarding step completion
     trackOnboardingStep({
@@ -1208,11 +1287,190 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
     console.log('📤 Sending message, positioning will be triggered');
 
-    // Send message using the AI coaching hook with session ID, type, and duration
-    await sendMessage(messageContent, currentSessionId, {
-      sessionType: 'initial-life-deep-dive',
-      sessionDuration: timeDuration
-    });
+    try {
+      setIsLoading(true);
+      
+      // Add user message immediately
+      const userMessage: CoachingMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: messageContent,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      // Get auth token
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication token not available');
+      }
+
+      // Add AI placeholder message
+      const aiMessageId = (Date.now() + 1).toString();
+      const aiMessage: CoachingMessage = {
+        id: aiMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, aiMessage]);
+
+      // Call backend API for life deep dive
+      const apiUrl = `${process.env.EXPO_PUBLIC_API_URL}api/coaching/chat`;
+      console.log('📤 Making API call to:', apiUrl);
+      
+      const requestBody = {
+        message: messageContent,
+        sessionId: currentSessionId,
+        sessionType: 'initial-life-deep-dive',
+        sessionDuration: timeDuration,
+        conversationHistory: messages.slice(-5) // Last 5 messages for context
+      };
+      console.log('📤 Request body:', requestBody);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log('📥 Response status:', response.status, response.statusText);
+      console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ API Error response:', errorText);
+        throw new Error(`API Error: ${response.status} - ${errorText}`);
+      }
+
+      // Handle streaming response - React Native compatible approach
+      let fullContent = '';
+      
+      try {
+        console.log('📡 Processing streaming response with typing effect...');
+        
+        // React Native compatible streaming: parse SSE format and simulate typing
+        // This provides the illusion of real-time streaming while being compatible
+        const responseText = await response.text();
+        console.log('📄 Got response text (first 200 chars):', responseText.substring(0, 200) + '...');
+        
+        // Parse the server-sent events format
+        const lines = responseText.split('\n');
+        const contentChunks: string[] = [];
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'content') {
+                contentChunks.push(data.content);
+                fullContent += data.content;
+              } else if (data.type === 'done') {
+                console.log('✅ Streaming marked as complete');
+              }
+            } catch (parseError) {
+              console.warn('Parse error for line:', line.substring(0, 50) + '...', parseError);
+            }
+          }
+        }
+        
+        // Simulate typing effect by progressively showing content chunks
+        console.log(`📊 Starting typing animation with ${contentChunks.length} chunks`);
+        let currentContent = '';
+        
+        // Break large chunks into smaller pieces for smoother typing effect
+        const smallChunks: string[] = [];
+        for (const chunk of contentChunks) {
+          if (chunk.length > 100) {
+            // Split large chunks into ~50 character pieces
+            for (let i = 0; i < chunk.length; i += 50) {
+              smallChunks.push(chunk.substring(i, i + 50));
+            }
+          } else {
+            smallChunks.push(chunk);
+          }
+        }
+        
+        console.log(`📊 Created ${smallChunks.length} small chunks for smooth typing`);
+        
+        for (let i = 0; i < smallChunks.length; i++) {
+          currentContent += smallChunks[i];
+          
+          // Update UI with progressive content
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMessageId 
+              ? { ...msg, content: currentContent }
+              : msg
+          ));
+          
+          // Update progress based on content length and sessionEnd detection
+          let estimatedProgress = Math.min(Math.floor(currentContent.length / 15) + 10, 90);
+          if (currentContent.includes('sessionEnd')) {
+            estimatedProgress = 100;
+          }
+          setProgress(estimatedProgress);
+          
+          // Add small delay to simulate typing (except for last chunk)
+          if (i < smallChunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 30)); // 30ms delay for smoother effect
+          }
+        }
+        
+        console.log(`📊 Processed ${contentChunks.length} content chunks, total length: ${fullContent.length}`);
+        
+        // Ensure final content is set
+        if (fullContent) {
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMessageId 
+              ? { ...msg, content: fullContent }
+              : msg
+          ));
+          setProgress(100);
+        } else {
+          throw new Error('No content received from streaming response');
+        }
+        
+      } catch (streamError) {
+        console.error('❌ Streaming processing failed:', streamError);
+        throw new Error('Failed to process AI response');
+      }
+
+      // Update session stats when session is complete
+      if (fullContent.includes('sessionEnd')) {
+        const sessionEndTime = new Date();
+        const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
+        const sessionMinutes = Math.round(sessionDurationMs / 60000);
+        
+        const userMessages = messages.filter(msg => msg.role === 'user');
+        
+        setSessionStats({
+          duration_minutes: sessionMinutes,
+          message_count: userMessages.length + 1, // +1 for current message
+          insights_generated: 5, // Could be parsed from content
+          session_id: currentSessionId
+        });
+        
+        console.log('🎯 Session completed, stats updated');
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      // Add error message
+      const errorMessage: CoachingMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleMicrophonePress = () => {
@@ -1494,7 +1752,6 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
     
     try {
-      setIsCompletingOnboarding(true);
       console.log('🚀 Starting onboarding completion from deep dive...');
       
       // Complete onboarding first
@@ -1503,6 +1760,12 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       
       // Clear onboarding progress from AsyncStorage
       await clearProgress();
+      
+      // Clear onboarding chat cache since session is completed
+      if (firebaseUser?.uid) {
+        await onboardingCacheService.clearOnboardingData(firebaseUser.uid);
+        console.log('🗑️ Cleared onboarding chat cache');
+      }
 
       // Navigate to compass story with onboarding completed
       navigation.navigate('CompassStory', { 
@@ -1524,56 +1787,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
     } catch (error) {
       console.error('❌ Error completing onboarding from deep dive:', error);
-      setIsCompletingOnboarding(false);
     }
   };
 
-  const handleEnterApp = async () => {
-    console.log('🏁 User clicked Enter App - completing onboarding');
-    console.log('📊 Session Stats:', completionStats);
-    console.log('🎯 Parsed Coaching Data:', parsedCoachingData);
-    
-    try {
-      setIsCompletingOnboarding(true);
-      console.log('🚀 Starting onboarding completion...');
-      const result = await completeOnboarding();
-      console.log('✅ Onboarding completion finished successfully', result);
-      
-      // Track onboarding completion analytics
-      const sessionEndTime = new Date();
-      const sessionDurationMs = sessionEndTime.getTime() - sessionStartTime.getTime();
-      const onboardingDuration = Math.floor(sessionDurationMs / 1000);
-      
-      trackOnboardingCompleted({
-        onboarding_duration: onboardingDuration,
-        steps_completed: 17, // All steps including deep dive completed
-        user_responses: completionStats.words,
-      });
-      
-      // Clear onboarding progress from AsyncStorage
-      console.log('🗑️ Clearing onboarding progress from AsyncStorage...');
-      await clearProgress();
-      console.log('✅ Onboarding progress cleared successfully');
-      
-      // Mark onboarding as completed to prevent saving progress on unmount
-      setIsOnboardingCompleted(true);
-      isOnboardingCompletedRef.current = true;
-      console.log('✅ Marked onboarding as completed - will skip progress save on unmount');
-
-      // After marking onboarding complete, forcefully go to the main app route at the root navigator
-      // This avoids relying solely on state propagation timing
-      console.log('🔄 Navigating to main app...');
-      // @ts-ignore - allow parent navigator access
-      navigation.getParent()?.reset({
-        index: 0,
-        routes: [{ name: 'App' as never }],
-      });
-    } catch (error) {
-      console.error('❌ Error completing onboarding:', error);
-    } finally {
-      setIsCompletingOnboarding(false);
-    }
-  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1617,7 +1833,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               styles.messagesContent, 
               { 
                 minHeight: scrollLimits.minContentHeight,
-                paddingBottom: dynamicBottomPadding
+                paddingBottom: dynamicBottomPadding + (progress >= 100 ? 200 : 0) // Extra padding for SessionEnd card
               }
             ]}
             scrollEventThrottle={16}
@@ -1904,23 +2120,8 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
           )}
         </View>
 
-        {/* Bottom section with Enter App button and input */}
+        {/* Bottom section with input */}
         <View style={styles.bottomSection}>
-          {/* Enter App Button when progress is complete - appears above input */}
-          {hasReached100 && (
-            <View style={styles.enterAppContainer}>
-              <Button
-                variant="primary"
-                size="default"
-                onPress={handleEnterApp}
-                style={styles.enterAppButton}
-                disabled={isCompletingOnboarding}
-                isLoading={isCompletingOnboarding}
-              >
-                {isCompletingOnboarding ? 'Starting your journey...' : 'Enter App'}
-              </Button>
-            </View>
-          )}
 
           {/* Input - always visible */}
           <View style={styles.chatInputContainer}>
@@ -2311,17 +2512,6 @@ const styles = StyleSheet.create({
   },
   bottomSection: {
     backgroundColor: 'transparent',
-  },
-  enterAppContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
-    backgroundColor: 'transparent',
-  },
-  enterAppButton: {
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   scrollToBottomButton: {
     position: 'absolute',

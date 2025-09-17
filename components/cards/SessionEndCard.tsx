@@ -21,9 +21,10 @@ interface SessionEndCardProps {
     insights_generated?: number;
     session_id?: string;
   };
+  isProcessingInsights?: boolean;
 }
 
-export default function SessionEndCard({ data, onCompleteSession, sessionStats }: SessionEndCardProps) {
+export default function SessionEndCard({ data, onCompleteSession, sessionStats, isProcessingInsights = false }: SessionEndCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user } = useAuth();
@@ -56,7 +57,7 @@ export default function SessionEndCard({ data, onCompleteSession, sessionStats }
   }, [pulseAnim]);
 
   React.useEffect(() => {
-    if (isCompleting) {
+    if (isCompleting || isProcessingInsights) {
       const spinner = Animated.loop(
         Animated.timing(spinnerAnim, {
           toValue: 1,
@@ -69,7 +70,7 @@ export default function SessionEndCard({ data, onCompleteSession, sessionStats }
     } else {
       spinnerAnim.setValue(0);
     }
-  }, [isCompleting, spinnerAnim]);
+  }, [isCompleting, isProcessingInsights, spinnerAnim]);
 
   const handleCompleteSession = async () => {
     console.log('🎯 SessionEndCard: Starting session completion');
@@ -164,13 +165,13 @@ export default function SessionEndCard({ data, onCompleteSession, sessionStats }
             styles.button, 
             styles.primaryButton,
             { 
-              backgroundColor: isCompleting ? (colors.text + '80') : colors.text,
+              backgroundColor: (isCompleting || isProcessingInsights) ? (colors.text + '80') : colors.text,
             }
           ]}
           onPress={handleCompleteSession}
-          disabled={isCompleting}
+          disabled={isCompleting || isProcessingInsights}
         >
-          {isCompleting ? (
+          {(isCompleting || isProcessingInsights) ? (
             <>
               <Animated.View 
                 style={[
@@ -186,7 +187,7 @@ export default function SessionEndCard({ data, onCompleteSession, sessionStats }
                 ]} 
               />
               <Text style={[styles.buttonText, { color: colors.background }]}>
-                Completing...
+                {isProcessingInsights ? 'Processing Insights...' : 'Completing...'}
               </Text>
             </>
           ) : (

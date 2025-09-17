@@ -3,249 +3,54 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { StyleSheet, Text, TextInput, View, useColorScheme, TouchableOpacity, ScrollView, SafeAreaView, KeyboardAvoidingView, Platform, Keyboard, ColorSchemeName, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { Mic, X, Check, ArrowUp, ArrowDown } from 'lucide-react-native';
+import { Mic, X, Check, ArrowUp, ArrowDown, Square } from 'lucide-react-native';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import * as Crypto from 'expo-crypto';
 import { Colors } from '@/constants/Colors';
 import { AuthStackParamList } from '@/navigation/AuthNavigator';
 import * as Progress from 'react-native-progress';
 import { Button } from '@/components/ui/Button';
 
-// Define CoachingMessage interface
+// Define CoachingMessage interface with error handling support
 interface CoachingMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   isError?: boolean;
+  originalUserMessage?: string; // For error retry context
 }
+
 import { useNotificationPermissions } from '@/hooks/useNotificationPermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useAudioTranscription } from '@/hooks/useAudioTranscription';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { FirestoreService } from '@/lib/firestore';
+import { useCoachingScroll } from '@/hooks/useCoachingScroll';
+import { AnimatedTypingIndicator } from '@/components/coaching/ui/AnimatedTypingIndicator';
+import { SpinningAnimation } from '@/components/coaching/ui/SpinningAnimation';
+import { ModernSpinner } from '@/components/coaching/ui/ModernSpinner';
+import { DateSeparator } from '@/components/coaching/ui/DateSeparator';
+import { AudioLevelIndicator } from '@/components/coaching/ui/AudioLevelIndicator';
+import { RecordingTimer } from '@/components/coaching/ui/RecordingTimer';
+import { ErrorMessage } from '@/components/coaching/ui/ErrorMessage';
 import { UserAccount } from '@/types/journal';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { CoachingCardRenderer, parseCoachingCards } from '@/components/coaching/CoachingCardRenderer';
+import { CoachingCardRenderer, parseCoachingCards, getDisplayContent, parseCoachingCompletion } from '@/components/coaching/CoachingCardRenderer';
 import { SessionEndCard } from '@/components/cards';
 import { onboardingCacheService, OnboardingMessage } from '@/services/onboardingCacheService';
 
 type OnboardingChatScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'OnboardingChat'>;
 type OnboardingChatScreenRouteProp = RouteProp<AuthStackParamList, 'OnboardingChat'>;
 
-// Spinning animation component
-const SpinningAnimation = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
-  const spinValue = useRef(new Animated.Value(0)).current;
-  
-  // Animation effect
-  useEffect(() => {
-    const spinAnimation = Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true
-      })
-    );
-    
-    spinAnimation.start();
-    
-    return () => {
-      spinAnimation.stop();
-    };
-  }, [spinValue]);
-  
-  // Interpolate the spin value to create a full 360 degree rotation
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
-  
-  return (
-    <View style={styles.loadingSpinner}>
-      <Animated.View 
-        style={[
-          styles.spinner,
-          { 
-            backgroundColor: colorScheme === 'dark' ? '#666666' : '#333333',
-            transform: [{ rotate: spin }]
-          }
-        ]}
-      />
-    </View>
-  );
-};
+// Removed - now using imported component
 
-// Audio level indicator component
-const AudioLevelIndicator = ({ audioLevel, colorScheme }: { audioLevel: number, colorScheme: ColorSchemeName }) => {
-  const totalDots = 6;
-  
-  const isDotActive = (index: number) => {
-    const threshold = (index + 1) / totalDots;
-    return audioLevel >= threshold;
-  };
-  
-  return (
-    <View style={styles.audioLevelContainer}>
-      {Array.from({ length: totalDots }).map((_, index) => {
-        const isActive = isDotActive(index);
-        
-        return (
-          <View 
-            key={index}
-            style={[
-              styles.audioLevelDot, 
-              { 
-                backgroundColor: isActive
-                  ? (colorScheme === 'dark' ? '#888888' : '#111111')
-                  : (colorScheme === 'dark' ? '#444444' : '#E5E5E5')
-              }
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-};
+// Removed - now using imported component
 
-// Animated typing indicator component
-const AnimatedTypingIndicator = ({ colorScheme }: { colorScheme: ColorSchemeName }) => {
-  const dot1Animation = useRef(new Animated.Value(0)).current;
-  const dot2Animation = useRef(new Animated.Value(0)).current;
-  const dot3Animation = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    // Create individual animations for each dot
-    const animation1 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dot1Animation, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true
-        }),
-        Animated.timing(dot1Animation, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true
-        })
-      ])
-    );
+// Removed - now using imported component
 
-    const animation2 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dot2Animation, {
-          toValue: 1,
-          duration: 600,
-          delay: 200,
-          useNativeDriver: true
-        }),
-        Animated.timing(dot2Animation, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true
-        })
-      ])
-    );
-
-    const animation3 = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dot3Animation, {
-          toValue: 1,
-          duration: 600,
-          delay: 400,
-          useNativeDriver: true
-        }),
-        Animated.timing(dot3Animation, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true
-        })
-      ])
-    );
-
-    animation1.start();
-    animation2.start();
-    animation3.start();
-
-    return () => {
-      animation1.stop();
-      animation2.stop();
-      animation3.stop();
-    };
-  }, [dot1Animation, dot2Animation, dot3Animation]);
-
-  const dot1Opacity = dot1Animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 1]
-  });
-
-  const dot2Opacity = dot2Animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 1]
-  });
-
-  const dot3Opacity = dot3Animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 1]
-  });
-
-  return (
-    <View style={styles.typingIndicator}>
-      <Animated.View 
-        style={[
-          styles.typingDot, 
-          { 
-            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
-            opacity: dot1Opacity
-          }
-        ]} 
-      />
-      <Animated.View 
-        style={[
-          styles.typingDot, 
-          { 
-            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
-            opacity: dot2Opacity
-          }
-        ]} 
-      />
-      <Animated.View 
-        style={[
-          styles.typingDot, 
-          { 
-            backgroundColor: colorScheme === 'dark' ? '#888888' : '#333333',
-            opacity: dot3Opacity
-          }
-        ]} 
-      />
-    </View>
-  );
-};
-
-// Recording timer component
-const RecordingTimer = ({ startTime, colorScheme }: { startTime: Date | null, colorScheme: ColorSchemeName }) => {
-  const [elapsed, setElapsed] = useState('00:00');
-  
-  useEffect(() => {
-    if (!startTime) return;
-    
-    const interval = setInterval(() => {
-      const now = new Date();
-      const diffMs = now.getTime() - startTime.getTime();
-      const diffSec = Math.floor(diffMs / 1000);
-      const minutes = Math.floor(diffSec / 60).toString().padStart(2, '0');
-      const seconds = (diffSec % 60).toString().padStart(2, '0');
-      setElapsed(`${minutes}:${seconds}`);
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [startTime]);
-  
-  return (
-    <Text style={[styles.recordingTimer, { color: colorScheme === 'dark' ? '#FFFFFF' : '#333333' }]}>
-      {elapsed}
-    </Text>
-  );
-};
+// Removed - now using imported component
 
 export default function OnboardingChatScreen() {
   const navigation = useNavigation<OnboardingChatScreenNavigationProp>();
@@ -267,10 +72,114 @@ export default function OnboardingChatScreen() {
     timeDuration
   } = route.params;
 
-  // State for messages and loading - will use backend API directly
+  // ========================================================================
+  // MESSAGE STATE MANAGEMENT
+  // ========================================================================
+  // Core message state for onboarding conversation
   const [messages, setMessages] = useState<CoachingMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(7);
+
+  // ========================================================================
+  // PAGINATION SYSTEM - MESSAGE LOADING (from CoachingScreen)
+  // ========================================================================
+  // Implements pull-to-refresh style pagination for loading older messages
+  // Loads messages in chunks when user scrolls to top of conversation
+  // ========================================================================
+  const [allMessages, setAllMessages] = useState<CoachingMessage[]>([]);
+  const [displayedMessageCount, setDisplayedMessageCount] = useState(300);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const MESSAGES_PER_PAGE = 100;
+  
+  // Throttling for pagination to prevent multiple rapid calls
+  const lastLoadTimeRef = useRef<number>(0);
+  const LOAD_THROTTLE_MS = 1000; // 1 second between loads
+
+  // Load more messages when user pulls to top
+  const loadMoreMessages = useCallback(async () => {
+    // Prevent concurrent loading or loading when no more messages available
+    if (isLoadingMore || !hasMoreMessages) return;
+    
+    setIsLoadingMore(true);
+    console.log(`🔄 Starting to load ${MESSAGES_PER_PAGE} more messages...`);
+    
+    try {
+      // Add delay for user feedback (shows loading spinner)
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Calculate new message count (current + page size, but not exceeding total)
+      const newCount = Math.min(displayedMessageCount + MESSAGES_PER_PAGE, allMessages.length);
+      
+      // Get messages from the end (newest first display, so slice from end)
+      const messagesToShow = allMessages.slice(-newCount);
+      
+      // Update state with new message set
+      setMessages(messagesToShow);
+      setDisplayedMessageCount(newCount);
+      setHasMoreMessages(newCount < allMessages.length); // Check if more messages exist
+      
+      console.log(`✅ Loaded ${MESSAGES_PER_PAGE} more messages (${newCount}/${allMessages.length} total)`);
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+    } finally {
+      // Brief delay before hiding loading indicator for smooth UX
+      setTimeout(() => {
+        setIsLoadingMore(false);
+      }, 200);
+    }
+  }, [isLoadingMore, hasMoreMessages, displayedMessageCount, allMessages, MESSAGES_PER_PAGE, setMessages]);
+
+  // Deduplicate messages by ID to prevent duplicates
+  const deduplicateMessages = useCallback((messages: CoachingMessage[]) => {
+    const seen = new Set<string>();
+    const deduplicated = messages.filter(msg => {
+      if (seen.has(msg.id)) {
+        console.log('🔄 [DEDUP] Removing duplicate message:', msg.id);
+        return false;
+      }
+      seen.add(msg.id);
+      return true;
+    });
+    
+    if (deduplicated.length !== messages.length) {
+      console.log(`🔄 [DEDUP] Removed ${messages.length - deduplicated.length} duplicate messages`);
+    }
+    
+    return deduplicated;
+  }, []);
+
+  // Group messages by date and insert separators
+  const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
+    if (messages.length === 0) return [];
+    
+    // First deduplicate messages
+    const deduplicatedMessages = deduplicateMessages(messages);
+    
+    const result: Array<CoachingMessage | { type: 'separator'; date: Date; id: string }> = [];
+    let lastDate: string | null = null;
+    
+    deduplicatedMessages.forEach((message, index) => {
+      const messageDate = new Date(message.timestamp).toDateString();
+      
+      // Add separator if this is a new day
+      if (messageDate !== lastDate) {
+        result.push({
+          type: 'separator',
+          date: new Date(message.timestamp),
+          id: `separator-${messageDate}-${index}`
+        });
+        lastDate = messageDate;
+      }
+      
+      result.push(message);
+    });
+    
+    return result;
+  }, [deduplicateMessages]);
+
+  // Error handling state
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const { requestPermissions, expoPushToken, savePushTokenToFirestore, permissionStatus } = useNotificationPermissions();
   const { completeOnboarding, firebaseUser, getToken } = useAuth();
   const { clearProgress, saveProgress } = useOnboardingProgress();
@@ -383,6 +292,11 @@ export default function OnboardingChatScreen() {
   
   const [chatInput, setChatInput] = useState('');
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [inputHeight, setInputHeight] = useState(24); // Initial height for minimum 1 line
+  const [containerHeight, setContainerHeight] = useState(90); // Dynamic container height
+  const [isInputExpanded, setIsInputExpanded] = useState(false); // Expand durumu
+  const [currentLineCount, setCurrentLineCount] = useState(1); // Current line count
   const [showPopupForMessage, setShowPopupForMessage] = useState<string | null>(null);
   // Completion is now handled directly by sessionEnd cards, no separate popup needed
   const [showSchedulingForMessage, setShowSchedulingForMessage] = useState<string | null>(null);
@@ -397,6 +311,7 @@ export default function OnboardingChatScreen() {
     session_id?: string;
   }>({});
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
+  const [isProcessingInsights, setIsProcessingInsights] = useState(false);
   
   const isOnboardingCompletedRef = useRef(false);
 
@@ -433,6 +348,141 @@ export default function OnboardingChatScreen() {
     components: Array<{ type: string; props: Record<string, string> }>;
     rawData: string;
   } | null>(null);
+
+  // Monitor keyboard height
+  useEffect(() => {
+    const keyboardWillShow = (event: any) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    };
+
+    const keyboardWillHide = () => {
+      setKeyboardHeight(0);
+    };
+
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      keyboardWillShow
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      keyboardWillHide
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, []);
+
+  // Text change handlers for dynamic input
+  const handleTextChange = (text: string) => {
+    setChatInput(text);
+    
+    // More precise calculation - word-based line wrapping
+    const containerWidth = 380; // chatInputWrapper width
+    const containerPadding = 16; // 8px left + 8px right padding
+    const textInputPadding = 8; // 4px left + 4px right padding
+    
+    // First estimate the line count
+    const estimatedLines = Math.max(1, text.split('\n').length);
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
+    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
+    
+    // Character width based on font size (fontSize: 15, fontWeight: 400)
+    // More conservative calculation - extra margin for words
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
+    const charsPerLine = baseCharsPerLine;
+    
+    // Line calculation - including word wrapping
+    const textLines = text.split('\n');
+    let totalLines = 0;
+    
+    textLines.forEach(line => {
+      if (line.length === 0) {
+        totalLines += 1; // Empty line
+      } else {
+        // Word-based calculation - for risk of long words wrapping
+        const words = line.split(' ');
+        let currentLineLength = 0;
+        let linesForThisTextLine = 1;
+        
+        words.forEach((word, index) => {
+          const wordLength = word.length;
+          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
+          
+          // If this word won't fit on current line, new line
+          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
+            linesForThisTextLine++;
+            currentLineLength = wordLength;
+          } else {
+            currentLineLength += spaceNeeded + wordLength;
+          }
+        });
+        
+        totalLines += linesForThisTextLine;
+      }
+    });
+    
+    // Save line count
+    setCurrentLineCount(totalLines);
+    
+    // Min/Max limits - based on expand state
+    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
+    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
+    
+    // Height calculation
+    const newInputHeight = actualLines * LINE_HEIGHT;
+    
+    // Container height - optimized for real layout
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
+
+  const handleContentSizeChange = (event: any) => {
+    const { height } = event.nativeEvent.contentSize;
+    
+    // Calculate Min/Max heights
+    const minHeight = MIN_LINES * LINE_HEIGHT; // 24px
+    const maxHeight = MAX_LINES * LINE_HEIGHT; // 240px
+    
+    // Use real content height but round to LINE_HEIGHT
+    const rawHeight = Math.max(minHeight, Math.min(maxHeight, height));
+    
+    // Round to nearest LINE_HEIGHT multiple (multiples of 24px)
+    const roundedLines = Math.round(rawHeight / LINE_HEIGHT);
+    const newInputHeight = Math.max(MIN_LINES, Math.min(MAX_LINES, roundedLines)) * LINE_HEIGHT;
+    
+    // Container height - same calculation as handleTextChange
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
+
+  // Expand toggle function
+  const handleExpandToggle = () => {
+    setIsInputExpanded(!isInputExpanded);
+    
+    // Recalculate based on current text
+    setTimeout(() => {
+      handleTextChange(chatInput);
+    }, 0);
+  };
 
   // Function to parse coaching cards from any content
   const parseCoachingCards = (content: string) => {
@@ -691,234 +741,226 @@ export default function OnboardingChatScreen() {
     return cleanContent;
   };
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  // scrollViewRef now provided by useCoachingScroll hook
   const textInputRef = useRef<TextInput>(null);
 
-  //POWERFUL MESSAGE POSITIONING SYSTEM
+  // Dynamic input constants
+  const LINE_HEIGHT = 24;
+  const MIN_LINES = 1;
+  const MAX_LINES = 10;
+  const EXPANDED_MAX_LINES = 18; // Maximum lines when expanded
+  const INPUT_PADDING_VERTICAL = 8;
+  const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
+  const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
-  // 1. Define constant values
-  const HEADER_HEIGHT = 120;
-  const INPUT_HEIGHT = 160;
-  const MESSAGE_TARGET_OFFSET = 20; // How many pixels below the header
-
-  // Dynamic content height calculation
-  const dynamicContentHeight = useMemo(() => {
-    let totalHeight = 12; // paddingTop
-    
-    messages.forEach((message, index) => {
-      const contentLength = message.content.length;
-      const lines = Math.max(1, Math.ceil(contentLength / 40));
-      let messageHeight = lines * 22 + 32;
+  // Monitor when AI response actually starts
+  const [aiResponseStarted, setAiResponseStarted] = useState(false);
+  
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      const isLastMessageAI = lastMessage?.role === 'assistant';
       
-      if (message.role === 'assistant') {
-        const isLastMessage = index === messages.length - 1;
-        const isCurrentlyStreaming = isLastMessage && isLoading;
-        
-        if (isCurrentlyStreaming) {
-          messageHeight += 200;
-        } else {
-          messageHeight += 80;
-        }
-        
-        // Add height for coaching cards (sessionEnd, commitment, etc.)
-        const coachingCards = parseCoachingCards(message.content);
-        if (coachingCards.length > 0) {
-          // Each coaching card adds approximately 120px height + 12px margin
-          const cardHeight = coachingCards.reduce((height, card) => {
-            if (card.type === 'sessionEnd') {
-              return height + 140; // SessionEnd cards are taller
-            } else if (card.type === 'commitment') {
-              return height + 120; // Commitment cards
-            } else {
-              return height + 100; // Other cards
-            }
-          }, 0);
-          
-          messageHeight += cardHeight + (coachingCards.length * 12); // Add margin for each card
-        }
+      if (isLastMessageAI && isLoading) {
+        // AI response has started
+        setAiResponseStarted(true);
+      } else if (!isLoading && aiResponseStarted) {
+        // AI response has completed
+        setAiResponseStarted(false);
       }
-      
-      totalHeight += messageHeight + 16;
-    });
+    }
+  }, [messages, isLoading, aiResponseStarted]);
+
+  const shouldShowLoadingIndicator = useMemo(() => {
+    return isLoading || (aiResponseStarted && messages.length > 0);
+  }, [isLoading, aiResponseStarted, messages.length]);
+  
+  // ========================================================================
+  // COACHING SCROLL SYSTEM INTEGRATION
+  // ========================================================================
+  // Uses the same scroll hook as CoachingScreen for consistent behavior
+  const scrollHook = useCoachingScroll({
+    messages,
+    isLoading,
+    shouldShowLoadingIndicator,
+    progress
+  });
+
+  const {
+    contentHeight,
+    scrollViewHeight,
+    showScrollToBottom,
+    scrollViewRef,
+    messageRefs,
+    scrollToNewMessageRef,
+    targetScrollPosition,
+    hasUserScrolled,
+    didInitialAutoScroll,
+    dynamicContentHeight,
+    dynamicBottomPadding,
+    scrollLimits,
+    setContentHeight,
+    setScrollViewHeight,
+    setShowScrollToBottom,
+    scrollToShowLastMessage,
+    handleScrollToBottom: hookHandleScrollToBottom,
+    handleScroll: hookHandleScroll,
+    debugLog
+  } = scrollHook;
+
+  // ========================================================================
+  // SCROLL EVENT HANDLER - MAIN SCROLL LOGIC (from CoachingScreen)
+  // ========================================================================
+  // Handles all scroll-related events including:
+  // 1. Manual scroll detection (clears auto-positioning)
+  // 2. Pull-to-refresh pagination (loads older messages)
+  // 3. Scroll-to-bottom button visibility
+  // ========================================================================
+  const handleScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const scrollY = contentOffset.y;
     
-    // Add loading indicator height
-    if (isLoading) {
-      totalHeight += 60;
+    // ====================================================================
+    // MANUAL SCROLL DETECTION
+    // ====================================================================
+    // Detects when user manually scrolls away from auto-positioned location
+    // Clears positioning system to prevent interference with user intent
+    // ====================================================================
+    if (targetScrollPosition.current !== null) {
+      const savedPosition = targetScrollPosition.current;
+      const scrollDifference = Math.abs(scrollY - savedPosition);
+      
+      // If user scrolled more than 50px from saved position, consider it manual
+      if (scrollDifference > 50) { // Larger threshold to avoid false positives
+        debugLog('👆 User scrolled manually, clearing positioning');
+        hasUserScrolled.current = true;
+        targetScrollPosition.current = null;
+      }
     }
     
-    return totalHeight;
-  }, [messages, isLoading]);
-
-  // 2. Dynamic bottom padding with coaching card awareness:
-  const dynamicBottomPadding = useMemo(() => {
-    const screenHeight = 700; 
-    const availableHeight = screenHeight - HEADER_HEIGHT - INPUT_HEIGHT; // ~420px
+    // ====================================================================
+    // PULL-TO-REFRESH PAGINATION
+    // ====================================================================
+    // Triggers loading of older messages when user pulls to very top
+    // Implements throttling to prevent rapid consecutive loads
+    // ====================================================================
+    const isAtVeryTop = scrollY <= 10; // Must be within 10px of absolute top
+    const isPullingUp = scrollY < 0; // Negative scroll (over-scroll/bounce)
+    const now = Date.now();
+    const timeSinceLastLoad = now - lastLoadTimeRef.current;
     
-    // If user sent a message and waiting for AI response -> Positioning padding
-    const lastMessage = messages[messages.length - 1];
-    const isUserWaitingForAI = lastMessage?.role === 'user' || isLoading;
-    
-    if (isUserWaitingForAI) {
-      return availableHeight + 100; // Sufficient space for precise positioning
-    } else {
-      // Check if last message has coaching cards that need extra space
-      if (lastMessage && lastMessage.role === 'assistant') {
-        const coachingCards = parseCoachingCards(lastMessage.content);
-        const hasSessionEnd = coachingCards.some(card => card.type === 'sessionEnd');
-        
-        if (hasSessionEnd) {
-          return 100; // Extra padding for sessionEnd card scrollability
-        } else if (coachingCards.length > 0) {
-          return 80; // Medium padding for other coaching cards
-        }
-      }
-      
-      return 50; // Minimal padding - just bottom space
+    // Check all conditions for pagination trigger
+    if ((isAtVeryTop || isPullingUp) && 
+        hasMoreMessages && 
+        !isLoadingMore && 
+        !isLoading && 
+        timeSinceLastLoad > LOAD_THROTTLE_MS) {
+      console.log('📄 User pulled to top, loading more messages...');
+      lastLoadTimeRef.current = now;
+      loadMoreMessages();
     }
-  }, [messages, isLoading]);
-
-  // New state for content height tracking
-  const [contentHeight, setContentHeight] = useState(0);
-  const [scrollViewHeight, setScrollViewHeight] = useState(0);
-
-  // Scroll limits calculation - simplified
-  const scrollLimits = useMemo(() => {
-    const minContentHeight = dynamicContentHeight + dynamicBottomPadding;
-    const maxScrollDistance = Math.max(0, minContentHeight - (scrollViewHeight || 500) + 50);
     
-    return {
-      minContentHeight,
-      maxScrollDistance
-    };
-  }, [dynamicContentHeight, dynamicBottomPadding, scrollViewHeight]);
+     // ====================================================================
+     // SCROLL-TO-BOTTOM BUTTON VISIBILITY - Simplified
+     // ====================================================================
+     // Shows button when user can scroll down, but not during AI responses
+     // ====================================================================
+     if (!isLoading && messages.length > 0) {
+       const contentHeight = contentSize.height;
+       const screenHeight = layoutMeasurement.height;
+       const distanceFromBottom = contentHeight - screenHeight - scrollY;
+       
+       // Show button when user is more than 150px from bottom (CoachingScreen threshold)
+       setShowScrollToBottom(distanceFromBottom > 150);
+     } else {
+       // Hide button during AI responses or when no messages
+       setShowScrollToBottom(false);
+     }
+  };
 
-  // Enhanced scroll position tracking for scroll-to-bottom button
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // COACHING SCREEN PATTERN: Trigger positioning when new user message appears
+  const lastMessageRef = useRef<string | null>(null);
   
-  // Store refs for each message to measure their positions
-  const messageRefs = useRef<{ [key: string]: View | null }>({});
-  
-  // Store the target scroll position after user message positioning
-  const targetScrollPosition = useRef<number | null>(null);
-  
-  // Track if user has manually scrolled
-  const hasUserScrolled = useRef<boolean>(false);
-
-  // 3. Completely rewrite scrollToShowLastMessage:
-  const scrollToShowLastMessage = useCallback(() => {
-    if (!scrollViewRef.current || messages.length === 0) return;
+  useEffect(() => {
+    if (messages.length === 0) return;
     
     const lastMessage = messages[messages.length - 1];
+    const lastMessageId = lastMessage?.id;
     
-    // Only position user messages
-    if (lastMessage.role !== 'user') return;
-    
-    console.log('🎯 Positioning user message:', lastMessage.content.substring(0, 30) + '...');
-    
-    // Target position: MESSAGE_TARGET_OFFSET pixels below header
-    const targetFromTop = MESSAGE_TARGET_OFFSET;
-    
-    // Get user message ref
-    const lastMessageRef = messageRefs.current[lastMessage.id];
-    
-    if (lastMessageRef) {
-      // Measure current position of the message
-      setTimeout(() => {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (msgX: number, msgY: number, msgWidth: number, msgHeight: number) => {
-            // Target scroll position = message Y position - target position
-            const targetScrollY = Math.max(0, msgY - targetFromTop);
-            
-            console.log('📐 Measurement:', {
-              messageY: msgY,
-              targetFromTop,
-              targetScrollY
+    // If this is a new message since last check, trigger positioning
+    if (lastMessageId && lastMessageId !== lastMessageRef.current) {
+      lastMessageRef.current = lastMessageId;
+      
+      // Trigger positioning for new messages (both user and assistant)
+      scrollToNewMessageRef.current = true;
+      debugLog('🎯 New message detected, triggering positioning');
+    }
+  }, [messages, debugLog]);
+
+  // COACHING SCREEN PATTERN: Trigger positioning when starting/stopping typing
+  const prevLoadingRef = useRef<boolean>(false);
+  useEffect(() => {
+    // Only trigger when isLoading changes from false to true (start of AI response)
+    if (isLoading && !prevLoadingRef.current) {
+      // AI started responding - position to show typing indicator
+      scrollToNewMessageRef.current = true;
+      debugLog('🤖 AI started responding, triggering positioning');
+    }
+    prevLoadingRef.current = isLoading;
+  }, [isLoading, debugLog]);
+
+  // ========================================================================
+  // POSITION MAINTENANCE DURING AI RESPONSE (from CoachingScreen)
+  // ========================================================================
+  // Maintains user message position while AI is typing to prevent scroll drift
+  // FIXED: Recalculates position to maintain exact MESSAGE_TARGET_OFFSET
+  // ========================================================================
+  useEffect(() => {
+    if (isLoading && targetScrollPosition.current !== null && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      
+      // Only maintain position for user messages, not during AI response expansion
+      if (lastMessage?.role === 'user') {
+        const lastMessageRef = messageRefs.current[lastMessage.id];
+        
+        if (lastMessageRef && scrollViewRef.current && !hasUserScrolled.current) {
+          // Simplified positioning - just maintain stored position without complex recalculation
+          const maintainedPosition = targetScrollPosition.current;
+          if (maintainedPosition !== null) {
+            scrollViewRef.current.scrollTo({
+              y: maintainedPosition,
+              animated: false
             });
-            
-            // Perform scroll
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            // Save position
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
-            
-            console.log('✅ User message positioned at scroll:', targetScrollY);
-          },
-          () => {
-            console.log('❌ Measurement failed, using estimation');
-            
-            // Fallback: estimate message position
-            let estimatedY = 12; // paddingTop
-            
-            // Sum up height of all previous messages
-            for (let i = 0; i < messages.length - 1; i++) {
-              const msg = messages[i];
-              const lines = Math.max(1, Math.ceil(msg.content.length / 40));
-              const msgHeight = lines * 22 + 48; // text + padding
-              estimatedY += msgHeight + 16; // marginBottom
-            }
-            
-            // Last message Y position
-            const targetScrollY = Math.max(0, estimatedY - targetFromTop);
-            
-            scrollViewRef.current?.scrollTo({
-              y: targetScrollY,
-              animated: true
-            });
-            
-            targetScrollPosition.current = targetScrollY;
-            hasUserScrolled.current = false;
+            debugLog('🔧 Position maintained during AI response:', maintainedPosition);
           }
-        );
-      }, 150); // Wait for layout to stabilize
+        }
+      }
     }
-  }, [messages]);
+  }, [isLoading, messages]);
 
-  // Auto-scroll to position new messages below header
-  const scrollToNewMessageRef = useRef(false);
+  // ========================================================================
+  // POSITIONING CLEANUP AFTER AI RESPONSE
+  // ========================================================================
+  // NOTE: OnboardingScreen doesn't use completion popup like CoachingScreen,
+  // so no special positioning cleanup needed. The useCoachingScroll hook
+  // handles all positioning automatically.
+  // ========================================================================
 
-  // 4. Simplify useEffect:
+  // COACHING SCREEN PATTERN: Initial scroll trigger
+  const [isInitialized, setIsInitialized] = useState(false);
+  
   useEffect(() => {
-    // Only scroll when user sends a message
-    if (scrollToNewMessageRef.current && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollToShowLastMessage();
-        scrollToNewMessageRef.current = false;
-      }, 100);
-    }
-  }, [messages.length, scrollToShowLastMessage]);
-
-  // 5. Adjust position once when AI response starts:
-  useEffect(() => {
-    if (isLoading && targetScrollPosition.current !== null) {
-      // Adjust position once when AI response starts
-      const maintainedPosition = targetScrollPosition.current;
-      
+    if (messages.length > 0 && !isInitialized) {
+      setIsInitialized(true);
+      // Initial positioning after messages load
       setTimeout(() => {
         if (scrollViewRef.current && !hasUserScrolled.current) {
-          scrollViewRef.current.scrollTo({
-            y: maintainedPosition,
-            animated: false
-          });
+          scrollToNewMessageRef.current = true;
+          debugLog('🎯 Initial positioning triggered');
         }
-      }, 100);
+      }, 100); // Reduced timeout for more responsive initial scroll
     }
-  }, [isLoading]);
-
-  // 6. Clear when progress reaches 100%:
-  useEffect(() => {
-    if (progress === 100) {
-      setTimeout(() => {
-        targetScrollPosition.current = null;
-        hasUserScrolled.current = false;
-        console.log('🧹 Positioning cleared after AI response');
-      }, 1000);
-    }
-  }, [progress]);
+  }, [isInitialized, messages.length, debugLog]);
 
   // Load saved chat data or initialize with first message
   useEffect(() => {
@@ -949,7 +991,11 @@ export default function OnboardingChatScreen() {
             timestamp: msg.timestamp
           }));
           
+          // Set both allMessages and messages for pagination system
+          setAllMessages(coachingMessages);
           setMessages(coachingMessages);
+          setDisplayedMessageCount(coachingMessages.length);
+          setHasMoreMessages(false); // Onboarding doesn't typically need pagination
           setProgress(savedData.progress);
         } else {
           // No saved data, create initial message
@@ -964,6 +1010,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               timestamp: new Date()
             };
             setMessages([initialMessage]);
+            setAllMessages([initialMessage]);
           }, 1000);
         }
       } catch (error) {
@@ -979,6 +1026,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
             timestamp: new Date()
           };
           setMessages([initialMessage]);
+          setAllMessages([initialMessage]);
         }, 1000);
       }
     };
@@ -1028,107 +1076,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     return () => clearTimeout(timeoutId);
   }, [messages, progress, firebaseUser?.uid]);
 
-  // 7. Simplify handleScroll:
-  const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const scrollY = contentOffset.y;
-    
-    // User scroll detection
-    if (targetScrollPosition.current !== null) {
-      const savedPosition = targetScrollPosition.current;
-      const scrollDifference = Math.abs(scrollY - savedPosition);
-      
-      if (scrollDifference > 50) { // Larger threshold
-        console.log('👆 User scrolled manually, clearing positioning');
-        hasUserScrolled.current = true;
-        targetScrollPosition.current = null;
-      }
-    }
-    
-    // Scroll to bottom button - only when AI response is complete
-    const hasMessages = messages.length > 0;
-    const lastMessage = hasMessages ? messages[messages.length - 1] : null;
-    const isAIResponseComplete = !isLoading && lastMessage?.role === 'assistant';
-    
-    if (isAIResponseComplete && targetScrollPosition.current === null) {
-      const contentHeight = contentSize.height;
-      const screenHeight = layoutMeasurement.height;
-      const distanceFromBottom = contentHeight - screenHeight - scrollY;
-      setShowScrollToBottom(distanceFromBottom > 200);
-    } else {
-      setShowScrollToBottom(false);
-    }
-  };
+  // Modern scroll handling now provided by useCoachingScroll hook
 
-  const handleScrollToBottom = () => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      const lastMessageRef = messageRefs.current[lastMessage.id];
-      
-      if (lastMessageRef) {
-        lastMessageRef.measureLayout(
-          scrollViewRef.current as any,
-          (x, y, width, height) => {
-            // Check if message has coaching cards (especially sessionEnd)
-            let hasCoachingCards = false;
-            let hasSessionEnd = false;
-            
-            if (lastMessage.role === 'assistant') {
-              const coachingCards = parseCoachingCards(lastMessage.content);
-              hasCoachingCards = coachingCards.length > 0;
-              hasSessionEnd = coachingCards.some(card => card.type === 'sessionEnd');
-            }
-            
-            let targetY;
-            
-            if (hasSessionEnd) {
-              // For sessionEnd cards: scroll to show the entire card with extra space
-              targetY = Math.max(0, y + height - 50); // Show sessionEnd card fully
-            } else if (hasCoachingCards) {
-              // For other coaching cards: scroll to show cards with medium space
-              targetY = Math.max(0, y + height - 80);
-            } else if (lastMessage.role === 'assistant' && lastMessage.content.length >= 200) {
-              // For long AI responses: scroll to the very end of the message
-              targetY = Math.max(0, y + height - 100);
-            } else {
-              // For short responses: scroll to show the message with minimal space below
-              targetY = Math.max(0, y - 20);
-            }
-            
-            scrollViewRef.current?.scrollTo({
-              y: targetY,
-              animated: true
-            });
-          },
-          () => {
-            // Fallback: improved estimation based on message content
-            let estimatedPosition = 0;
-            messages.forEach((msg, index) => {
-              estimatedPosition += 80; // Base message height
-              if (msg.role === 'assistant') {
-                const coachingCards = parseCoachingCards(msg.content);
-                if (coachingCards.some(card => card.type === 'sessionEnd')) {
-                  estimatedPosition += 140; // Add sessionEnd card height
-                } else if (coachingCards.length > 0) {
-                  estimatedPosition += 100; // Add other card heights
-                }
-              }
-            });
-            
-            scrollViewRef.current?.scrollTo({
-              y: Math.max(0, estimatedPosition - 100),
-              animated: true
-            });
-          }
-        );
-      } else {
-        // Fallback: scroll to end
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }
-    } else {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }
-  };
+  // Modern scroll to bottom now provided by useCoachingScroll hook
 
 
 
@@ -1188,7 +1138,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
   // Calculate completion stats when progress reaches 100% (for sessionEnd card use)
   useEffect(() => {
-    if (progress >= 100) {
+    if (progress === 100) {
       console.log('🎯 Progress reached 100%! Calculating completion stats...');
       
       // Calculate session statistics for sessionEnd card
@@ -1281,11 +1231,22 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     const messageContent = chatInput.trim();
     setChatInput('');
     
+    // Close keyboard and blur input
+    textInputRef.current?.blur();
+    Keyboard.dismiss();
+    setIsChatInputFocused(false);
+    
+    // Reset input height and expand state
+    setInputHeight(LINE_HEIGHT);
+    setContainerHeight(CONTAINER_BASE_HEIGHT);
+    setIsInputExpanded(false);
+    setCurrentLineCount(1);
+    
     // Set positioning flag
     hasUserScrolled.current = false;
     scrollToNewMessageRef.current = true; // This flag will trigger positioning
 
-    console.log('📤 Sending message, positioning will be triggered');
+    debugLog('📤 Sending message, positioning will be triggered');
 
     try {
       setIsLoading(true);
@@ -1459,17 +1420,58 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
     } catch (error) {
       console.error('❌ Error sending message:', error);
-      // Add error message
+      // Add error message with retry context
       const errorMessage: CoachingMessage = {
         id: Date.now().toString(),
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
-        isError: true
+        isError: true,
+        originalUserMessage: messageContent // Store original message for retry
       };
       setMessages(prev => [...prev, errorMessage]);
+      setAllMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ========================================================================
+  // ERROR HANDLING AND RETRY LOGIC (from CoachingScreen)
+  // ========================================================================
+  // Handles retry functionality for failed AI responses
+  // ========================================================================
+  const handleRetryMessage = async (messageId: string) => {
+    if (retryingMessageId) return;
+    
+    console.log('🔄 [ERROR RETRY] Retrying message:', messageId);
+    setRetryingMessageId(messageId);
+    
+    // Find the original error message for context
+    const errorMessage = messages.find(msg => msg.id === messageId && msg.isError);
+    
+    try {
+      const currentSessionId = getSessionId();
+      
+      if (errorMessage?.originalUserMessage) {
+        // Remove the error message and retry with original content
+        const filteredMessages = messages.filter(msg => msg.id !== messageId);
+        setMessages(filteredMessages);
+        setAllMessages(prev => prev.filter(msg => msg.id !== messageId));
+        
+        // Resend the original user message
+        setChatInput(errorMessage.originalUserMessage);
+        setTimeout(() => {
+          handleSendMessage();
+        }, 100);
+      }
+      
+      console.log('✅ [ERROR RETRY] Message retry initiated');
+      
+    } catch (error) {
+      console.error('❌ [ERROR RETRY] Message retry failed:', error);
+    } finally {
+      setRetryingMessageId(null);
     }
   };
 
@@ -1692,7 +1694,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
-  // Function to trigger insight extraction
+  // Function to trigger insight extraction (background - no wait)
   const triggerInsightExtraction = async (sessionId: string) => {
     try {
       const token = await getToken();
@@ -1740,6 +1742,56 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     }
   };
 
+  // Function to trigger insight extraction with wait (for completion screen)
+  const triggerInsightExtractionWithWait = async (sessionId: string): Promise<void> => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error('No auth token available for insight extraction');
+      }
+
+      console.log('📤 Calling insight extraction API with wait...', {
+        endpoint: `${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`,
+        sessionId: sessionId,
+        hasToken: !!token
+      });
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/insightExtractor`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId: sessionId
+        }),
+      });
+
+      console.log('📥 Insight extraction API response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Insight extraction completed successfully:', result);
+        return; // Success
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Insight extraction failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText: errorText
+        });
+        throw new Error(`Insight extraction failed: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.error('❌ Error calling insight extraction API with wait:', error);
+      throw error; // Re-throw so timeout/retry logic can handle it
+    }
+  };
+
   const handleCompletionAction = async () => {
     console.log('User clicked View Compass Results');
     console.log('📊 Session Stats:', completionStats);
@@ -1754,6 +1806,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
     try {
       console.log('🚀 Starting onboarding completion from deep dive...');
       
+      // Show processing state
+      setIsProcessingInsights(true);
+      
       // Complete onboarding first
       const result = await completeOnboarding();
       console.log('✅ Onboarding completion finished successfully', result);
@@ -1767,26 +1822,42 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
         console.log('🗑️ Cleared onboarding chat cache');
       }
 
-      // Navigate to compass story with onboarding completed
-      navigation.navigate('CompassStory', { 
-        fromOnboarding: true,
-        sessionId: getSessionId(), // Pass sessionId for insight tracking
-        parsedCoachingData: parsedCoachingData || undefined
-      });
-      // Completion popup no longer needed - handled by sessionEnd card
-
-      // Trigger insight extraction in background if we have a session ID
+      // Trigger insight extraction and wait for it if we have a session ID
       const finalSessionId = getSessionId();
       if (finalSessionId && finalSessionId !== 'anonymous-onboarding') {
         console.log('🧠 Starting insight extraction for onboarding session:', finalSessionId);
-        triggerInsightExtraction(finalSessionId); // Don't await - run in background
+        
+        try {
+          // Wait for insight extraction to complete (but with timeout)
+          await Promise.race([
+            triggerInsightExtractionWithWait(finalSessionId),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Insight extraction timeout')), 3000) // 45 second timeout
+            )
+          ]);
+          console.log('✅ Insight extraction completed');
+        } catch (error) {
+          console.warn('⚠️ Insight extraction failed or timed out, proceeding anyway:', error);
+          // Continue with navigation even if insight extraction fails
+        }
       }
+
+      // Hide processing state
+      setIsProcessingInsights(false);
+
+      // Navigate to compass story with onboarding completed
+      navigation.navigate('CompassStory', { 
+        fromOnboarding: true,
+        sessionId: finalSessionId, // Pass sessionId for insight tracking
+        parsedCoachingData: parsedCoachingData || undefined
+      });
 
       // Note: Navigation to main app is now handled by CompassStoryScreen
       // when user manually closes the compass or completes viewing it
 
     } catch (error) {
       console.error('❌ Error completing onboarding from deep dive:', error);
+      setIsProcessingInsights(false);
     }
   };
 
@@ -1800,6 +1871,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
       >
         {/* Header */}
         <View style={[styles.chatHeader, { backgroundColor: colors.background, paddingTop: insets.top + 25, borderColor: `${colors.tint}12` }]}>
+          <View style={styles.headerContent}>
           <Text style={[styles.chatHeaderText, { color: colors.text }]}>
             Life Deep Dive
           </Text>
@@ -1821,6 +1893,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               strokeCap='round'
               showsText={false}
             />
+            </View>
           </View>
         </View>
 
@@ -1833,7 +1906,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               styles.messagesContent, 
               { 
                 minHeight: scrollLimits.minContentHeight,
-                paddingBottom: dynamicBottomPadding + (progress >= 100 ? 200 : 0) // Extra padding for SessionEnd card
+                paddingBottom: dynamicBottomPadding
               }
             ]}
             scrollEventThrottle={16}
@@ -1846,20 +1919,20 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               setContentHeight(contentSize.height);
             }}
             onLayout={(event) => {
-              // ScrollView height'ını kaydet
+              // Save ScrollView height
               const { height } = event.nativeEvent.layout;
               setScrollViewHeight(height);
             }}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
-            // Scroll limiti ekle
+            // Scroll limit enforcement - prevent endless scrolling
             onScrollEndDrag={(event) => {
               const { contentOffset } = event.nativeEvent;
               
-              // Eğer maksimum scroll limitini aşmışsa, geri getir
+              // If scroll exceeds maximum limit, bring it back
               if (contentOffset.y > scrollLimits.maxScrollDistance) {
                 scrollViewRef.current?.scrollTo({
                   y: scrollLimits.maxScrollDistance,
@@ -1867,7 +1940,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 });
               }
             }}
-            // Momentum scroll sonrası da kontrol et
+            // Momentum scroll limit enforcement
             onMomentumScrollEnd={(event) => {
               const { contentOffset } = event.nativeEvent;
               
@@ -1879,7 +1952,31 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
               }
             }}
           >
-            {messages.map((message) => (
+            {/* Loading spinner for pagination (from CoachingScreen) */}
+            {isLoadingMore && (
+              <View style={{
+                alignItems: 'center',
+                paddingVertical: 16,
+              }}>
+                <ModernSpinner colorScheme={colorScheme} size={20} />
+              </View>
+            )}
+
+            {getMessagesWithSeparators(messages).map((item) => {
+              // Render date separator
+              if ('type' in item && item.type === 'separator') {
+                return (
+                  <DateSeparator 
+                    key={item.id} 
+                    date={item.date} 
+                    colorScheme={colorScheme} 
+                  />
+                );
+              }
+              
+              // Render message
+              const message = item as CoachingMessage;
+              return (
               <View
                 key={message.id}
                 ref={(ref) => {
@@ -1890,14 +1987,34 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   message.role === 'user' ? styles.userMessageContainer : styles.aiMessageContainer
                 ]}
               >
-                <View>
+                <View style={message.role === 'user' ? [
+                  styles.userMessageBubble,
+                  {
+                    backgroundColor: colorScheme === 'dark' 
+                      ? 'rgba(255, 255, 255, 0.12)' 
+                      : 'rgba(0, 0, 0, 0.06)',
+                    borderWidth: colorScheme === 'dark' ? 0.5 : 0,
+                    borderColor: colorScheme === 'dark' 
+                      ? 'rgba(255, 255, 255, 0.15)' 
+                      : 'transparent'
+                  }
+                ] : undefined}>
                   <Text
                     style={[
                       styles.messageText,
                       message.role === 'user'
-                        ? { color: `${colors.text}99` }
+                        ? [
+                            styles.userMessageText, 
+                            { 
+                              color: colorScheme === 'dark' 
+                                ? 'rgba(255, 255, 255, 0.85)' 
+                                : 'rgba(0, 0, 0, 0.75)' 
+                            }
+                          ]
                         : { color: colors.text }
                     ]}
+                    numberOfLines={message.role === 'user' ? undefined : undefined}
+                    ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
                   >
                     {getDisplayContent(message.content)}
                   </Text>
@@ -1919,6 +2036,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                               }}
                               onCompleteSession={handleCompletionAction}
                               sessionStats={sessionStats}
+                              isProcessingInsights={isProcessingInsights}
                             />
                           </View>
                         );
@@ -1947,6 +2065,15 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                       );
                     });
                   })()}
+
+                  {/* Show error message for failed AI responses (from CoachingScreen) */}
+                  {message.role === 'assistant' && message.isError && (
+                    <ErrorMessage
+                      onRetry={() => handleRetryMessage(message.id)}
+                      colorScheme={colorScheme}
+                      isRetrying={retryingMessageId === message.id}
+                    />
+                  )}
                 </View>
 
                                 {/* AI Chat Popup */}
@@ -2091,8 +2218,9 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
                 {/* Completion is now handled by sessionEnd card directly in the message */}
               </View>
-            ))}
-            {isLoading && (
+            );
+            })}
+            {shouldShowLoadingIndicator && (
               <View style={[
                 styles.messageContainer, 
                 styles.aiMessageContainer,
@@ -2110,140 +2238,161 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                 styles.scrollToBottomButton,
                 {
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
-                  borderColor: colorScheme === 'dark' ? '#555555' : '#E5E5E5',
+                  bottom: keyboardHeight > 0 
+                    ? containerHeight + 50  // When keyboard open: position above input container
+                    : containerHeight + 140, // When keyboard closed: give more space above input
                 }
               ]}
-              onPress={handleScrollToBottom}
+              onPress={() => hookHandleScrollToBottom(true)}
             >
               <ArrowDown size={20} color={colors.text} />
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Bottom section with input */}
-        <View style={styles.bottomSection}>
-
-          {/* Input - always visible */}
-          <View style={styles.chatInputContainer}>
-            <View style={[
+        {/* Input */}
+        <View style={[styles.chatInputContainer, { 
+          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 80, // If keyboard open: slightly overlapping, otherwise 80px above navbar
+          paddingBottom: Math.max(insets.bottom, 0)
+        }]} pointerEvents="box-none">
+          <View
+            pointerEvents="auto"
+            style={[
               styles.chatInputWrapper,
               {
-                backgroundColor: colors.background,
-                borderTopWidth: 1,
-                borderLeftWidth: 1,
-                borderRightWidth: 1,
-                borderColor: `${colors.tint}12`,
-                paddingBottom: Math.max(insets.bottom, 20), // Ensure minimum padding + safe area
-                flexDirection: isRecording ? 'column' : 'row',
+                backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
+                borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
+                height: containerHeight, // Dynamic height
+                shadowColor: '#000000',
+                shadowOpacity: colorScheme === 'dark' ? 0.2 : 0.1,
               }
-            ]}>
-              {/* Full-width TextInput with text constrained to left side */}
-              {isTranscribing ? (
-                <View style={[styles.chatInput, styles.transcribingInputContainer]}>
-                  <SpinningAnimation colorScheme={colorScheme} />
-                </View>
-              ) : !isRecording ? (
+            ]}
+          >
+            {/* Expand Button - sadece 1 satırdan fazlayken görünür */}
+            {currentLineCount > 1 && (
+              <TouchableOpacity
+                style={[styles.expandButton, {
+                  backgroundColor: colorScheme === 'dark' ? '#404040' : '#F0F0F0',
+                }]}
+                onPress={handleExpandToggle}
+              >
+                <IconSymbol
+                  name={isInputExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"}
+                  size={14}
+                  color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                />
+              </TouchableOpacity>
+            )}
+            
+            {!isRecording && !isTranscribing ? (
+              /* Main Input Container - vertical layout */
+              <View style={styles.mainInputContainer}>
+                {/* TextInput at the top */}
                 <TextInput
                   ref={textInputRef}
                   style={[
                     styles.chatInput,
-                    { color: colors.text }
+                    { 
+                      color: colors.text,
+                      height: inputHeight, // Dynamic height
+                      width: currentLineCount > 1 ? '92%' : '100%', // Leave space for expand button (~28px less)
+                      paddingRight: currentLineCount > 1 ? 32 : 4, // Right padding for expand button
+                    }
                   ]}
                   value={chatInput}
-                  onChangeText={setChatInput}
+                  onChangeText={handleTextChange} // Main controller
+                  onContentSizeChange={undefined} // Disabled - only use handleTextChange
                   onFocus={() => setIsChatInputFocused(true)}
                   onBlur={() => setIsChatInputFocused(false)}
                   placeholder="Share whats on your mind..."
-                  placeholderTextColor={`${colors.text}66`}
+                  placeholderTextColor={colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.50)'}
                   multiline
-                  maxLength={20000}
+                maxLength={15000} // ~2000 words limit
                   returnKeyType='default'
                   onSubmitEditing={handleSendMessage}
                   cursorColor={colors.tint}
+                  scrollEnabled={inputHeight >= (isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES) * LINE_HEIGHT} // Scroll active at maximum height
+                  textBreakStrategy="balanced" // Word breaking strategy
                 />
-              ) : null}
-
-              {/* Recording state */}
-              {isRecording && !isTranscribing && (
-                <View style={styles.recordingContainer}>
+                
+                {/* Button Container at the bottom - Separate Mic and Send buttons */}
+                <View style={styles.buttonContainer}>
+                  {/* Microphone Button - Always visible for transcription */}
                   <TouchableOpacity
-                    style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
-                    onPress={handleRecordingCancel}
+                    style={[styles.microphoneButtonRound, { 
+                      backgroundColor: colorScheme === 'dark' ? '#404040' : '#E6E6E6' 
+                    }]}
+                    onPress={handleMicrophonePress}
                   >
-                    <X
-                      size={20}
-                      color={colors.text}
+                    <Mic
+                      size={18}
+                      color={colorScheme === 'dark' ? '#AAAAAA' : '#737373'}
+                      strokeWidth={1.5}
                     />
                   </TouchableOpacity>
                   
-                  <View style={styles.recordingCenterSection}>
-                    <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
-                  </View>
-                  
-                  <View style={styles.recordingRightSection}>
-                    <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
+                  {/* Send Button - Only for sending messages */}
                     <TouchableOpacity
-                      style={[styles.recordingButton, { backgroundColor: colors.text }]}
-                      onPress={handleRecordingConfirm}
-                    >
-                      <Check
-                        size={20}
-                        color={colors.background}
+                    style={[styles.sendButtonRound, { 
+                      backgroundColor: isLoading 
+                        ? (colorScheme === 'dark' ? '#404040' : '#E6E6E6') 
+                        : (colorScheme === 'dark' ? '#FFFFFF' : '#000000'),
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: 3,
+                      opacity: chatInput.trim().length > 0 || isLoading ? 1 : 0.5,
+                    }]}
+                    onPress={isLoading ? () => {} : handleSendMessage}
+                    disabled={chatInput.trim().length === 0 && !isLoading}
+                  >
+                    {isLoading ? (
+                      <Square
+                        size={14}
+                        color={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        fill={colorScheme === 'dark' ? '#FFFFFF' : '#666666'}
+                        strokeWidth={0}
                       />
+                    ) : (
+                      <ArrowUp
+                        size={18}
+                        color={colorScheme === 'dark' ? '#000000' : '#FFFFFF'}
+                        strokeWidth={1.5}
+                      />
+                    )}
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
-
-              {/* Absolutely positioned buttons overlay */}
-              {!isRecording && (
-                <View style={styles.buttonOverlay}>
-                  {/* Empty input - show microphone only */}
-                  {chatInput.trim().length === 0 && !isTranscribing && (
+            ) : isTranscribing ? (
+              <View style={styles.transcribingContainer}>
+                <SpinningAnimation colorScheme={colorScheme} />
+              </View>
+            ) : (
+              /* Recording state */
+              <View style={styles.recordingStateContainer}>
                     <TouchableOpacity
-                      style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                      onPress={handleMicrophonePress}
+                  style={[styles.recordingButton, { backgroundColor: `${colors.text}20` }]}
+                  onPress={handleRecordingCancel}
                     >
-                      <Mic
-                        size={20}
-                        color={colors.background}
-                      />
+                  <X size={20} color={colors.text} />
                     </TouchableOpacity>
-                  )}
-
-                  {/* Text entered - show both microphone and send buttons */}
-                  {(chatInput.trim().length > 0 || isTranscribing) && (
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                
+                <View style={styles.recordingCenterSection}>
+                  <AudioLevelIndicator audioLevel={audioLevel} colorScheme={colorScheme} />
+                </View>
+                
+                <View style={styles.recordingRightSection}>
+                  <RecordingTimer startTime={recordingStartTime} colorScheme={colorScheme} />
                       <TouchableOpacity
-                        style={[styles.microphoneButton, { backgroundColor: colors.text }]}
-                        onPress={handleMicrophonePress}
-                        disabled={isTranscribing}
-                      >
-                        <Mic
-                          size={20}
-                          color={colors.background}
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.sendButton, 
-                          { 
-                            backgroundColor: isTranscribing ? `${colors.text}66` : colors.text 
-                          }
-                        ]}
-                        onPress={handleSendMessage}
-                        disabled={isTranscribing}
-                      >
-                        <ArrowUp
-                          size={20}
-                          color={colors.background}
-                        />
+                    style={[styles.recordingButton, { backgroundColor: colors.text }]}
+                    onPress={handleRecordingConfirm}
+                  >
+                    <Check size={20} color={colors.background} />
                       </TouchableOpacity>
                     </View>
-                  )}
                 </View>
               )}
-            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -2259,22 +2408,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderBottomWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
     zIndex: 10,
   },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
   chatHeaderText: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '600',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   chatProgressText: {
     fontSize: 16,
@@ -2306,16 +2459,21 @@ const styles = StyleSheet.create({
   aiMessageContainer: {
     alignItems: 'flex-start',
   },
-  messageBubble: {
+  userMessageBubble: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
     maxWidth: '85%',
-    // paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 20,
+    alignSelf: 'flex-end',
   },
   messageText: {
     fontSize: 16,
     fontWeight: '400',
     lineHeight: 22,
+  },
+  userMessageText: {
+    textAlign: 'left',
   },
   typingIndicator: {
     flexDirection: 'row',
@@ -2323,12 +2481,12 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 8,
     paddingHorizontal: 4,
-    minHeight: 32, // Sabit minimum height
+    minHeight: 32, // Fixed minimum height
   },
   
-  // Loading state'te message container için
+  // For message container in loading state
   loadingMessageContainer: {
-    minHeight: 60, // Loading indicator için sabit alan
+    minHeight: 60, // Fixed space for loading indicator
     justifyContent: 'center',
   },
   typingDot: {
@@ -2337,41 +2495,104 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   chatInputContainer: {
-    paddingHorizontal: 0,
+    paddingHorizontal: 20,
     paddingBottom: 0,
     paddingTop: 0,
-    maxHeight: 180,
+    position: 'absolute',
+    bottom: 0, // 40px above navbar
+    left: 0,
+    right: 0,
+    justifyContent: 'flex-end', // Align content to bottom (for upward expansion)
+    zIndex: 1000, // Base z-index
   },
   chatInputWrapper: {
-    position: 'relative',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    boxShadow: '0px -2px 20.9px 0px #00000005, 0px -4px 18.6px 0px #00000005, 0px 0.5px 0.5px 0px #0000001A inset',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    maxHeight: 160, // Limit the wrapper height
-  },
-  buttonOverlay: {
-    position: 'absolute',
-    right: 20,
-    bottom: 30,
+    alignSelf: 'center',
+    width: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderTopWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0,
+    borderLeftWidth: 0.5,
+    borderColor: '#00000012',
+    padding: 8,
+    gap: 10,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
-    zIndex: 10,
+    alignItems: 'flex-end', // Align buttons to bottom
+    justifyContent: 'flex-start',
+    overflow: 'visible',
+    opacity: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  mainInputContainer: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingTop: 12, // Top padding increased
+    paddingBottom: 8,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    width: '100%',
   },
   chatInput: {
-    width: '100%',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '400',
-    lineHeight: 22,
-    maxHeight: 100,
-    paddingVertical: 8,
-    paddingHorizontal: 0,
-    paddingRight: 90, // Space for buttons to prevent text overlap
+    lineHeight: 24,
+    minHeight: 24, // Minimum height
+    paddingVertical: 0,
+    paddingHorizontal: 4,
     backgroundColor: 'transparent',
+    textAlignVertical: 'top',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    paddingTop: 8,
+  },
+  microphoneButtonRound: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButtonRound: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButtonIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transcribingContainer: {
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  recordingStateContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 24,
   },
   sendButton: {
     width: 34,
@@ -2477,30 +2698,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingLeft: 4,
   },
-  loadingSpinner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 20,
-    width: 20,
-  },
-  spinner: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#E5E5E5',
-    borderTopColor: '#333333',
-  },
-  audioLevelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  audioLevelDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
+  // Removed - using imported components
   recordingVisualizer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2515,22 +2713,40 @@ const styles = StyleSheet.create({
   },
   scrollToBottomButton: {
     position: 'absolute',
-    bottom: 20,
     right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 0, // Remove border, only arrow
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 1,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    zIndex: 1000,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 999, // Lower z-index than input
   },
-}); 
+  expandButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 10,
+  },
+});

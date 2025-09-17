@@ -13,6 +13,7 @@ type NavigationProp = StackNavigationProp<AppStackParamList>;
 
 const NOTIFICATION_PERMISSION_SHOWN_KEY = 'notification_permission_shown';
 const NOTIFICATION_PERMISSION_DISMISSED_KEY = 'notification_permission_dismissed';
+const ONBOARDING_COMPLETED_AT_KEY = '@onboarding_completed_at';
 
 export interface UseNotificationPermissionModalReturn {
   shouldShow: boolean;
@@ -165,26 +166,37 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
         return;
       }
 
-      // Step 2: Check storage for previous actions
-      const [shownTimestamp, dismissedTimestamp] = await Promise.all([
+      // Step 2: Check storage for previous actions and onboarding completion
+      const [shownTimestamp, dismissedTimestamp, onboardingCompletedAt] = await Promise.all([
         AsyncStorage.getItem(NOTIFICATION_PERMISSION_SHOWN_KEY).catch(() => null),
         AsyncStorage.getItem(NOTIFICATION_PERMISSION_DISMISSED_KEY).catch(() => null),
+        AsyncStorage.getItem(ONBOARDING_COMPLETED_AT_KEY).catch(() => null),
       ]);
       
-      console.log('📦 [NotificationModal] Storage values - shown:', shownTimestamp, 'dismissed:', dismissedTimestamp);
+      console.log('📦 [NotificationModal] Storage values - shown:', shownTimestamp, 'dismissed:', dismissedTimestamp, 'onboardingCompletedAt:', onboardingCompletedAt);
 
-      // Step 3: Apply dismissal cooldown (24 hours)
-      if (dismissedTimestamp && !isNaN(parseInt(dismissedTimestamp, 10))) {
-        const dismissedTime = parseInt(dismissedTimestamp, 10);
-        const twentyFourHours = 24 * 60 * 60 * 1000;
-        if (Date.now() - dismissedTime < twentyFourHours) {
-          console.log('⏰ [NotificationModal] Recently dismissed, not showing again');
-          return;
+      // Step 3: Check if user just completed onboarding (within last 5 minutes)
+      const justCompletedOnboarding = onboardingCompletedAt && !isNaN(parseInt(onboardingCompletedAt, 10)) 
+        ? (Date.now() - parseInt(onboardingCompletedAt, 10)) < (5 * 60 * 1000) // 5 minutes
+        : false;
+
+      if (justCompletedOnboarding) {
+        console.log('🎉 [NotificationModal] User just completed onboarding - prioritizing notification request');
+        // Skip normal cooldown checks for recently completed onboarding
+      } else {
+        // Step 4: Apply normal dismissal cooldown (24 hours)
+        if (dismissedTimestamp && !isNaN(parseInt(dismissedTimestamp, 10))) {
+          const dismissedTime = parseInt(dismissedTimestamp, 10);
+          const twentyFourHours = 24 * 60 * 60 * 1000;
+          if (Date.now() - dismissedTime < twentyFourHours) {
+            console.log('⏰ [NotificationModal] Recently dismissed, not showing again');
+            return;
+          }
         }
       }
 
-      // Step 4: Apply longer cooldown for denied permissions (7 days)
-      if (shownTimestamp && !isNaN(parseInt(shownTimestamp, 10)) && currentPermissionStatus === 'denied') {
+      // Step 5: Apply longer cooldown for denied permissions (7 days) - unless just completed onboarding
+      if (!justCompletedOnboarding && shownTimestamp && !isNaN(parseInt(shownTimestamp, 10)) && currentPermissionStatus === 'denied') {
         const shownTime = parseInt(shownTimestamp, 10);
         const sevenDays = 7 * 24 * 60 * 60 * 1000;
         if (Date.now() - shownTime < sevenDays) {
@@ -193,14 +205,20 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
         }
       }
 
-      // Step 5: Show the modal and mark as shown
+      // Step 6: Show the modal and mark as shown
       console.log('🎯 [NotificationModal] All checks passed - showing modal');
       showModal();
       
-      // Mark as shown
+      // Mark as shown and clear onboarding completion flag
       try {
-        await AsyncStorage.setItem(NOTIFICATION_PERMISSION_SHOWN_KEY, Date.now().toString());
+        await Promise.all([
+          AsyncStorage.setItem(NOTIFICATION_PERMISSION_SHOWN_KEY, Date.now().toString()),
+          justCompletedOnboarding ? AsyncStorage.removeItem(ONBOARDING_COMPLETED_AT_KEY) : Promise.resolve(),
+        ]);
         console.log('✅ [NotificationModal] Marked as shown in storage');
+        if (justCompletedOnboarding) {
+          console.log('🧹 [NotificationModal] Cleared onboarding completion flag');
+        }
       } catch (setError) {
         console.error('❌ [NotificationModal] Failed to mark as shown:', setError);
       }
@@ -237,16 +255,41 @@ export function useNotificationPermissionModal(): UseNotificationPermissionModal
     console.log('🚀 [NotificationModal] Initializing permission check...', { userId, currentPermissionStatus });
     isInitializedRef.current = true;
 
-    // Delay the check to ensure navigation is ready and avoid blocking the main thread
-    const timeoutId = setTimeout(() => {
-      checkAndShowIfNeeded().catch(error => {
-        console.error('❌ [NotificationModal] Error in delayed initialization:', error);
-      });
-    }, 3000); // 3 second delay for stability
+    // Check if user just completed onboarding for optimized timing
+    const checkOnboardingStatus = async () => {
+      try {
+        const onboardingCompletedAt = await AsyncStorage.getItem(ONBOARDING_COMPLETED_AT_KEY);
+        const justCompletedOnboarding = onboardingCompletedAt && !isNaN(parseInt(onboardingCompletedAt, 10)) 
+          ? (Date.now() - parseInt(onboardingCompletedAt, 10)) < (5 * 60 * 1000) // 5 minutes
+          : false;
+        
+        // Shorter delay for just completed onboarding users
+        const delay = justCompletedOnboarding ? 1500 : 3000; // 1.5s vs 3s
+        console.log('⏰ [NotificationModal] Using delay:', delay, 'ms (justCompletedOnboarding:', justCompletedOnboarding, ')');
+        
+        return delay;
+      } catch (error) {
+        console.error('❌ [NotificationModal] Error checking onboarding status:', error);
+        return 3000; // Default delay
+      }
+    };
+
+    // Dynamic delay based on onboarding completion status
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    checkOnboardingStatus().then(delay => {
+      timeoutId = setTimeout(() => {
+        checkAndShowIfNeeded().catch(error => {
+          console.error('❌ [NotificationModal] Error in delayed initialization:', error);
+        });
+      }, delay);
+    });
 
     // Cleanup
     return () => {
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
   }, [firebaseUser?.uid, permissionStatus]); // Only depend on essential external values
 

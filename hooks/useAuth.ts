@@ -699,6 +699,15 @@ export function useAuth() {
 
       console.log('✅ Onboarding marked as completed in Firestore');
 
+      // Save onboarding completion timestamp for notification timing
+      try {
+        const AsyncStorage = await import('@react-native-async-storage/async-storage');
+        await AsyncStorage.default.setItem('@onboarding_completed_at', Date.now().toString());
+        console.log('📱 Onboarding completion timestamp saved for notification timing');
+      } catch (error) {
+        console.error('❌ Failed to save onboarding completion timestamp:', error);
+      }
+
       // Refresh user account to get updated data
       const result = await refreshUserAccount();
       console.log('🧭 Onboarding completion - user account refreshed:', result);

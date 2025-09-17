@@ -1795,7 +1795,6 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     scrollToShowLastMessage,
     handleScrollToBottom: hookHandleScrollToBottom,
     handleScroll: hookHandleScroll,
-    triggerPositioning,
     debugLog
   } = scrollHook;
 
@@ -1811,9 +1810,9 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
     if (isNewUserMessage && scrollToNewMessageRef.current) {
       debugLog('🎯 New user message detected, triggering positioning:', lastMessage.content.substring(0, 30));
       lastMessageRef.current = lastMessage.id;
-      triggerPositioning();
+      scrollToShowLastMessage();
     }
-  }, [messages, triggerPositioning, debugLog]);
+  }, [messages, scrollToShowLastMessage, debugLog]);
 
   // ✅ COACHING SCREEN PATTERN: Enhanced loading indicator logic (already defined above)
 
@@ -2573,8 +2572,15 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                 backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
                 borderColor: colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#00000012',
                 height: containerHeight, // Dinamik yükseklik
-                shadowColor: '#000000',
-                shadowOpacity: colorScheme === 'dark' ? 0.2 : 0.1,
+                // Enhanced shadow for both light and dark modes - all directions
+                shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                shadowOffset: {
+                  width: 0,
+                  height: 0, // Centered shadow for all directions
+                },
+                shadowOpacity: colorScheme === 'dark' ? 0.2 : 0.3,
+                shadowRadius: colorScheme === 'dark' ? 12 : 15,
+                elevation: colorScheme === 'dark' ? 12 : 15,
               }
             ]}
           >
@@ -2821,14 +2827,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     overflow: 'visible',
     opacity: 1,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
+    // Shadow properties are now set dynamically based on theme
   },
   mainInputContainer: {
     flex: 1,

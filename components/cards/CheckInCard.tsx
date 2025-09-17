@@ -40,7 +40,13 @@ export default function CheckInCard({
       styles.aiPopup,
       {
         backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#FFFFFF',
-        borderColor: colorScheme === 'dark' ? '#333' : '#0000001A',
+        borderWidth: 0.5,
+        borderColor: colorScheme === 'dark' ? '#333333' : '#F0F0F0',
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+        shadowRadius: colorScheme === 'dark' ? 8 : 10,
+        elevation: colorScheme === 'dark' ? 8 : 12,
       }
     ]}>
       <View style={styles.aiPopupContent}>
@@ -92,8 +98,6 @@ const styles = StyleSheet.create({
     gap: 4,
     borderRadius: 16,
     marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#0000001A',
   },
   aiPopupContent: {
     paddingTop: 16,

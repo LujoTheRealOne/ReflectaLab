@@ -198,14 +198,14 @@ function updateTokenInContent(content: string, tokenType: string, tokenIndex: nu
   });
 }
 
-// Function to render a coaching card based on type and props
-export const renderCoachingCard = (
-  type: string, 
-  props: Record<string, string>, 
-  index: number, 
-  hostMessageId: string | undefined,
-  rendererProps: CoachingCardRendererProps
-) => {
+// React component to render a coaching card based on type and props
+const CoachingCardComponent: React.FC<{
+  type: string;
+  props: Record<string, string>;
+  index: number;
+  hostMessageId: string | undefined;
+  rendererProps: CoachingCardRendererProps;
+}> = ({ type, props, index, hostMessageId, rendererProps }) => {
   const { messages, setMessages, firebaseUser, getToken, saveMessagesToFirestore } = rendererProps;
   
   // ✅ Get Clerk user directly from useAuth hook for current user context
@@ -701,7 +701,16 @@ export const CoachingCardRenderer: React.FC<{
     <View style={{ marginTop: 8, marginBottom: 16 }}>
       {coachingCards.map((card, index) => {
         try {
-          return renderCoachingCard(card.type, card.props, index, message.id, rendererProps);
+          return (
+            <CoachingCardComponent
+              key={`coaching-card-${card.type}-${index}`}
+              type={card.type}
+              props={card.props}
+              index={index}
+              hostMessageId={message.id}
+              rendererProps={rendererProps}
+            />
+          );
         } catch (error) {
           console.error('🚨 [COACHING CARD] Error rendering card:', card.type, error);
           return (

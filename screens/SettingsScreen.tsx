@@ -39,7 +39,122 @@ import { db } from '@/lib/firebase';
 import { FirestoreService } from '@/lib/firestore';
 import { clearNotificationPermissionData } from '@/utils/debugNotifications';
 
-export default function SettingsScreen() {
+// Memoized commitment card component for better performance
+const CommitmentCard = React.memo(({ 
+  commitment, 
+  colorScheme, 
+  colors, 
+  hasCheckedInThisPeriod, 
+  handleCommitmentCheckIn, 
+  isLoading, 
+  isRefreshing,
+  index,
+  totalLength 
+}: {
+  commitment: any;
+  colorScheme: any;
+  colors: any;
+  hasCheckedInThisPeriod: (commitment: any) => boolean;
+  handleCommitmentCheckIn: (id: string, completed: boolean) => void;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  index: number;
+  totalLength: number;
+}) => {
+  return (
+    <View 
+      key={commitment.id}
+      style={[styles.fullWidthCommitmentCard, { 
+        backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
+        marginRight: index === totalLength - 1 ? 20 : 12,
+        // Enhanced shadow for both light and dark modes
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+        shadowRadius: colorScheme === 'dark' ? 8 : 10,
+        elevation: colorScheme === 'dark' ? 8 : 12,
+      }]}
+    >
+      <View style={styles.commitmentCardHeader}>
+        <Text style={[styles.modernCommitmentTitle, { color: colors.text }]} numberOfLines={1}>
+          {commitment.title}
+        </Text>
+        <Text style={[styles.modernCommitmentDescription, { color: colors.text, opacity: 0.6 }]} numberOfLines={2}>
+          {commitment.description}
+        </Text>
+      </View>
+      
+      <View style={styles.commitmentCardFooter}>
+        {commitment.type === 'recurring' ? (
+          <View style={styles.streakContainer}>
+            <Text style={[styles.streakText, { color: '#2563EB' }]}>
+              🔥 {commitment.currentStreakCount} {(() => {
+                const cadence = commitment.cadence || 'daily';
+                const streakUnit = cadence === 'daily' ? 'day' : 
+                                  cadence === 'weekly' ? 'week' : 'month';
+                return commitment.currentStreakCount === 1 ? streakUnit : `${streakUnit}s`;
+              })()} streak
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.goalContainer}>
+            <Text style={[styles.goalText, { color: '#16A34A' }]}>
+              🎯 One-time goal
+            </Text>
+          </View>
+        )}
+        
+        {commitment.type === 'recurring' && hasCheckedInThisPeriod(commitment) ? (
+          // Already checked in this period - show completed state
+          <View style={styles.completedStateContainer}>
+            <View style={[styles.completedBadge, { 
+              backgroundColor: colorScheme === 'dark' ? '#16A34A20' : '#16A34A15' 
+            }]}>
+              <Text style={[styles.completedBadgeText, { color: '#16A34A' }]}>
+                {(() => {
+                  const cadence = commitment.cadence || 'daily';
+                  return cadence === 'daily' ? 'Completed today' :
+                         cadence === 'weekly' ? 'Completed this week' :
+                         'Completed this month';
+                })()}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          // Show action buttons
+          <View style={styles.commitmentActions}>
+            <TouchableOpacity 
+              style={[styles.modernActionButton, styles.notDoneButton, { 
+                backgroundColor: colorScheme === 'dark' ? '#333333' : '#F5F5F5',
+                borderColor: colorScheme === 'dark' ? '#444444' : '#E5E5E5'
+              }]}
+              onPress={() => handleCommitmentCheckIn(commitment.id, false)}
+              disabled={isLoading || isRefreshing}
+            >
+              <Text style={[styles.modernActionButtonText, { color: colors.text, opacity: 0.7 }]}>
+                {commitment.type === 'recurring' ? 'Skip' : 'Later'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.modernActionButton, styles.doneButton, { 
+                backgroundColor: commitment.type === 'recurring' ? '#2563EB' : '#16A34A',
+                borderColor: commitment.type === 'recurring' ? '#2563EB' : '#16A34A'
+              }]}
+              onPress={() => handleCommitmentCheckIn(commitment.id, true)}
+              disabled={isLoading || isRefreshing}
+            >
+              <Text style={[styles.modernActionButtonText, { color: '#FFFFFF' }]}>
+                {commitment.type === 'recurring' ? 'Done' : 'Complete'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
+
+function SettingsScreen() {
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -72,7 +187,7 @@ export default function SettingsScreen() {
   const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
 
   // Active commitments hook
-  const { commitments, loading: commitmentsLoading, isInitialized: commitmentsInitialized, checkInCommitment, refetch: refetchCommitments } = useActiveCommitments();
+  const { commitments, loading: commitmentsLoading, isInitialized: commitmentsInitialized, checkInCommitment, refetch: refetchCommitments, hasCheckedInThisPeriod } = useActiveCommitments();
   
   // Use ref to store the refetch function to avoid dependency issues
   const refetchCommitmentsRef = useRef(refetchCommitments);
@@ -100,34 +215,76 @@ export default function SettingsScreen() {
     verificationStatus?: 'NONE' | 'PENDING' | 'VERIFIED' | 'FAILED';
   }>({ verified: false });
 
-  // State to track which commitments have been checked in today
-  const [todayCheckins, setTodayCheckins] = useState<Set<string>>(new Set());
+  // State to track which commitments have been checked in this period
+  const [periodCheckins, setPeriodCheckins] = useState<Map<string, Set<string>>>(new Map());
 
-  // Helper functions for daily check-in tracking
-  const getTodayCheckinsKey = useCallback(() => {
-    const today = new Date().toDateString();
-    return `commitment_daily_checkins_${today}`;
+  // Helper functions for period-based check-in tracking
+  const getPeriodKey = useCallback((cadence: string) => {
+    const now = new Date();
+    
+    switch (cadence) {
+      case 'daily':
+        return now.toDateString();
+      case 'weekly':
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - now.getDay() + 1);
+        return `week_${monday.toDateString()}`;
+      case 'monthly':
+        return `month_${now.getFullYear()}_${now.getMonth()}`;
+      default:
+        return now.toDateString();
+    }
   }, []);
 
-  const loadTodayCheckins = useCallback(async () => {
+  const loadPeriodCheckins = useCallback(async () => {
     try {
-      const key = getTodayCheckinsKey();
-      const stored = await AsyncStorage.getItem(key);
-      if (stored) {
-        const checkinArray = JSON.parse(stored);
-        setTodayCheckins(new Set(checkinArray));
-      } else {
-        setTodayCheckins(new Set());
-      }
+      const newPeriodCheckins = new Map<string, Set<string>>();
+      
+      // Get unique cadences from current commitments to avoid loading unnecessary data
+      const activeCadences = new Set(['daily']); // Always load daily as default
+      commitments.forEach(commitment => {
+        if (commitment.cadence) {
+          activeCadences.add(commitment.cadence);
+        }
+      });
+      
+      // Load only for active cadences
+      const loadPromises = Array.from(activeCadences).map(async (cadence) => {
+        const periodKey = getPeriodKey(cadence);
+        const key = `commitment_checkins_${periodKey}`;
+        
+        try {
+          const stored = await AsyncStorage.getItem(key);
+          if (stored) {
+            const checkinArray = JSON.parse(stored);
+            return [cadence, new Set(checkinArray)];
+          }
+        } catch (error) {
+          console.error(`Error loading ${cadence} checkins:`, error);
+        }
+        return [cadence, new Set()];
+      });
+      
+      const results = await Promise.all(loadPromises);
+      results.forEach(([cadence, checkins]) => {
+        newPeriodCheckins.set(cadence as string, checkins as Set<string>);
+      });
+      
+      setPeriodCheckins(newPeriodCheckins);
     } catch (error) {
-      console.error('Error loading today checkins:', error);
-      setTodayCheckins(new Set());
+      console.error('Error loading period checkins:', error);
+      setPeriodCheckins(new Map());
     }
-  }, [getTodayCheckinsKey]);
+  }, [getPeriodKey, commitments]);
 
-  const hasCheckedInToday = useCallback((commitmentId: string) => {
-    return todayCheckins.has(commitmentId);
-  }, [todayCheckins]);
+  const hasCheckedInThisPeriodLocal = useCallback((commitment: any) => {
+    if (commitment.type !== 'recurring' || !commitment.cadence) {
+      return false;
+    }
+    
+    const cadenceCheckins = periodCheckins.get(commitment.cadence);
+    return cadenceCheckins ? cadenceCheckins.has(commitment.id) : false;
+  }, [periodCheckins]);
 
   // Get user info with priority: live data > cache > fallback
   const getUserName = () => {
@@ -317,23 +474,34 @@ export default function SettingsScreen() {
       loadPushNotificationPreference();
       loadCoachingMessagesPreference();
       checkPermissions();
-      loadTodayCheckins(); // Load today's check-ins
+      loadPeriodCheckins(); // Load period check-ins
     }, 100); // Small delay to ensure UI renders first
-  }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions, loadTodayCheckins]);
+  }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions, loadPeriodCheckins]);
 
-  // Reload today's check-ins when commitments change
+  // Reload period check-ins when commitments change
   useEffect(() => {
     if (commitmentsInitialized) {
-      loadTodayCheckins();
+      loadPeriodCheckins();
     }
-  }, [commitmentsInitialized, commitments.length, loadTodayCheckins]);
+  }, [commitmentsInitialized, commitments.length, loadPeriodCheckins]);
 
-  // Refresh commitments when screen is focused (but only if we have stale data)
+  // Throttled focus effect to prevent excessive refreshes
+  const lastFocusTime = useRef(0);
+  const FOCUS_THROTTLE_MS = 5000; // 5 seconds throttle
+  
   useFocusEffect(
     useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusTime.current < FOCUS_THROTTLE_MS) {
+        console.log('⚙️ Settings screen focus throttled - skipping refresh');
+        return;
+      }
+      
+      lastFocusTime.current = now;
       console.log('⚙️ Settings screen focused - checking if refresh needed');
+      
       if (firebaseUser?.uid) {
-        // Only refresh settings cache, commitments will auto-load if needed
+        // Only refresh settings cache if it's been a while
         refreshSettingsRef.current();
         
         // Only refresh commitments if they haven't been initialized yet
@@ -425,49 +593,79 @@ export default function SettingsScreen() {
     }
   }, [isLoading, coachingMessages, saveCoachingMessagesPreference]);
 
-  // Handle commitment check-in
+  // Handle commitment check-in with optimized state management
   const handleCommitmentCheckIn = useCallback(async (commitmentId: string, completed: boolean) => {
     if (isLoading) return;
 
-    // Check if already checked in today
     const commitment = commitments.find(c => c.id === commitmentId);
-    if (commitment && commitment.type === 'recurring' && hasCheckedInToday(commitmentId)) {
-      Alert.alert(
-        'Already Completed',
-        'You have already checked in for this habit today. Please try again tomorrow.',
-        [{ text: 'OK', style: 'default' }]
-      );
-      return;
+    
+    // For recurring commitments, check if already checked in this period
+    if (commitment && commitment.type === 'recurring') {
+      // Double-check to prevent race conditions
+      if (hasCheckedInThisPeriodLocal(commitment)) {
+        const cadence = commitment.cadence || 'daily';
+        const periodText = cadence === 'daily' ? 'today' : 
+                          cadence === 'weekly' ? 'this week' : 'this month';
+        const nextPeriodText = cadence === 'daily' ? 'tomorrow' : 
+                              cadence === 'weekly' ? 'next week' : 'next month';
+        
+        Alert.alert(
+          'Already Completed',
+          `You have already checked in for this habit ${periodText}. Please try again ${nextPeriodText}.`,
+          [{ text: 'OK', style: 'default' }]
+        );
+        return;
+      }
+
+      // Optimistic update for recurring commitments only
+      const cadence = commitment.cadence || 'daily';
+      const periodKey = getPeriodKey(cadence);
+      const key = `commitment_checkins_${periodKey}`;
+      
+      // Update local state optimistically
+      const newPeriodCheckins = new Map(periodCheckins);
+      const cadenceCheckins = newPeriodCheckins.get(cadence) || new Set();
+      cadenceCheckins.add(commitmentId);
+      newPeriodCheckins.set(cadence, cadenceCheckins);
+      setPeriodCheckins(newPeriodCheckins);
+      
+      // Update AsyncStorage in background
+      AsyncStorage.setItem(key, JSON.stringify(Array.from(cadenceCheckins))).catch(error => {
+        console.error('Error saving to AsyncStorage:', error);
+      });
     }
 
     setIsLoading(true);
+
     try {
-      await checkInCommitment(commitmentId, completed);
-      
-      // Update local state for recurring commitments
-      if (commitment && commitment.type === 'recurring') {
-        const key = getTodayCheckinsKey();
-        const newCheckins = new Set(todayCheckins);
-        newCheckins.add(commitmentId);
-        setTodayCheckins(newCheckins);
-        
-        // Also update AsyncStorage
-        try {
-          await AsyncStorage.setItem(key, JSON.stringify(Array.from(newCheckins)));
-        } catch (storageError) {
-          console.error('Error saving to AsyncStorage:', storageError);
-        }
-      }
-      
-      // Show success feedback
+      // Show immediate feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       
-      // Refresh commitments to show updated state
-      console.log('✅ Commitment check-in completed, refreshing commitments...');
-      await refetchCommitmentsRef.current();
+      // Make API call
+      await checkInCommitment(commitmentId, completed);
+      
+      console.log('✅ Commitment check-in completed successfully');
       
     } catch (error) {
       console.error('Error checking in commitment:', error);
+      
+      // Revert optimistic update on error (only for recurring commitments)
+      if (commitment && commitment.type === 'recurring' && commitment.cadence) {
+        const cadence = commitment.cadence;
+        const newPeriodCheckins = new Map(periodCheckins);
+        const cadenceCheckins = newPeriodCheckins.get(cadence) || new Set();
+        cadenceCheckins.delete(commitmentId);
+        newPeriodCheckins.set(cadence, cadenceCheckins);
+        setPeriodCheckins(newPeriodCheckins);
+        
+        // Also revert AsyncStorage
+        const periodKey = getPeriodKey(cadence);
+        const key = `commitment_checkins_${periodKey}`;
+        AsyncStorage.setItem(key, JSON.stringify(Array.from(cadenceCheckins))).catch(storageError => {
+          console.error('Error reverting AsyncStorage:', storageError);
+        });
+      }
+      
       const errorMessage = error instanceof Error ? error.message : 'Failed to update commitment. Please try again.';
       Alert.alert(
         'Error',
@@ -477,7 +675,7 @@ export default function SettingsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, checkInCommitment, commitments, hasCheckedInToday, todayCheckins, getTodayCheckinsKey]);
+  }, [isLoading, checkInCommitment, commitments, hasCheckedInThisPeriodLocal, periodCheckins, getPeriodKey]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
@@ -893,77 +1091,18 @@ export default function SettingsScreen() {
                             decelerationRate="fast"
                           >
                             {recurringCommitments.map((commitment, index) => (
-                              <View 
+                              <CommitmentCard
                                 key={commitment.id}
-                                style={[styles.fullWidthCommitmentCard, { 
-                                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
-                                  marginRight: index === recurringCommitments.length - 1 ? 20 : 12,
-                                  // Enhanced shadow for both light and dark modes
-                                  shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-                                  shadowOffset: { width: 0, height: 0 },
-                                  shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
-                                  shadowRadius: colorScheme === 'dark' ? 8 : 10,
-                                  elevation: colorScheme === 'dark' ? 8 : 12,
-                                }]}
-                              >
-                                <View style={styles.commitmentCardHeader}>
-                                  <Text style={[styles.modernCommitmentTitle, { color: colors.text }]} numberOfLines={1}>
-                                    {commitment.title}
-                                  </Text>
-                                  <Text style={[styles.modernCommitmentDescription, { color: colors.text, opacity: 0.6 }]} numberOfLines={2}>
-                                    {commitment.description}
-                                  </Text>
-                                </View>
-                                
-                                <View style={styles.commitmentCardFooter}>
-                                  <View style={styles.streakContainer}>
-                                    <Text style={[styles.streakText, { color: '#2563EB' }]}>
-                                      🔥 {commitment.currentStreakCount} day streak
-                                    </Text>
-                                  </View>
-                                  
-                                  {commitment.type === 'recurring' && hasCheckedInToday(commitment.id) ? (
-                                    // Already checked in today - show completed state
-                                    <View style={styles.completedStateContainer}>
-                                      <View style={[styles.completedBadge, { 
-                                        backgroundColor: colorScheme === 'dark' ? '#16A34A20' : '#16A34A15' 
-                                      }]}>
-                                        <Text style={[styles.completedBadgeText, { color: '#16A34A' }]}>
-                                          Completed today
-                                        </Text>
-                                      </View>
-                                    </View>
-                                  ) : (
-                                    // Not checked in today - show action buttons
-                                    <View style={styles.commitmentActions}>
-                                      <TouchableOpacity 
-                                        style={[styles.modernActionButton, styles.notDoneButton, { 
-                                          backgroundColor: colorScheme === 'dark' ? '#333333' : '#F5F5F5',
-                                          borderColor: colorScheme === 'dark' ? '#444444' : '#E5E5E5'
-                                        }]}
-                                        onPress={() => handleCommitmentCheckIn(commitment.id, false)}
-                                        disabled={isLoading || isRefreshing}
-                                      >
-                                        <Text style={[styles.modernActionButtonText, { color: colors.text, opacity: 0.7 }]}>
-                                          Skip
-                                        </Text>
-                                      </TouchableOpacity>
-                                      <TouchableOpacity 
-                                        style={[styles.modernActionButton, styles.doneButton, { 
-                                          backgroundColor: '#2563EB',
-                                          borderColor: '#2563EB'
-                                        }]}
-                                        onPress={() => handleCommitmentCheckIn(commitment.id, true)}
-                                        disabled={isLoading || isRefreshing}
-                                      >
-                                        <Text style={[styles.modernActionButtonText, { color: '#FFFFFF' }]}>
-                                          Done
-                                        </Text>
-                                      </TouchableOpacity>
-                                    </View>
-                                  )}
-                                </View>
-                              </View>
+                                commitment={commitment}
+                                colorScheme={colorScheme}
+                                colors={colors}
+                                hasCheckedInThisPeriod={hasCheckedInThisPeriodLocal}
+                                handleCommitmentCheckIn={handleCommitmentCheckIn}
+                                isLoading={isLoading}
+                                isRefreshing={isRefreshing}
+                                index={index}
+                                totalLength={recurringCommitments.length}
+                              />
                             ))}
                           </ScrollView>
                         </View>
@@ -990,63 +1129,18 @@ export default function SettingsScreen() {
                             decelerationRate="fast"
                           >
                             {oneTimeCommitments.map((commitment, index) => (
-                              <View 
+                              <CommitmentCard
                                 key={commitment.id}
-                                style={[styles.fullWidthCommitmentCard, { 
-                                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
-                                  marginRight: index === oneTimeCommitments.length - 1 ? 20 : 12,
-                                  // Enhanced shadow for both light and dark modes
-                                  shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-                                  shadowOffset: { width: 0, height: 0 },
-                                  shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
-                                  shadowRadius: colorScheme === 'dark' ? 8 : 10,
-                                  elevation: colorScheme === 'dark' ? 8 : 12,
-                                }]}
-                              >
-                                <View style={styles.commitmentCardHeader}>
-                                  <Text style={[styles.modernCommitmentTitle, { color: colors.text }]} numberOfLines={1}>
-                                    {commitment.title}
-                                  </Text>
-                                  <Text style={[styles.modernCommitmentDescription, { color: colors.text, opacity: 0.6 }]} numberOfLines={2}>
-                                    {commitment.description}
-                                  </Text>
-                                </View>
-                                
-                                <View style={styles.commitmentCardFooter}>
-                                  <View style={styles.goalContainer}>
-                                    <Text style={[styles.goalText, { color: '#16A34A' }]}>
-                                      🎯 One-time goal
-                                    </Text>
-                                  </View>
-                                  
-                                  <View style={styles.commitmentActions}>
-                                    <TouchableOpacity 
-                                      style={[styles.modernActionButton, styles.notDoneButton, { 
-                                        backgroundColor: colorScheme === 'dark' ? '#333333' : '#F5F5F5',
-                                        borderColor: colorScheme === 'dark' ? '#444444' : '#E5E5E5'
-                                      }]}
-                                      onPress={() => handleCommitmentCheckIn(commitment.id, false)}
-                                      disabled={isLoading || isRefreshing}
-                                    >
-                                      <Text style={[styles.modernActionButtonText, { color: colors.text, opacity: 0.7 }]}>
-                                        Later
-                                      </Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity 
-                                      style={[styles.modernActionButton, styles.doneButton, { 
-                                        backgroundColor: '#16A34A',
-                                        borderColor: '#16A34A'
-                                      }]}
-                                      onPress={() => handleCommitmentCheckIn(commitment.id, true)}
-                                      disabled={isLoading || isRefreshing}
-                                    >
-                                      <Text style={[styles.modernActionButtonText, { color: '#FFFFFF' }]}>
-                                        Complete
-                                      </Text>
-                                    </TouchableOpacity>
-                                  </View>
-                                </View>
-                              </View>
+                                commitment={commitment}
+                                colorScheme={colorScheme}
+                                colors={colors}
+                                hasCheckedInThisPeriod={hasCheckedInThisPeriodLocal}
+                                handleCommitmentCheckIn={handleCommitmentCheckIn}
+                                isLoading={isLoading}
+                                isRefreshing={isRefreshing}
+                                index={index}
+                                totalLength={oneTimeCommitments.length}
+                              />
                             ))}
                           </ScrollView>
                         </View>
@@ -2093,4 +2187,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     alignItems: 'center',
   },
-}); 
+});
+
+// Export with React.memo for performance optimization
+export default React.memo(SettingsScreen);

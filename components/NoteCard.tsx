@@ -39,8 +39,15 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
         { 
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
           borderColor: isDark ? '#374151' : '#D9D9D9',
-          shadowColor: '#000',
-          shadowOpacity: isDark ? 0.25 : 0.15,
+          // Enhanced shadow for both light and dark modes
+          shadowColor: isDark ? '#FFFFFF' : '#000000',
+          shadowOffset: {
+            width: 0,
+            height: isDark ? 8 : 12,
+          },
+          shadowOpacity: isDark ? 0.15 : 0.25,
+          shadowRadius: isDark ? 12 : 16,
+          elevation: isDark ? 8 : 12,
         }
       ]}
       onPress={onPress}
@@ -69,8 +76,6 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
           backgroundColor: isDark ? '#1F1F1F' : '#FFFFFF',
           borderColor: isDark ? 'rgba(128, 128, 128, 0.2)' : 'rgba(196, 196, 196, 0.2)',
           overflow: 'hidden',
-          shadowColor: isDark ? '#FFF' : '#000',
-          shadowOpacity: isDark ? 0.3 : 0.18,
         }
       ]}> 
         <Text 
@@ -90,15 +95,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
     borderRadius: 24,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 6,
     borderWidth: 0.4,
+    // Shadow properties are now set dynamically based on theme
   },
   cardHeaderRow: {
     paddingHorizontal: 16,
@@ -140,14 +138,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 4,
     zIndex: 10,
-    // Enhanced shadow effect
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.02,
-    shadowRadius: 2,
-    elevation: 3,
     borderWidth: 1,
   },
   cardPreview: {

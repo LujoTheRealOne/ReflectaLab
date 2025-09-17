@@ -57,21 +57,56 @@ export default function NotesScreen() {
     return `${day}. ${month}`;
   }, []);
 
+  // Convert HTML to plain text while preserving spacing (no line breaks in cards)
+  const htmlToPlainText = useCallback((html: string) => {
+    if (!html) return '';
+    
+    // Replace common HTML elements with spaces instead of line breaks
+    let text = html
+      // Replace paragraph and div tags with spaces
+      .replace(/<\/?(p|div|br)[^>]*>/gi, ' ')
+      // Replace heading tags with spaces
+      .replace(/<\/?(h[1-6])[^>]*>/gi, ' ')
+      // Replace list items with spaces and bullets
+      .replace(/<li[^>]*>/gi, ' • ')
+      .replace(/<\/li>/gi, ' ')
+      // Replace list containers with spaces
+      .replace(/<\/?(ul|ol)[^>]*>/gi, ' ')
+      // Replace other block elements with spaces
+      .replace(/<\/?(blockquote|pre|hr)[^>]*>/gi, ' ')
+      // Replace inline elements that should have spaces
+      .replace(/<\/?(strong|b|em|i|u|span|a)[^>]*>/gi, ' ')
+      // Remove all remaining HTML tags
+      .replace(/<[^>]*>/g, '')
+      // Decode common HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Clean up multiple spaces but keep single spaces
+      .replace(/[ \t]+/g, ' ') // Replace multiple spaces/tabs with single space
+      .replace(/^\s+|\s+$/g, ''); // Trim start and end
+    
+    return text;
+  }, []);
+
   const getEntryTitle = useCallback((entry: JournalEntry) => {
     if (entry.title && entry.title.trim().length > 0) return entry.title.trim();
     // Derive from content - take first 10 characters
-    const plain = (entry.content || '').replace(/<[^>]*>/g, '').trim();
+    const plain = htmlToPlainText(entry.content || '').trim();
     if (plain.length > 0) {
       return plain.length > 10 ? plain.slice(0, 10) + '…' : plain;
     }
     return 'No headline';
-  }, []);
+  }, [htmlToPlainText]);
 
   const extractPreview = useCallback((content?: string) => {
     if (!content) return 'Empty entry…';
-    const plainText = content.replace(/<[^>]*>/g, '').trim();
+    const plainText = htmlToPlainText(content);
     return plainText.length > 140 ? plainText.slice(0, 140) + '…' : plainText;
-  }, []);
+  }, [htmlToPlainText]);
 
   // Group entries by time periods
   const groupedEntries = useMemo(() => {

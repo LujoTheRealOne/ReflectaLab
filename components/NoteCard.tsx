@@ -46,7 +46,7 @@ export default function NoteCard({ title, subtitle, preview, date, onPress, onLo
             height: isDark ? 8 : 12,
           },
           shadowOpacity: isDark ? 0.15 : 0.25,
-          shadowRadius: isDark ? 12 : 16,
+          shadowRadius: isDark ? 8 : 8,
           elevation: isDark ? 8 : 12,
         }
       ]}

@@ -14,6 +14,7 @@ import {
   useColorScheme,
   View
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Button } from '@/components/ui/Button';
 import Skeleton from '@/components/skeleton/Skeleton';
@@ -98,6 +99,35 @@ export default function SettingsScreen() {
     phoneNumber?: string;
     verificationStatus?: 'NONE' | 'PENDING' | 'VERIFIED' | 'FAILED';
   }>({ verified: false });
+
+  // State to track which commitments have been checked in today
+  const [todayCheckins, setTodayCheckins] = useState<Set<string>>(new Set());
+
+  // Helper functions for daily check-in tracking
+  const getTodayCheckinsKey = useCallback(() => {
+    const today = new Date().toDateString();
+    return `commitment_daily_checkins_${today}`;
+  }, []);
+
+  const loadTodayCheckins = useCallback(async () => {
+    try {
+      const key = getTodayCheckinsKey();
+      const stored = await AsyncStorage.getItem(key);
+      if (stored) {
+        const checkinArray = JSON.parse(stored);
+        setTodayCheckins(new Set(checkinArray));
+      } else {
+        setTodayCheckins(new Set());
+      }
+    } catch (error) {
+      console.error('Error loading today checkins:', error);
+      setTodayCheckins(new Set());
+    }
+  }, [getTodayCheckinsKey]);
+
+  const hasCheckedInToday = useCallback((commitmentId: string) => {
+    return todayCheckins.has(commitmentId);
+  }, [todayCheckins]);
 
   // Get user info with priority: live data > cache > fallback
   const getUserName = () => {
@@ -287,8 +317,16 @@ export default function SettingsScreen() {
       loadPushNotificationPreference();
       loadCoachingMessagesPreference();
       checkPermissions();
+      loadTodayCheckins(); // Load today's check-ins
     }, 100); // Small delay to ensure UI renders first
-  }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions]);
+  }, [loadPushNotificationPreference, loadCoachingMessagesPreference, checkPermissions, loadTodayCheckins]);
+
+  // Reload today's check-ins when commitments change
+  useEffect(() => {
+    if (commitmentsInitialized) {
+      loadTodayCheckins();
+    }
+  }, [commitmentsInitialized, commitments.length, loadTodayCheckins]);
 
   // Refresh commitments when screen is focused (but only if we have stale data)
   useFocusEffect(
@@ -391,9 +429,35 @@ export default function SettingsScreen() {
   const handleCommitmentCheckIn = useCallback(async (commitmentId: string, completed: boolean) => {
     if (isLoading) return;
 
+    // Check if already checked in today
+    const commitment = commitments.find(c => c.id === commitmentId);
+    if (commitment && commitment.type === 'recurring' && hasCheckedInToday(commitmentId)) {
+      Alert.alert(
+        'Already Completed',
+        'You have already checked in for this habit today. Please try again tomorrow.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     setIsLoading(true);
     try {
       await checkInCommitment(commitmentId, completed);
+      
+      // Update local state for recurring commitments
+      if (commitment && commitment.type === 'recurring') {
+        const key = getTodayCheckinsKey();
+        const newCheckins = new Set(todayCheckins);
+        newCheckins.add(commitmentId);
+        setTodayCheckins(newCheckins);
+        
+        // Also update AsyncStorage
+        try {
+          await AsyncStorage.setItem(key, JSON.stringify(Array.from(newCheckins)));
+        } catch (storageError) {
+          console.error('Error saving to AsyncStorage:', storageError);
+        }
+      }
       
       // Show success feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -404,15 +468,16 @@ export default function SettingsScreen() {
       
     } catch (error) {
       console.error('Error checking in commitment:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update commitment. Please try again.';
       Alert.alert(
         'Error',
-        'Failed to update commitment. Please try again.',
+        errorMessage,
         [{ text: 'OK', style: 'default' }]
       );
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, checkInCommitment]);
+  }, [isLoading, checkInCommitment, commitments, hasCheckedInToday, todayCheckins, getTodayCheckinsKey]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
@@ -774,106 +839,239 @@ export default function SettingsScreen() {
         {!shouldShowSkeleton && (
           <>
             {/* Active Commitments Section */}
-            <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 10, marginBottom: 10 }]}>Active Commitments</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 10, marginBottom: 15, marginLeft: 0 }]}>Active Commitments</Text>
             
             {!commitmentsInitialized || commitmentsLoading ? (
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.commitmentsScrollContent}
-                style={styles.commitmentsScrollView}
-              >
-                {[1, 2].map((_, index) => (
-                  <View key={index} style={[styles.commitmentCard, { backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222' }]}>
-                    <Skeleton style={{ width: '60%', height: 16, borderRadius: 4, marginBottom: 8 }} />
-                    <Skeleton style={{ width: '80%', height: 14, borderRadius: 4, marginBottom: 20 }} />
-                    <View style={styles.commitmentActions}>
-                      <Skeleton style={{ flex: 1, height: 32, borderRadius: 10, marginRight: 4 }} />
-                      <Skeleton style={{ flex: 1, height: 32, borderRadius: 10, marginLeft: 4 }} />
-                    </View>
+              <View style={styles.commitmentsContainer}>
+                {/* Loading skeleton */}
+                <View style={styles.commitmentTypeSection}>
+                  <Skeleton style={{ width: 120, height: 16, borderRadius: 4, marginBottom: 12 }} />
+                  <View style={[styles.commitmentGrid, { gap: 12 }]}>
+                    {[1, 2].map((_, index) => (
+                      <View key={index} style={[styles.modernCommitmentCard, { backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222' }]}>
+                        <Skeleton style={{ width: '70%', height: 16, borderRadius: 4, marginBottom: 8 }} />
+                        <Skeleton style={{ width: '90%', height: 14, borderRadius: 4, marginBottom: 16 }} />
+                        <View style={styles.commitmentCardFooter}>
+                          <Skeleton style={{ width: 60, height: 12, borderRadius: 4 }} />
+                          <View style={styles.commitmentActions}>
+                            <Skeleton style={{ width: 60, height: 28, borderRadius: 8 }} />
+                            <Skeleton style={{ width: 60, height: 28, borderRadius: 8 }} />
+                          </View>
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </ScrollView>
+                </View>
+              </View>
             ) : commitments.length > 0 ? (
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.commitmentsScrollContent}
-                style={styles.commitmentsScrollView}
-                snapToInterval={Dimensions.get('window').width - 40} // Screen width minus content padding (20+20)
-                snapToAlignment="start"
-                decelerationRate="fast"
-              >
-                {commitments.map((commitment, index) => (
-                  <View 
-                    key={commitment.id}
-                    style={[styles.commitmentCard, { 
-                      backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
-                      marginRight: index === commitments.length - 1 ? 20 : 12
-                    }]}
-                  >
-                    {/* Header with title and stats */}
-                    <View style={styles.commitmentHeader}>
-                      <View style={styles.commitmentTitleContainer}>
-                        <Text style={[styles.commitmentTitle, { color: colors.text }]} numberOfLines={1}>
-                          {commitment.title}
-                        </Text>
-                        <Text style={[styles.commitmentDescription, { color: colors.text, opacity: .5 }]} numberOfLines={2}>
-                          {commitment.description}
-                        </Text>
-                      </View>
-                      <View style={styles.commitmentStats}>
-                        <Text style={[styles.commitmentStatsText, { color: colors.text, opacity: .6 }]}>
-                          {commitment.currentStreakCount} day streak
-                        </Text>
-                        <Text style={[styles.commitmentTypeText, { color: colors.text, opacity: .5 }]}>
-                          {commitment.type === 'one-time' ? 'One-time' : 'Recurring'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Action buttons */}
-                    <View style={styles.commitmentActions}>
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.notDoneButton, { 
-                          backgroundColor: colorScheme === 'dark' ? '#333333' : '#F2F2F2' 
-                        }]}
-                        onPress={() => handleCommitmentCheckIn(commitment.id, false)}
-                        disabled={isLoading || isRefreshing}
-                      >
-                        <Text style={[styles.actionButtonText, { color: colors.text, opacity: .6 }]} numberOfLines={1}>
-                          {isLoading || isRefreshing ? 'Processing...' : 'Not done'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.doneButton, { 
-                          backgroundColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000' 
-                        }]}
-                        onPress={() => handleCommitmentCheckIn(commitment.id, true)}
-                        disabled={isLoading || isRefreshing}
-                      >
-                        <Text style={[styles.actionButtonText, { 
-                          color: colorScheme === 'dark' ? '#000000' : '#FFFFFF', 
-                          opacity: .91 
-                        }]} numberOfLines={1}>
-                          {isLoading || isRefreshing ? 'Processing...' : 'Done'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
+              <View style={styles.commitmentsContainer}>
+                {/* Separate recurring and one-time commitments */}
+                {(() => {
+                  const recurringCommitments = commitments.filter(c => c.type === 'recurring');
+                  const oneTimeCommitments = commitments.filter(c => c.type === 'one-time');
+                  
+                  return (
+                    <>
+                      {/* Recurring Commitments */}
+                      {recurringCommitments.length > 0 && (
+                        <View style={styles.commitmentTypeSection}>
+                          <View style={styles.commitmentTypeTitleRow}>
+                            <Text style={[styles.commitmentTypeTitle, { color: colors.text }]}>Habits</Text>
+                            <View style={[styles.commitmentTypeBadge, { backgroundColor: colorScheme === 'dark' ? '#2563EB20' : '#2563EB15' }]}>
+                              <Text style={[styles.commitmentTypeBadgeText, { color: '#2563EB' }]}>
+                                {recurringCommitments.length}
+                              </Text>
+                            </View>
+                          </View>
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.commitmentScrollContent}
+                            style={styles.commitmentScrollView}
+                            snapToInterval={Dimensions.get('window').width - 40}
+                            snapToAlignment="start"
+                            decelerationRate="fast"
+                          >
+                            {recurringCommitments.map((commitment, index) => (
+                              <View 
+                                key={commitment.id}
+                                style={[styles.fullWidthCommitmentCard, { 
+                                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
+                                  marginRight: index === recurringCommitments.length - 1 ? 20 : 12,
+                                  // Enhanced shadow for both light and dark modes
+                                  shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                                  shadowOffset: { width: 0, height: 0 },
+                                  shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+                                  shadowRadius: colorScheme === 'dark' ? 8 : 10,
+                                  elevation: colorScheme === 'dark' ? 8 : 12,
+                                }]}
+                              >
+                                <View style={styles.commitmentCardHeader}>
+                                  <Text style={[styles.modernCommitmentTitle, { color: colors.text }]} numberOfLines={1}>
+                                    {commitment.title}
+                                  </Text>
+                                  <Text style={[styles.modernCommitmentDescription, { color: colors.text, opacity: 0.6 }]} numberOfLines={2}>
+                                    {commitment.description}
+                                  </Text>
+                                </View>
+                                
+                                <View style={styles.commitmentCardFooter}>
+                                  <View style={styles.streakContainer}>
+                                    <Text style={[styles.streakText, { color: '#2563EB' }]}>
+                                      🔥 {commitment.currentStreakCount} day streak
+                                    </Text>
+                                  </View>
+                                  
+                                  {commitment.type === 'recurring' && hasCheckedInToday(commitment.id) ? (
+                                    // Already checked in today - show completed state
+                                    <View style={styles.completedStateContainer}>
+                                      <View style={[styles.completedBadge, { 
+                                        backgroundColor: colorScheme === 'dark' ? '#16A34A20' : '#16A34A15' 
+                                      }]}>
+                                        <Text style={[styles.completedBadgeText, { color: '#16A34A' }]}>
+                                          Completed today
+                                        </Text>
+                                      </View>
+                                    </View>
+                                  ) : (
+                                    // Not checked in today - show action buttons
+                                    <View style={styles.commitmentActions}>
+                                      <TouchableOpacity 
+                                        style={[styles.modernActionButton, styles.notDoneButton, { 
+                                          backgroundColor: colorScheme === 'dark' ? '#333333' : '#F5F5F5',
+                                          borderColor: colorScheme === 'dark' ? '#444444' : '#E5E5E5'
+                                        }]}
+                                        onPress={() => handleCommitmentCheckIn(commitment.id, false)}
+                                        disabled={isLoading || isRefreshing}
+                                      >
+                                        <Text style={[styles.modernActionButtonText, { color: colors.text, opacity: 0.7 }]}>
+                                          Skip
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity 
+                                        style={[styles.modernActionButton, styles.doneButton, { 
+                                          backgroundColor: '#2563EB',
+                                          borderColor: '#2563EB'
+                                        }]}
+                                        onPress={() => handleCommitmentCheckIn(commitment.id, true)}
+                                        disabled={isLoading || isRefreshing}
+                                      >
+                                        <Text style={[styles.modernActionButtonText, { color: '#FFFFFF' }]}>
+                                          Done
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  )}
+                                </View>
+                              </View>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                      
+                      {/* One-time Commitments */}
+                      {oneTimeCommitments.length > 0 && (
+                        <View style={[styles.commitmentTypeSection, { marginTop: recurringCommitments.length > 0 ? 24 : 0 }]}>
+                          <View style={styles.commitmentTypeTitleRow}>
+                            <Text style={[styles.commitmentTypeTitle, { color: colors.text }]}>Goals</Text>
+                            <View style={[styles.commitmentTypeBadge, { backgroundColor: colorScheme === 'dark' ? '#16A34A20' : '#16A34A15' }]}>
+                              <Text style={[styles.commitmentTypeBadgeText, { color: '#16A34A' }]}>
+                                {oneTimeCommitments.length}
+                              </Text>
+                            </View>
+                          </View>
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.commitmentScrollContent}
+                            style={styles.commitmentScrollView}
+                            snapToInterval={Dimensions.get('window').width - 40}
+                            snapToAlignment="start"
+                            decelerationRate="fast"
+                          >
+                            {oneTimeCommitments.map((commitment, index) => (
+                              <View 
+                                key={commitment.id}
+                                style={[styles.fullWidthCommitmentCard, { 
+                                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
+                                  marginRight: index === oneTimeCommitments.length - 1 ? 20 : 12,
+                                  // Enhanced shadow for both light and dark modes
+                                  shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                                  shadowOffset: { width: 0, height: 0 },
+                                  shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+                                  shadowRadius: colorScheme === 'dark' ? 8 : 10,
+                                  elevation: colorScheme === 'dark' ? 8 : 12,
+                                }]}
+                              >
+                                <View style={styles.commitmentCardHeader}>
+                                  <Text style={[styles.modernCommitmentTitle, { color: colors.text }]} numberOfLines={1}>
+                                    {commitment.title}
+                                  </Text>
+                                  <Text style={[styles.modernCommitmentDescription, { color: colors.text, opacity: 0.6 }]} numberOfLines={2}>
+                                    {commitment.description}
+                                  </Text>
+                                </View>
+                                
+                                <View style={styles.commitmentCardFooter}>
+                                  <View style={styles.goalContainer}>
+                                    <Text style={[styles.goalText, { color: '#16A34A' }]}>
+                                      🎯 One-time goal
+                                    </Text>
+                                  </View>
+                                  
+                                  <View style={styles.commitmentActions}>
+                                    <TouchableOpacity 
+                                      style={[styles.modernActionButton, styles.notDoneButton, { 
+                                        backgroundColor: colorScheme === 'dark' ? '#333333' : '#F5F5F5',
+                                        borderColor: colorScheme === 'dark' ? '#444444' : '#E5E5E5'
+                                      }]}
+                                      onPress={() => handleCommitmentCheckIn(commitment.id, false)}
+                                      disabled={isLoading || isRefreshing}
+                                    >
+                                      <Text style={[styles.modernActionButtonText, { color: colors.text, opacity: 0.7 }]}>
+                                        Later
+                                      </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                      style={[styles.modernActionButton, styles.doneButton, { 
+                                        backgroundColor: '#16A34A',
+                                        borderColor: '#16A34A'
+                                      }]}
+                                      onPress={() => handleCommitmentCheckIn(commitment.id, true)}
+                                      disabled={isLoading || isRefreshing}
+                                    >
+                                      <Text style={[styles.modernActionButtonText, { color: '#FFFFFF' }]}>
+                                        Complete
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              </View>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </>
+                  );
+                })()}
+              </View>
             ) : (
               <View 
                 style={[styles.emptyCommitmentsCard, { 
-                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222'
+                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : '#222',
+                  // Enhanced shadow for both light and dark modes
+                  shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+                  shadowRadius: colorScheme === 'dark' ? 8 : 10,
+                  elevation: colorScheme === 'dark' ? 8 : 12,
                 }]}
               >
-                <Text style={[styles.commitmentTitle, { color: colors.text, opacity: .5, textAlign: 'center' }]}>
+                <Text style={[styles.emptyCommitmentsTitle, { color: colors.text, opacity: 0.6 }]}>
                   No Active Commitments
                 </Text>
-                <Text style={[styles.commitmentDescription, { color: colors.text, opacity: .3, textAlign: 'center', marginTop: 4 }]}>
-                  Create commitments through coaching sessions
+                <Text style={[styles.emptyCommitmentsDescription, { color: colors.text, opacity: 0.4 }]}>
+                  Create commitments through coaching sessions to track your progress
                 </Text>
               </View>
             )}
@@ -1630,47 +1828,164 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     lineHeight: 14,
   },
-  // Scrollable commitments styles
-  commitmentsScrollView: {
+  // Modern commitments container styles
+  commitmentsContainer: {
     marginBottom: 20,
-    overflow: 'visible',
   },
-  commitmentsScrollContent: {
-    paddingLeft: 5, // Match compass grid padding left
-    paddingRight: 17, // Add extra padding for last card
+  commitmentTypeSection: {
+    marginBottom: 16,
+  },
+  commitmentTypeTitleRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 5,
   },
-  commitmentCard: {
-    width: Dimensions.get('window').width - 50, // Screen width minus content padding (20+20) and grid padding (5+5)
-    height: 171,
+  commitmentTypeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  commitmentTypeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commitmentTypeBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  commitmentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 5,
+    gap: 12,
+  },
+  modernCommitmentCard: {
+    width: '48%',
+    minHeight: 140,
     padding: 16,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 0,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 8,
     flexDirection: 'column',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginRight: 15, // Slightly increased for better spacing
+  },
+  fullWidthCommitmentCard: {
+    width: Dimensions.get('window').width - 50, // Screen width minus content padding (20+20) and grid padding (5+5)
+    minHeight: 140,
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 0,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  commitmentScrollView: {
+    marginBottom: 0,
+    overflow: 'visible',
+  },
+  commitmentScrollContent: {
+    paddingLeft: 5, // Match grid padding
+    paddingRight: 17, // Extra padding for last card
+    alignItems: 'center',
+  },
+  commitmentCardHeader: {
+    flex: 1,
+    alignSelf: 'stretch',
+    marginBottom: 12,
+  },
+  modernCommitmentTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  modernCommitmentDescription: {
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 16,
+  },
+  commitmentCardFooter: {
+    alignSelf: 'stretch',
+    gap: 12,
+  },
+  streakContainer: {
+    alignSelf: 'flex-start',
+  },
+  streakText: {
+    fontSize: 11,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  goalContainer: {
+    alignSelf: 'flex-start',
+  },
+  goalText: {
+    fontSize: 11,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  modernActionButton: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 32,
+  },
+  modernActionButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  completedStateContainer: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completedBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completedBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   emptyCommitmentsCard: {
     alignSelf: 'stretch',
     height: 120,
-    padding: 16,
-    borderRadius: 24,
+    padding: 20,
+    borderRadius: 20,
     borderWidth: 0,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 8,
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  emptyCommitmentsTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyCommitmentsDescription: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
+    textAlign: 'center',
   },
   commitmentActions: {
     alignSelf: 'stretch',

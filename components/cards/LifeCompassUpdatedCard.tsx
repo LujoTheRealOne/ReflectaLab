@@ -30,7 +30,19 @@ export default function LifeCompassUpdatedCard({ data }: LifeCompassUpdatedCardP
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border }]}>
+    <View style={[
+      styles.container, 
+      { 
+        backgroundColor: colors.background,
+        borderWidth: 0.5,
+        borderColor: colorScheme === 'dark' ? '#333333' : '#F0F0F0',
+        shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+        shadowRadius: colorScheme === 'dark' ? 8 : 10,
+        elevation: colorScheme === 'dark' ? 8 : 12,
+      }
+    ]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.statusRow}>
@@ -70,12 +82,6 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     padding: 16,
     borderRadius: 12,
-    borderWidth: 1,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
   },
   header: {
     marginBottom: 16,

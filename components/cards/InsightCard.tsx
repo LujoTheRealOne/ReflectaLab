@@ -45,8 +45,13 @@ export default function InsightCard({ insight, onDiscuss }: InsightCardProps) {
           styles.card,
           {
             backgroundColor: colors.background,
+            borderWidth: 0.5,
+            borderColor: colorScheme === 'dark' ? '#333333' : '#F0F0F0',
             shadowColor: colorScheme === 'dark' ? '#FFFFFF' : '#000000',
-            shadowOpacity: colorScheme === 'dark' ? 0.08 : 0.12,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: colorScheme === 'dark' ? 0.1 : 0.15,
+            shadowRadius: colorScheme === 'dark' ? 8 : 10,
+            elevation: colorScheme === 'dark' ? 8 : 12,
           }
         ]}
         onPress={handleCardPress}
@@ -180,11 +185,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 2,
   },
   header: {
     marginBottom: 12,

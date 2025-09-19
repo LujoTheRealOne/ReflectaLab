@@ -35,13 +35,13 @@ import { betterStackLogger } from '@/services/betterStackLogger';
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
 
-export default function CoachingScreen() {
+function CoachingScreen() {
   const navigation = useNavigation<CoachingScreenNavigationProp>();
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { user, firebaseUser, getToken } = useAuth();
+  const { user, firebaseUser, getToken, isAuthReady } = useAuth();
   const { 
     trackCoachingMessageSent,
     trackEntryCreated
@@ -288,8 +288,8 @@ export default function CoachingScreen() {
     return deduplicated;
   }, []);
 
-  // Group messages by date and insert separators
-  const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
+  // Memoized messages with separators - only recalculate when messages actually change
+  const messagesWithSeparators = useMemo(() => {
     if (messages.length === 0) return [];
     
     // First deduplicate messages
@@ -315,7 +315,7 @@ export default function CoachingScreen() {
     });
     
     return result;
-  }, [deduplicateMessages]);
+  }, [messages, deduplicateMessages]);
 
   // Track when AI response actually starts
   useEffect(() => {
@@ -361,6 +361,79 @@ export default function CoachingScreen() {
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
+  // Memoize expensive text change handler
+  const handleTextChangeCallback = useCallback((text: string) => {
+    setChatInput(text);
+    
+    // More precise calculation - word-based line wrapping
+    const containerWidth = 380; // chatInputWrapper width
+    const containerPadding = 16; // 8px left + 8px right padding
+    const textInputPadding = 8; // 4px left + 4px right padding
+    
+    // First estimate the line count
+    const estimatedLines = Math.max(1, text.split('\n').length);
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
+    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
+    
+    // Character width based on font size (fontSize: 15, fontWeight: 400)
+    // More conservative calculation - extra margin for words
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
+    const charsPerLine = baseCharsPerLine;
+    
+    // Line calculation - including word wrapping
+    const textLines = text.split('\n');
+    let totalLines = 0;
+    
+    textLines.forEach(line => {
+      if (line.length === 0) {
+        totalLines += 1; // Empty line
+      } else {
+        // Word-based calculation - for risk of long words wrapping
+        const words = line.split(' ');
+        let currentLineLength = 0;
+        let linesForThisTextLine = 1;
+        
+        words.forEach((word, index) => {
+          const wordLength = word.length;
+          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
+          
+          // If this word won't fit on current line, new line
+          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
+            linesForThisTextLine++;
+            currentLineLength = wordLength;
+          } else {
+            currentLineLength += spaceNeeded + wordLength;
+          }
+        });
+        
+        totalLines += linesForThisTextLine;
+      }
+    });
+    
+    // Save line count
+    setCurrentLineCount(totalLines);
+    
+    // Min/Max limits - based on expand state
+    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
+    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
+    
+    // Height calculation
+    const newInputHeight = actualLines * LINE_HEIGHT;
+    
+    // Container height - optimized for real layout
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  }, [isInputExpanded, EXPANDED_MAX_LINES, MAX_LINES, MIN_LINES, LINE_HEIGHT, CONTAINER_BASE_HEIGHT]);
+
   // Use the coaching scroll hook
   const scrollHook = useCoachingScroll({
     messages,
@@ -391,14 +464,14 @@ export default function CoachingScreen() {
     debugLog
   } = scrollHook;
 
-  // Coaching card renderer props - memoized for performance
+  // Coaching card renderer props - optimized memoization
   const coachingCardRendererProps: CoachingCardRendererProps = useMemo(() => ({
     messages,
     setMessages,
     firebaseUser,
     getToken,
     saveMessagesToFirestore
-  }), [messages, setMessages, firebaseUser, getToken, saveMessagesToFirestore]);
+  }), [messages.length, setMessages, firebaseUser?.uid, getToken]); // Only re-create when message count or user changes
 
 
 
@@ -578,11 +651,21 @@ export default function CoachingScreen() {
 
   // Real-time listener for coaching session - ONLY during active messaging
   const realTimeListenerActive = useRef(false);
+  const lastRealtimeUpdate = useRef(0);
+  const REALTIME_THROTTLE_MS = 500; // Throttle updates to max once per 500ms
   
   useEffect(() => {
-    // Only use real-time listener when not actively messaging (isLoading = false)
-    // This prevents conflicts with useAICoaching's state management
-    if (!user?.id || !isInitialized || isLoading) return;
+    // Only use real-time listener when:
+    // 1. User is ready and initialized
+    // 2. Not currently messaging (prevents conflicts)
+    // 3. Listener is not already active
+    if (!user?.id || !isInitialized || isLoading) {
+      // Clean up any existing listener if conditions are not met
+      if (realTimeListenerActive.current) {
+        console.log('🧹 [REALTIME] Conditions not met, should cleanup listener');
+      }
+      return;
+    }
 
     // Prevent multiple listeners
     if (realTimeListenerActive.current) return;
@@ -593,6 +676,14 @@ export default function CoachingScreen() {
     const unsubscribe = onSnapshot(
       doc(db, 'coachingSessions', user.id),
       (docSnap) => {
+        // Throttle updates to prevent excessive re-renders
+        const now = Date.now();
+        if (now - lastRealtimeUpdate.current < REALTIME_THROTTLE_MS) {
+          console.log('🔄 [REALTIME] Throttling update - too frequent');
+          return;
+        }
+        lastRealtimeUpdate.current = now;
+        
         // Skip updates if currently messaging to avoid conflicts
         if (isLoading) {
           console.log('🔄 [REALTIME] Skipping update - messaging in progress');
@@ -612,14 +703,29 @@ export default function CoachingScreen() {
             timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
           }));
           
-          // Only update if message count changed (prevent unnecessary re-renders)
-          if (firestoreMessages.length !== messages.length) {
+          // Only update if message count or last message content changed (prevent unnecessary re-renders)
+          // Use current component messages state for comparison, not the local messages variable from Firestore
+          const currentMessages = messages; // This is the component state
+          const hasNewMessages = firestoreMessages.length !== currentMessages.length;
+          const lastMessage = currentMessages[currentMessages.length - 1];
+          const lastFirestoreMessage = firestoreMessages[firestoreMessages.length - 1];
+          const lastMessageChanged = lastMessage?.id !== lastFirestoreMessage?.id || 
+                                   lastMessage?.content !== lastFirestoreMessage?.content;
+          
+          if (hasNewMessages || lastMessageChanged) {
+            console.log(`✅ [REALTIME] Updating with ${firestoreMessages.length} messages from real-time listener`, {
+              hasNewMessages,
+              lastMessageChanged,
+              currentCount: currentMessages.length,
+              newCount: firestoreMessages.length
+            });
+            
             setAllMessages(firestoreMessages);
             setMessages(firestoreMessages.slice(-30)); // Show last 30 messages
             setDisplayedMessageCount(Math.min(30, firestoreMessages.length));
             setHasMoreMessages(firestoreMessages.length > 30);
-            
-            console.log(`✅ [REALTIME] Updated with ${firestoreMessages.length} messages from real-time listener`);
+          } else {
+            console.log('🔄 [REALTIME] No significant changes detected, skipping update');
           }
         } else {
           console.log('🔄 [REALTIME] No session document found');
@@ -636,10 +742,19 @@ export default function CoachingScreen() {
       realTimeListenerActive.current = false;
       unsubscribe();
     };
-  }, [user?.id, isInitialized, isLoading, messages.length]);
+  }, [user?.id, isInitialized, isLoading]); // Removed messages.length to prevent listener recreation
   
   useEffect(() => {
-    if (!user?.id || isInitialized || initializationInProgress.current) return;
+    console.log('🔄 [COACHING INIT] useEffect triggered:', {
+      hasUser: !!user?.id,
+      userId: user?.id,
+      isAuthReady,
+      isInitialized,
+      initInProgress: initializationInProgress.current,
+      shouldReturn: !isAuthReady || !user?.id || isInitialized || initializationInProgress.current
+    });
+    
+    if (!isAuthReady || !user?.id || isInitialized || initializationInProgress.current) return;
     
     const initializeChat = async () => {
       // Prevent concurrent initialization
@@ -733,7 +848,7 @@ export default function CoachingScreen() {
     };
     
     initializeChat();
-    }, [user?.id, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
+    }, [isAuthReady, user?.id, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
 
   // Hide splash screen when coaching is fully initialized and ready
   useEffect(() => {
@@ -951,78 +1066,47 @@ export default function CoachingScreen() {
     };
   }, []);
 
-  // Text change handlers for dynamic input
-  const handleTextChange = (text: string) => {
-    setChatInput(text);
+  // Text change handlers for dynamic input (now uses memoized callback)
+  const handleTextChange = handleTextChangeCallback;
+
+  // Memoized ScrollView event handlers to prevent re-renders
+  const handleScrollViewScroll = useCallback((event: any) => {
+    // Call existing handleScroll function
+    handleScroll(event);
     
-    // More precise calculation - word-based line wrapping
-    const containerWidth = 380; // chatInputWrapper width
-    const containerPadding = 16; // 8px left + 8px right padding
-    const textInputPadding = 8; // 4px left + 4px right padding
+    // Update content height
+    const { contentSize } = event.nativeEvent;
+    setContentHeight(contentSize.height);
+  }, [handleScroll, setContentHeight]);
+
+  const handleScrollViewLayout = useCallback((event: any) => {
+    // Save ScrollView height
+    const { height } = event.nativeEvent.layout;
+    setScrollViewHeight(height);
+  }, [setScrollViewHeight]);
+
+  const handleScrollEndDrag = useCallback((event: any) => {
+    const { contentOffset } = event.nativeEvent;
     
-    // First estimate the line count
-    const estimatedLines = Math.max(1, text.split('\n').length);
-    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
-    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
-    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
+    // If scroll exceeds maximum limit, bring it back
+    if (contentOffset.y > scrollLimits.maxScrollDistance) {
+      scrollViewRef.current?.scrollTo({
+        y: scrollLimits.maxScrollDistance,
+        animated: true
+      });
+    }
+  }, [scrollLimits.maxScrollDistance]);
+
+  const handleMomentumScrollEnd = useCallback((event: any) => {
+    const { contentOffset } = event.nativeEvent;
     
-    // Character width based on font size (fontSize: 15, fontWeight: 400)
-    // More conservative calculation - extra margin for words
-    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
-    const charsPerLine = baseCharsPerLine;
-    
-    // Line calculation - including word wrapping
-    const textLines = text.split('\n');
-    let totalLines = 0;
-    
-    textLines.forEach(line => {
-      if (line.length === 0) {
-        totalLines += 1; // Empty line
-      } else {
-        // Word-based calculation - for risk of long words wrapping
-        const words = line.split(' ');
-        let currentLineLength = 0;
-        let linesForThisTextLine = 1;
-        
-        words.forEach((word, index) => {
-          const wordLength = word.length;
-          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
-          
-          // If this word won't fit on current line, new line
-          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
-            linesForThisTextLine++;
-            currentLineLength = wordLength;
-          } else {
-            currentLineLength += spaceNeeded + wordLength;
-          }
-        });
-        
-        totalLines += linesForThisTextLine;
-      }
-    });
-    
-    // Save line count
-    setCurrentLineCount(totalLines);
-    
-    // Min/Max limits - based on expand state
-    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
-    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
-    
-    // Height calculation
-    const newInputHeight = actualLines * LINE_HEIGHT;
-    
-    // Container height - optimized for real layout
-    const topPadding = 12; // TextInput top padding increased
-    const bottomPadding = 8;
-    const buttonHeight = 32; // Voice/Send button height
-    const buttonTopPadding = 8; // Button container padding top
-    
-    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
-    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
-    
-    setInputHeight(newInputHeight);
-    setContainerHeight(newContainerHeight);
-  };
+    if (contentOffset.y > scrollLimits.maxScrollDistance) {
+      scrollViewRef.current?.scrollTo({
+        y: scrollLimits.maxScrollDistance,
+        animated: true
+      });
+    }
+  }, [scrollLimits.maxScrollDistance]);
 
   const handleContentSizeChange = (event: any) => {
     const { height } = event.nativeEvent.contentSize;
@@ -1540,9 +1624,29 @@ export default function CoachingScreen() {
   };
 
 
+  // Performance debugging - simplified to reduce log spam
+  const renderCountRef = useRef(0);
+  
+  if (__DEV__) {
+    renderCountRef.current += 1;
+    
+    // Only log every 10th render to reduce spam, but track the issue
+    if (renderCountRef.current % 10 === 0) {
+      console.log(`🔄 [COACHING RENDER] Render #${renderCountRef.current} (excessive renders detected - investigating)`);
+    }
+  }
+
   // Keep splash screen visible by not rendering content until initialization is complete
   if (!isInitialized) {
-    console.log('🔄 [COACHING SPLASH] Keeping splash screen visible during initialization');
+    console.log('🔄 [COACHING SPLASH] Keeping splash screen visible during initialization', {
+      hasUser: !!user?.id,
+      userId: user?.id,
+      isAuthReady,
+      isInitialized,
+      initInProgress: initializationInProgress.current,
+      firebaseUserUid: firebaseUser?.uid,
+      userEmail: firebaseUser?.email
+    });
     return null; // Don't render anything, keep splash screen visible
   }
 
@@ -1602,59 +1706,26 @@ export default function CoachingScreen() {
               }
             ]}
             scrollEventThrottle={16}
-            onScroll={(event) => {
-              // Call existing handleScroll function
-              handleScroll(event);
-              
-              // Update content height
-              const { contentSize } = event.nativeEvent;
-              setContentHeight(contentSize.height);
-            }}
-            onLayout={(event) => {
-              // Save ScrollView height
-              const { height } = event.nativeEvent.layout;
-              setScrollViewHeight(height);
-            }}
+            onScroll={handleScrollViewScroll}
+            onLayout={handleScrollViewLayout}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
             // Scroll limit enforcement - prevent endless scrolling
-            onScrollEndDrag={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              // If scroll exceeds maximum limit, bring it back
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
-            }}
+            onScrollEndDrag={handleScrollEndDrag}
             // Momentum scroll limit enforcement
-            onMomentumScrollEnd={(event) => {
-              const { contentOffset } = event.nativeEvent;
-              
-              if (contentOffset.y > scrollLimits.maxScrollDistance) {
-                scrollViewRef.current?.scrollTo({
-                  y: scrollLimits.maxScrollDistance,
-                  animated: true
-                });
-              }
-            }}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
           >
             {/* Simple loading spinner */}
             {isLoadingMore && (
-              <View style={{
-                alignItems: 'center',
-                paddingVertical: 16,
-              }}>
+              <View style={styles.loadingSpinnerContainer}>
                 <ModernSpinner colorScheme={colorScheme} size={20} />
               </View>
             )}
 
-            {getMessagesWithSeparators(messages).map((item) => {
+            {messagesWithSeparators.map((item) => {
               // Render date separator
               if ('type' in item && item.type === 'separator') {
                 return (
@@ -2190,6 +2261,10 @@ const styles = StyleSheet.create({
     height: 20,
     width: 20,
   },
+  loadingSpinnerContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
   spinner: {
     width: 16,
     height: 16,
@@ -2281,4 +2356,7 @@ const styles = StyleSheet.create({
     elevation: 2,
     zIndex: 10,
   },
-}); 
+});
+
+// Memo wrap to prevent unnecessary re-renders from parent/context changes
+export default React.memo(CoachingScreen); 

@@ -34,23 +34,29 @@ export function useAICoaching(): UseAICoachingReturn {
   const { trackCoachingCompletion } = useAnalytics();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Typewriter effect function for React Native
+  // Optimized typewriter effect function for React Native
   const simulateTypewriter = async (content: string, messageId: string) => {
     const words = content.split(' ');
     let currentContent = '';
     
+    // Batch updates to reduce re-renders - update every 3-5 words instead of every word
+    const batchSize = 3;
+    
     for (let i = 0; i < words.length; i++) {
       currentContent += (i > 0 ? ' ' : '') + words[i];
       
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, content: currentContent }
-          : msg
-      ));
-      
-      // Adjust speed based on word length - shorter delay for shorter words
-      const delay = Math.min(Math.max(words[i].length * 10, 30), 100);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      // Only update on batch boundaries or at the end
+      if ((i + 1) % batchSize === 0 || i === words.length - 1) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, content: currentContent }
+            : msg
+        ));
+        
+        // Longer delay for batched updates to maintain reading pace
+        const delay = batchSize * 60; // ~180ms per batch vs 30-100ms per word
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   };
 

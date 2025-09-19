@@ -687,7 +687,7 @@ const CoachingCardComponent: React.FC<{
 };
 
 // Main CoachingCardRenderer component
-export const CoachingCardRenderer: React.FC<{
+const CoachingCardRendererComponent: React.FC<{
   message: CoachingMessage;
   rendererProps: CoachingCardRendererProps;
 }> = ({ message, rendererProps }) => {
@@ -725,3 +725,6 @@ export const CoachingCardRenderer: React.FC<{
     </View>
   );
 };
+
+// Memoized version to prevent unnecessary re-renders
+export const CoachingCardRenderer = React.memo(CoachingCardRendererComponent);

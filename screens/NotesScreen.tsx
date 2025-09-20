@@ -7,7 +7,7 @@ import { Colors } from '@/constants/Colors';
 import NoteCard from '@/components/NoteCard';
 import Skeleton from '@/components/skeleton/Skeleton';
 import NoteCardSkeleton from '@/components/skeleton/NoteCardSkeleton';
-import { useSyncSingleton } from '@/hooks/useSyncSingleton';
+import { useMemoryNotes } from '@/hooks/useMemoryNotes';
 import { Plus } from 'lucide-react-native';
 
 type JournalEntry = {
@@ -23,22 +23,22 @@ export default function NotesScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { entries: cachedEntries, isLoading, refreshEntries, deleteEntry } = useSyncSingleton();
+  const { notes: memoryNotes, isLoading, refreshNotes, deleteNote, pendingUploadsCount, isSyncing } = useMemoryNotes();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Map cached entries to local shape with mock timestamp compat
+  // Map memory notes to local shape with timestamp compat
   const entries = useMemo<JournalEntry[]>(() => {
-    return cachedEntries.map((e) => ({
-      id: e.id,
-      title: e.title,
-      content: e.content,
-      timestamp: e.timestamp, // ISO string or Firestore timestamp
-      uid: e.uid,
+    return memoryNotes.map((note) => ({
+      id: note.id,
+      title: note.title,
+      content: note.content,
+      timestamp: note.timestamp, // ISO string
+      uid: note.uid,
     }));
-  }, [cachedEntries]);
+  }, [memoryNotes]);
 
-  // Only show skeleton on true cold load (no cache data yet)
-  const shouldShowSkeleton = isLoading && cachedEntries.length === 0;
+  // Only show skeleton on true cold load (no memory data yet)
+  const shouldShowSkeleton = isLoading && memoryNotes.length === 0;
 
   const formatDate = useCallback((ts: any) => {
     if (!ts) return '';
@@ -168,32 +168,32 @@ export default function NotesScreen() {
     console.log('🔄 Manual refresh triggered from NotesScreen');
     setIsRefreshing(true);
     try {
-      await refreshEntries();
+      await refreshNotes();
       console.log('✅ NotesScreen refresh completed');
     } catch (error) {
       console.error('❌ NotesScreen refresh failed:', error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [refreshEntries]);
+  }, [refreshNotes]);
 
   // Handle note deletion
   const handleDeleteNote = useCallback(async (entryId: string) => {
     try {
       console.log('🗑️ Deleting note:', entryId);
-      await deleteEntry(entryId);
+      await deleteNote(entryId);
       console.log('✅ Note deleted successfully');
     } catch (error) {
       console.error('❌ Failed to delete note:', error);
     }
-  }, [deleteEntry]);
+  }, [deleteNote]);
 
   // Auto-refresh when screen is focused (first time or returning from other screens)
   useFocusEffect(
     useCallback(() => {
       console.log('📱 NotesScreen focused - triggering auto-refresh');
-      refreshEntries();
-    }, [refreshEntries])
+      refreshNotes();
+    }, [refreshNotes])
   );
 
   return (

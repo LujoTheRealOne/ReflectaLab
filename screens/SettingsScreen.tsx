@@ -186,8 +186,17 @@ function SettingsScreen() {
   // Onboarding progress hook
   const { clearProgress: clearOnboardingProgress } = useOnboardingProgress();
 
-  // Active commitments hook
-  const { commitments, loading: commitmentsLoading, isInitialized: commitmentsInitialized, checkInCommitment, refetch: refetchCommitments, hasCheckedInThisPeriod } = useActiveCommitments();
+  // Active commitments hook - now with offline support
+  const { 
+    commitments, 
+    loading: commitmentsLoading, 
+    isInitialized: commitmentsInitialized, 
+    checkInCommitment, 
+    refetch: refetchCommitments, 
+    hasCheckedInThisPeriod,
+    isOnline,
+    getPendingCheckInsCount 
+  } = useActiveCommitments();
   
   // Use ref to store the refetch function to avoid dependency issues
   const refetchCommitmentsRef = useRef(refetchCommitments);
@@ -217,6 +226,9 @@ function SettingsScreen() {
 
   // State to track which commitments have been checked in this period
   const [periodCheckins, setPeriodCheckins] = useState<Map<string, Set<string>>>(new Map());
+  
+  // 🚀 OFFLINE-FIRST: Track pending check-ins count for UI feedback
+  const [pendingCheckInsCount, setPendingCheckInsCount] = useState(0);
 
   // Helper functions for period-based check-in tracking
   const getPeriodKey = useCallback((cadence: string) => {
@@ -641,10 +653,21 @@ function SettingsScreen() {
       // Show immediate feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       
-      // Make API call
-      await checkInCommitment(commitmentId, completed);
+      // Make API call (now supports offline)
+      const result = await checkInCommitment(commitmentId, completed);
       
-      console.log('✅ Commitment check-in completed successfully');
+      if (result?.offline) {
+        console.log('📱 Commitment check-in queued for offline sync');
+        
+        // Show offline feedback
+        Alert.alert(
+          'Saved Offline',
+          'Your check-in has been saved and will be synced when you\'re back online.',
+          [{ text: 'OK', style: 'default' }]
+        );
+      } else {
+        console.log('✅ Commitment check-in completed successfully');
+      }
       
     } catch (error) {
       console.error('Error checking in commitment:', error);
@@ -676,6 +699,21 @@ function SettingsScreen() {
       setIsLoading(false);
     }
   }, [isLoading, checkInCommitment, commitments, hasCheckedInThisPeriodLocal, periodCheckins, getPeriodKey]);
+
+  // 🚀 OFFLINE-FIRST: Load pending check-ins count on init and when online status changes
+  useEffect(() => {
+    const loadPendingCount = async () => {
+      try {
+        const count = await getPendingCheckInsCount();
+        setPendingCheckInsCount(count);
+      } catch (error) {
+        console.error('Error loading pending check-ins count:', error);
+        setPendingCheckInsCount(0);
+      }
+    };
+
+    loadPendingCount();
+  }, [getPendingCheckInsCount, isOnline]);
 
   // Handle pull-to-refresh
   const handleRefresh = useCallback(async () => {
@@ -1037,7 +1075,29 @@ function SettingsScreen() {
         {!shouldShowSkeleton && (
           <>
             {/* Active Commitments Section */}
-            <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 10, marginBottom: 15, marginLeft: 0 }]}>Active Commitments</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 15 }}>
+              <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 0, marginBottom: 0, marginLeft: 0 }]}>
+                Active Commitments
+              </Text>
+              {(!isOnline || pendingCheckInsCount > 0) && (
+                <View style={{ 
+                  backgroundColor: colorScheme === 'dark' ? '#FFA50030' : '#FFA50020',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: '#FFA500'
+                }}>
+                  <Text style={{ 
+                    fontSize: 12, 
+                    color: '#FFA500', 
+                    fontWeight: '500' 
+                  }}>
+                    {!isOnline ? '📱 Offline' : pendingCheckInsCount > 0 ? `⏳ ${pendingCheckInsCount} pending` : '📱 Offline'}
+                  </Text>
+                </View>
+              )}
+            </View>
             
             {!commitmentsInitialized || commitmentsLoading ? (
               <View style={styles.commitmentsContainer}>

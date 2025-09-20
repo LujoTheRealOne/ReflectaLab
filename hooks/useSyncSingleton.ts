@@ -185,6 +185,9 @@ function setupAppStateListener() {
 export function useSyncSingleton(): UseSyncReturn {
   const { firebaseUser } = useAuth();
   const [, forceUpdate] = useState({});
+  
+  // 🚀 NETWORK CONNECTIVITY: Import network hook
+  const { isConnected, isInternetReachable } = require('@/hooks/useNetworkConnectivity').useNetworkConnectivity();
 
   // Force re-render when global state changes
   useEffect(() => {
@@ -220,6 +223,31 @@ export function useSyncSingleton(): UseSyncReturn {
       clearSyncData();
     }
   }, [firebaseUser?.uid]);
+  
+  // 🚀 NETWORK LISTENER: Auto-sync when coming back online
+  useEffect(() => {
+    const isOnline = isConnected === true && isInternetReachable === true;
+    
+    if (isOnline && firebaseUser?.uid) {
+      // Debounce network changes to avoid excessive syncing
+      const syncTimeout = setTimeout(async () => {
+        try {
+          console.log('🌐 Network connected - triggering background sync for pending uploads');
+          await syncService.performBackgroundSync(firebaseUser.uid);
+          
+          // Refresh UI with updated entries
+          const refreshedEntries = await syncService.getCachedEntries(firebaseUser.uid);
+          updateGlobalState({ entries: refreshedEntries });
+          
+          console.log('✅ Auto-sync completed after network reconnection');
+        } catch (error) {
+          console.error('❌ Auto-sync failed after network reconnection:', error);
+        }
+      }, 2000); // 2 second delay to let network stabilize
+      
+      return () => clearTimeout(syncTimeout);
+    }
+  }, [isConnected, isInternetReachable, firebaseUser?.uid]);
 
   // Disable automatic cache updates to reduce loops - only manual refresh
   // useEffect(() => {

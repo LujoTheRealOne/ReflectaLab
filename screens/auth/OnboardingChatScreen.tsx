@@ -315,6 +315,36 @@ export default function OnboardingChatScreen() {
   
   const isOnboardingCompletedRef = useRef(false);
 
+  // State for tracking expanded messages
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+
+  // Function to check if a USER message is long and should be collapsible (only user messages)
+  const isLongMessage = (content: string, role: string) => {
+    if (role !== 'user') return false; // Only user messages can be collapsible
+    const cleanContent = getDisplayContent(content);
+    return cleanContent.length > 300; // Messages longer than 300 characters
+  };
+
+  // Function to get truncated message content
+  const getTruncatedContent = (content: string, maxLength: number = 200) => {
+    const cleanContent = getDisplayContent(content);
+    if (cleanContent.length <= maxLength) return cleanContent;
+    return cleanContent.substring(0, maxLength) + '...';
+  };
+
+  // Function to toggle message expansion
+  const toggleMessageExpansion = (messageId: string) => {
+    setExpandedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      return newSet;
+    });
+  };
+
   // Use the audio transcription hook
   const {
     isRecording,
@@ -1999,25 +2029,52 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                       : 'transparent'
                   }
                 ] : undefined}>
-                  <Text
-                    style={[
-                      styles.messageText,
-                      message.role === 'user'
-                        ? [
-                            styles.userMessageText, 
-                            { 
-                              color: colorScheme === 'dark' 
-                                ? 'rgba(255, 255, 255, 0.85)' 
-                                : 'rgba(0, 0, 0, 0.75)' 
-                            }
-                          ]
-                        : { color: colors.text }
-                    ]}
-                    numberOfLines={message.role === 'user' ? undefined : undefined}
-                    ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
+                  {/* Collapsible message content */}
+                  <TouchableOpacity
+                    activeOpacity={isLongMessage(message.content, message.role) ? 0.7 : 1}
+                    onPress={() => {
+                      if (isLongMessage(message.content, message.role)) {
+                        toggleMessageExpansion(message.id);
+                      }
+                    }}
                   >
-                    {getDisplayContent(message.content)}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.messageText,
+                        message.role === 'user'
+                          ? [
+                              styles.userMessageText, 
+                              { 
+                                color: colorScheme === 'dark' 
+                                  ? 'rgba(255, 255, 255, 0.85)' 
+                                  : 'rgba(0, 0, 0, 0.75)' 
+                              }
+                            ]
+                          : { color: colors.text }
+                      ]}
+                    >
+                      {isLongMessage(message.content, message.role) && !expandedMessages.has(message.id)
+                        ? getTruncatedContent(message.content)
+                        : getDisplayContent(message.content)
+                      }
+                    </Text>
+                    
+                    {/* Show expand/collapse indicator for long messages */}
+                    {isLongMessage(message.content, message.role) && (
+                      <Text
+                        style={[
+                          styles.expandIndicator,
+                          {
+                            color: message.role === 'user' 
+                              ? (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)')
+                              : `${colors.text}80`
+                          }
+                        ]}
+                      >
+                        {expandedMessages.has(message.id) ? 'Show less' : 'Show more'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
                   
                   {/* Render coaching cards for AI messages */}
                   {message.role === 'assistant' && (() => {
@@ -2240,7 +2297,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
                   backgroundColor: colorScheme === 'dark' ? '#333333' : '#FFFFFF',
                   bottom: keyboardHeight > 0 
                     ? containerHeight + 50  // When keyboard open: position above input container
-                    : containerHeight + 140, // When keyboard closed: give more space above input
+                    : containerHeight + 80, // When keyboard closed: less space since no navbar (was 140)
                 }
               ]}
               onPress={() => hookHandleScrollToBottom(true)}
@@ -2252,7 +2309,7 @@ Maybe it's a tension you're holding, a quiet longing, or something you don't qui
 
         {/* Input */}
         <View style={[styles.chatInputContainer, { 
-          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 80, // If keyboard open: slightly overlapping, otherwise 80px above navbar
+          bottom: keyboardHeight > 0 ? keyboardHeight - 10 : 20, // If keyboard open: slightly overlapping, otherwise 20px from bottom (no navbar)
           paddingBottom: Math.max(insets.bottom, 0)
         }]} pointerEvents="box-none">
           <View
@@ -2748,5 +2805,11 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     zIndex: 10,
+  },
+  expandIndicator: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 6,
+    textAlign: 'left',
   },
 });

@@ -5,7 +5,8 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useRevenueCat } from '@/hooks/useRevenueCat';
-import { useSyncSingleton } from '@/hooks/useSyncSingleton';
+import { useMemoryNotes } from '@/hooks/useMemoryNotes';
+import { useNetworkConnectivity } from '@/hooks/useNetworkConnectivity';
 import { db } from '@/lib/firebase';
 import { syncService } from '@/services/syncService';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -71,7 +72,8 @@ export default function HomeContent() {
   const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
   const { setCurrentEntryId } = useCurrentEntry();
   const { trackEntryCreated, trackEntryUpdated, trackMeaningfulAction } = useAnalytics();
-  const { addEntry: addToCache, updateEntry: updateInCache } = useSyncSingleton();
+  const { addNote: addToMemory, updateNote: updateInMemory } = useMemoryNotes();
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
 
 
   const [entry, setEntry] = useState('');
@@ -285,9 +287,11 @@ export default function HomeContent() {
     }
   }, [firebaseUser]);
 
-  // Save entry to database and update cache
+  // 🧠 PURE MEMORY: Save entry with pure in-memory storage
   const saveEntry = useCallback(async (content: string) => {
     if (!firebaseUser) return;
+
+    const userId = user?.id || firebaseUser.uid;
 
     try {
       if (isSavingRef.current) {
@@ -305,21 +309,19 @@ export default function HomeContent() {
         return;
       }
       
-      console.log('💾 Saving with stable entry ID:', stableEntryId);
+      console.log('🧠 Saving to memory with stable entry ID:', stableEntryId);
+      console.log('🔍 DEBUG Save Logic:', {
+        isPersistedRef: isPersistedRef.current,
+        hasLatestEntry: !!latestEntry,
+        isNewEntry,
+        willUpdate: isPersistedRef.current || (latestEntry && !isNewEntry)
+      });
 
       if (isPersistedRef.current || (latestEntry && !isNewEntry)) {
-        // Update existing entry
-        const entryRef = doc(db, 'journal_entries', stableEntryId);
-        await updateDoc(entryRef, {
+        // Update existing entry in memory
+        await updateInMemory(stableEntryId, {
           content,
-          lastUpdated: serverTimestamp()
-        });
-
-        // Update in cache for real-time Notes list update
-        await updateInCache(stableEntryId, {
-          content,
-          timestamp: (latestEntry?.timestamp?.toDate ? latestEntry?.timestamp.toDate() : latestEntry?.timestamp) || new Date(),
-          title: latestEntry?.title || ''
+          title: latestEntry?.title || '',
         });
 
         // Track journal entry update (for all entries, regardless of size)
@@ -328,60 +330,53 @@ export default function HomeContent() {
           content_length: content.length,
         });
         
-        console.log('📝 Updated existing entry in cache');
+        console.log('📝 Updated existing entry in memory');
       } else {
-        // Create new entry in database using the pre-generated ID
+        // Create new entry in memory with stable ID
         const entryId = stableEntryId;
         const now = new Date();
-        const newEntry = {
-          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
-          content,
-          timestamp: serverTimestamp(),
-          lastUpdated: serverTimestamp()
-        };
-
-        const docRef = doc(db, 'journal_entries', entryId);
-        await setDoc(docRef, newEntry);
-
-        // Add to local cache only (no extra Firestore write)
-        await syncService.addLocalEntry(user?.id || firebaseUser.uid, { // Use Clerk user ID consistently
+        
+        await addToMemory({
           id: entryId,
-          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
+          uid: userId,
           content,
           timestamp: now.toISOString(),
           title: '',
-          _syncStatus: 'synced',
-        } as any);
+          lastUpdated: now.toISOString(),
+        });
 
         // Track journal entry creation (for all entries, regardless of size)
         trackEntryCreated({
           entry_id: entryId,
         });
 
-        // Update local state with new entry info from database (keep the same ID)
+        // Update local state with new entry info
         setLatestEntry({
           id: entryId,
-          uid: user?.id || firebaseUser.uid, // Use Clerk user ID first, fallback to Firebase UID
+          uid: userId,
           content,
           timestamp: now,
           title: ''
         });
+        
+        // 🔥 CRITICAL: Mark as persisted so next saves will be updates
         setIsNewEntry(false);
         isPersistedRef.current = true;
         currentEntryIdRef.current = entryId;
         
-        console.log('🆕 Added new entry to cache');
+        console.log('🧠 Added new entry to memory with stable ID:', entryId);
+        console.log('🔥 CRITICAL: Marked as persisted - next saves will be updates');
       }
 
       lastSavedContentRef.current = content;
       setSaveStatus('saved');
     } catch (error) {
-      console.error('Error saving entry:', error);
+      console.error('❌ Error saving entry to memory:', error);
       setSaveStatus('unsaved');
     } finally {
       isSavingRef.current = false;
     }
-  }, [firebaseUser, latestEntry, isNewEntry, addToCache, updateInCache, trackEntryUpdated, trackEntryCreated]);
+  }, [firebaseUser, latestEntry, isNewEntry, user?.id, addToMemory, updateInMemory, trackEntryUpdated, trackEntryCreated]);
 
   // Handle content changes with smart debounced auto-save
   const handleContentChange = useCallback((newContent: string) => {

@@ -6,6 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuth } from '@/hooks/useAuth';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import { useNetworkConnectivity } from '@/hooks/useNetworkConnectivity';
 import { View, Text, TouchableOpacity } from 'react-native';
 import AppNavigator from './AppNavigator';
 import { rootNavigationRef } from './RootNavigation';
@@ -29,6 +30,11 @@ export default function Navigation() {
     firebaseUser
   } = useAuth();
   
+  // 🚀 DEBUG: Log when Navigation component re-renders (dev only)
+  if (__DEV__) {
+    console.log('🧭 [NAVIGATION DEBUG] Navigation component re-rendered:', { isSigningOut, isSignedIn, needsOnboarding });
+  }
+  
   // Import onboarding progress to make better auth flow decisions
   const { progress: onboardingProgress, isLoading: progressLoading, clearProgress } = useOnboardingProgress();
 
@@ -43,10 +49,24 @@ export default function Navigation() {
     }
   }, [clearProgress]);
 
-  // Only refresh user account if there's a potential mismatch
+  // Only refresh user account if there's a potential mismatch (debounced to prevent loops)
   // This prevents unnecessary refreshes on every navigation mount
   useEffect(() => {
-    if (isSignedIn && firebaseUser?.uid && isAuthReady && needsOnboarding && onboardingProgress?.currentStep === 17) {
+    // Only trigger refresh once when conditions are met, not on every re-render
+    const REFRESH_KEY = `${isSignedIn}-${firebaseUser?.uid}-${needsOnboarding}-${onboardingProgress?.currentStep}`;
+    const lastRefreshKey = (global as any).__lastNavigationRefresh;
+    
+    if (
+      isSignedIn && 
+      firebaseUser?.uid && 
+      isAuthReady && 
+      needsOnboarding && 
+      onboardingProgress?.currentStep === 17 &&
+      lastRefreshKey !== REFRESH_KEY // Only refresh if parameters changed
+    ) {
+      // Mark this refresh as completed to prevent duplicate calls
+      (global as any).__lastNavigationRefresh = REFRESH_KEY;
+      
       // Only refresh if we detect a potential mismatch: user has OnboardingChat progress but might have completed onboarding
       const refreshData = async () => {
         try {
@@ -62,15 +82,32 @@ export default function Navigation() {
     }
   }, [isSignedIn, firebaseUser?.uid, isAuthReady, needsOnboarding, onboardingProgress?.currentStep, refreshUserAccount]);
 
-  // Optimized loading: Only block for critical auth state, not for progress loading
-  // Also wait for needsOnboarding to be determined from backend
-  if ((!isAuthReady || needsOnboarding === null) && !isSigningOut) {
-    console.log('⏳ Waiting for critical auth ready - keeping splash visible', {
+  // 🚀 OFFLINE-FIRST: Show UI with cached data even offline
+  // Only block if we truly don't have enough data to show UI
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
+  const isOnline = isConnected === true && isInternetReachable === true;
+  
+  // 🚀 OFFLINE FIX: Show UI more aggressively when offline to prevent splash screen stuck
+  // Don't wait for needsOnboarding - it can load in background
+  const canShowUI = (
+    // Always show UI if signed out or signing out
+    !isSignedIn || isSigningOut ||
+    // For signed in users, show UI if auth is ready
+    (isSignedIn && isAuthReady) ||
+    // 🚀 OFFLINE FALLBACK: If offline and we have some cached data, show UI
+    (!isOnline && firebaseUser && needsOnboarding !== null)
+  );
+  
+  if (!canShowUI && !isSigningOut) {
+    console.log('⏳ Waiting for minimal auth data - keeping splash visible', {
       isAuthReady,
       needsOnboarding,
-      isSigningOut
+      isSigningOut,
+      isSignedIn,
+      canShowUI,
+      isOnline
     });
-    return null; // Keep splash screen visible until auth is ready AND needsOnboarding is determined
+    return null; // Keep splash screen visible until we have enough data to show UI
   }
   
   // Allow navigation during sign out
@@ -121,11 +158,13 @@ export default function Navigation() {
   // Only show auth flow if user is not signed in OR needs onboarding OR is signing out
   const hasOnboardingChatProgress = onboardingProgress && onboardingProgress.currentStep === 17 && !onboardingProgress.completedAt && needsOnboarding === true;
   
-  // Simplified logic: Show main app if user is authenticated and doesn't need onboarding
-  // needsOnboarding must be explicitly false (not null) to show main app
+  // 🚀 SMART ONBOARDING: Optimistic for returning users, safe for new users
+  // - If needsOnboarding=false (confirmed completed): Main app ✅
+  // - If needsOnboarding=true (confirmed needs): Auth flow ✅  
+  // - If needsOnboarding=null (unknown): Auth flow for safety ✅
   const shouldShowMainApp = isSignedIn && needsOnboarding === false && !isSigningOut;
-  const shouldShowAuthFlow = !shouldShowMainApp || hasOnboardingChatProgress;
-  const initialRouteName = shouldShowMainApp ? 'App' : 'Auth';
+  const shouldShowAuthFlow = !isSignedIn || isSigningOut || !shouldShowMainApp || hasOnboardingChatProgress;
+  const initialRouteName = shouldShowAuthFlow ? 'Auth' : 'App';
   
   console.log('🧭 Navigation route determination:', {
     isSignedIn,
@@ -140,7 +179,8 @@ export default function Navigation() {
   });
 
   // Include auth state in navigation key to force reset when auth state changes
-  const navigationKey = `nav-${shouldShowAuthFlow ? 'auth' : 'app'}-${isSignedIn ? 'signed-in' : 'signed-out'}`;
+  // 🚀 CRITICAL: Include isSigningOut to ensure navigation resets during signout
+  const navigationKey = `nav-${shouldShowAuthFlow ? 'auth' : 'app'}-${isSignedIn ? 'signed-in' : 'signed-out'}-${isSigningOut ? 'signing-out' : 'stable'}`;
 
   console.log('🧭 Navigation state:', {
     isSignedIn,

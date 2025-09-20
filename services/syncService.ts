@@ -36,6 +36,10 @@ class SyncService {
   private realTimeUnsubscribe: (() => void) | null = null;
   private lastCacheLogCount: number = 0;
   private cacheUpdateListeners: Array<(userId: string, entries: CachedEntry[]) => void> = [];
+  
+  // 🚀 IN-MEMORY CACHE: Keep frequently accessed data in memory for fast access
+  private entriesCache: Map<string, CachedEntry[]> = new Map();
+  private syncStateCache: Map<string, SyncState> = new Map();
 
   // =====================
   // CACHE MANAGEMENT
@@ -43,10 +47,25 @@ class SyncService {
 
   async getCachedEntries(userId: string): Promise<CachedEntry[]> {
     try {
+      // 🚀 FAST PATH: Return from in-memory cache if available
+      if (this.entriesCache.has(userId)) {
+        const entries = this.entriesCache.get(userId)!;
+        return entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      }
+
+      // 🚀 SLOW PATH: Load from AsyncStorage and cache in memory
       const cached = await AsyncStorage.getItem(`${STORAGE_KEYS.ENTRIES}_${userId}`);
-      if (!cached) return [];
+      if (!cached) {
+        const emptyEntries: CachedEntry[] = [];
+        this.entriesCache.set(userId, emptyEntries);
+        return emptyEntries;
+      }
       
       const entries: CachedEntry[] = JSON.parse(cached);
+      
+      // 🚀 CACHE IN MEMORY: Store for future fast access
+      this.entriesCache.set(userId, entries);
+      
       // Only log on first load or significant changes
       if (!this.lastCacheLogCount || Math.abs(entries.length - this.lastCacheLogCount) > 0) {
         console.log(`📱 Loaded ${entries.length} cached entries for user ${userId}`);
@@ -80,6 +99,11 @@ class SyncService {
       }, [] as CachedEntry[]);
       
       const sortedEntries = uniqueEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      // 🚀 FAST UPDATE: Update in-memory cache first
+      this.entriesCache.set(userId, sortedEntries);
+      
+      // 🚀 PERSIST: Save to AsyncStorage
       await AsyncStorage.setItem(`${STORAGE_KEYS.ENTRIES}_${userId}`, JSON.stringify(sortedEntries));
       
       // Only log on significant changes to reduce noise
@@ -113,29 +137,51 @@ class SyncService {
 
   async getSyncState(userId: string): Promise<SyncState> {
     try {
+      // 🚀 FAST PATH: Return from in-memory cache if available
+      if (this.syncStateCache.has(userId)) {
+        return this.syncStateCache.get(userId)!;
+      }
+
+      // 🚀 SLOW PATH: Load from AsyncStorage and cache in memory
       const cached = await AsyncStorage.getItem(`${STORAGE_KEYS.SYNC_STATE}_${userId}`);
       if (!cached) {
-        return {
+        const defaultState: SyncState = {
           lastSyncTime: new Date(0).toISOString(),
           syncInProgress: false,
           pendingUploads: [],
           failedSyncs: [],
         };
+        
+        // 🚀 CACHE IN MEMORY: Store for future fast access
+        this.syncStateCache.set(userId, defaultState);
+        return defaultState;
       }
-      return JSON.parse(cached);
+      
+      const syncState: SyncState = JSON.parse(cached);
+      
+      // 🚀 CACHE IN MEMORY: Store for future fast access
+      this.syncStateCache.set(userId, syncState);
+      
+      return syncState;
     } catch (error) {
       console.error('❌ Error loading sync state:', error);
-      return {
+      const defaultState: SyncState = {
         lastSyncTime: new Date(0).toISOString(),
         syncInProgress: false,
         pendingUploads: [],
         failedSyncs: [],
       };
+      this.syncStateCache.set(userId, defaultState);
+      return defaultState;
     }
   }
 
   async setSyncState(userId: string, state: SyncState): Promise<void> {
     try {
+      // 🚀 FAST UPDATE: Update in-memory cache first
+      this.syncStateCache.set(userId, state);
+      
+      // 🚀 PERSIST: Save to AsyncStorage
       await AsyncStorage.setItem(`${STORAGE_KEYS.SYNC_STATE}_${userId}`, JSON.stringify(state));
       this.notifySyncListeners(state);
     } catch (error) {
@@ -154,6 +200,16 @@ class SyncService {
     };
   }
 
+  // 🚀 OFFLINE-FIRST: Add cache update listener for real-time UI updates
+  addCacheUpdateListener(listener: (userId: string, entries: CachedEntry[]) => void): () => void {
+    this.cacheUpdateListeners.push(listener);
+    
+    // Return unsubscribe function
+    return () => {
+      this.cacheUpdateListeners = this.cacheUpdateListeners.filter(l => l !== listener);
+    };
+  }
+
   private notifySyncListeners(state: SyncState): void {
     // Only notify if there are actual listeners to prevent unnecessary updates
     if (this.syncListeners.length > 0) {
@@ -161,22 +217,46 @@ class SyncService {
     }
   }
 
+  // 🚀 OFFLINE-FIRST: Notify cache update listeners
+  private notifyCacheUpdate(userId: string, entries: CachedEntry[]): void {
+    if (this.cacheUpdateListeners.length > 0) {
+      this.cacheUpdateListeners.forEach(listener => listener(userId, entries));
+    }
+  }
+
   // =====================
-  // INITIAL SYNC (App Launch)
+  // INITIAL SYNC (App Launch) - OFFLINE-FIRST
   // =====================
 
   async initialSync(userId: string): Promise<CachedEntry[]> {
     console.log('🔄 Starting initial sync for user:', userId);
     
     try {
-      // Return cached entries immediately - no background sync unless requested
+      // Always return cached entries immediately - works offline
       const cachedEntries = await this.getCachedEntries(userId);
-      console.log('✅ Initial sync completed instantly from cache');
+      
+      // Check network connectivity
+      const isOnline = await this.checkNetworkConnectivity();
+      if (isOnline) {
+        console.log('✅ Initial sync completed from cache (online - background sync available)');
+      } else {
+        console.log('✅ Initial sync completed from cache (offline mode)');
+      }
       
       return cachedEntries;
     } catch (error) {
       console.error('❌ Initial sync error:', error);
       return [];
+    }
+  }
+
+  // Helper to check network connectivity
+  private async checkNetworkConnectivity(): Promise<boolean> {
+    try {
+      // Simple network check - you might want to use a proper network library
+      return true; // For now, assume online - this will be enhanced
+    } catch {
+      return false;
     }
   }
 
@@ -194,24 +274,54 @@ class SyncService {
       
       console.log('🔄 Performing background sync...');
       
-      // Fetch latest entries from Firestore
+      // 🚀 STEP 1: Upload pending offline entries first
+      if (syncState.pendingUploads.length > 0) {
+        console.log(`📤 Uploading ${syncState.pendingUploads.length} pending entries...`);
+        
+        const successfulUploads: string[] = [];
+        const failedUploads: string[] = [];
+        
+        for (const entryId of syncState.pendingUploads) {
+          try {
+            await this.syncSingleEntryToBackend(userId, entryId);
+            successfulUploads.push(entryId);
+            console.log(`✅ Uploaded pending entry: ${entryId}`);
+          } catch (error) {
+            console.error(`❌ Failed to upload pending entry ${entryId}:`, error);
+            failedUploads.push(entryId);
+          }
+        }
+        
+        console.log(`📤 Upload results: ${successfulUploads.length} successful, ${failedUploads.length} failed`);
+        
+        // Update pending uploads list (remove successful ones)
+        const updatedPendingUploads = failedUploads;
+        await this.setSyncState(userId, {
+          ...syncState,
+          pendingUploads: updatedPendingUploads,
+          syncInProgress: true // Keep sync in progress for next step
+        });
+      }
+      
+      // 🚀 STEP 2: Fetch latest entries from Firestore
       const latestEntries = await this.fetchEntriesFromFirestore(userId);
       
-      // Merge with local cache (keep local-only entries)
+      // 🚀 STEP 3: Merge with local cache (keep local-only entries)
       const mergedEntries = await this.mergeEntries(userId, latestEntries);
       
-      // Update cache
+      // 🚀 STEP 4: Update cache
       await this.setCachedEntries(userId, mergedEntries);
       
-      // Update sync state
+      // 🚀 STEP 5: Update sync state
+      const finalSyncState = await this.getSyncState(userId); // Get updated state
       await this.setSyncState(userId, {
         lastSyncTime: new Date().toISOString(),
         syncInProgress: false,
-        pendingUploads: syncState.pendingUploads,
+        pendingUploads: finalSyncState.pendingUploads, // Keep any remaining failed uploads
         failedSyncs: [],
       });
       
-      console.log('✅ Background sync completed');
+      console.log('✅ Background sync completed with pending upload processing');
       
     } catch (error) {
       console.error('❌ Background sync failed:', error);
@@ -446,20 +556,22 @@ class SyncService {
   // OPTIMISTIC UPDATES
   // =====================
 
+  // 🚀 OFFLINE-FIRST: Add local entry that works offline and syncs when online
   async addLocalEntry(userId: string, entry: (Omit<CachedEntry, '_syncStatus'> & { _syncStatus?: CachedEntry['_syncStatus'] }) | Omit<CachedEntry, 'id' | '_syncStatus'>): Promise<string> {
     // If entry has an id, use it (for synced entries), otherwise generate one (for new entries)
-    const entryId = 'id' in entry ? entry.id : `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const entryId = 'id' in entry ? entry.id : `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const syncStatus = ('_syncStatus' in entry && entry._syncStatus) ? entry._syncStatus : 'local-only';
     
     const localEntry: CachedEntry = {
       ...entry,
       id: entryId,
       _syncStatus: syncStatus,
+      lastUpdated: new Date().toISOString(),
     };
 
-    console.log('📝 Adding local entry:', entryId, 'status:', syncStatus);
+    console.log('📝 Adding local entry (offline-capable):', entryId, 'status:', syncStatus);
 
-    // Add to cache immediately (check for duplicates)
+    // Add to cache immediately (works offline)
     const cachedEntries = await this.getCachedEntries(userId);
     const existingIndex = cachedEntries.findIndex(e => e.id === entryId);
     
@@ -472,19 +584,23 @@ class SyncService {
     } else {
       // Add new entry
       updatedEntries = [localEntry, ...cachedEntries];
-      console.log('🆕 Added new entry to cache');
+      console.log('🆕 Added new entry to cache (available offline)');
     }
     
     await this.setCachedEntries(userId, updatedEntries);
 
-    // Queue for sync only if it's a local-only entry
+    // Queue for sync when connection is available
     if (syncStatus === 'local-only') {
       const syncState = await this.getSyncState(userId);
       await this.setSyncState(userId, {
         ...syncState,
-        pendingUploads: [...syncState.pendingUploads, entryId],
+        pendingUploads: [...new Set([...syncState.pendingUploads, entryId])], // Avoid duplicates
       });
+      console.log('📤 Entry queued for sync when online:', entryId);
     }
+
+    // Notify cache update listeners
+    this.notifyCacheUpdate(userId, updatedEntries);
 
     return entryId;
   }
@@ -553,6 +669,11 @@ class SyncService {
     console.log('🧹 Clearing cached data for user:', userId);
     
     try {
+      // 🚀 CLEAR MEMORY: Remove from in-memory caches first
+      this.entriesCache.delete(userId);
+      this.syncStateCache.delete(userId);
+      
+      // 🚀 CLEAR STORAGE: Remove from AsyncStorage
       await AsyncStorage.multiRemove([
         `${STORAGE_KEYS.ENTRIES}_${userId}`,
         `${STORAGE_KEYS.SYNC_STATE}_${userId}`,

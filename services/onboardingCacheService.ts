@@ -28,6 +28,8 @@ interface OnboardingCacheData {
 }
 
 class OnboardingCacheService {
+  // 🚀 IN-MEMORY CACHE: Keep onboarding data in memory for fast access
+  private onboardingCache: Map<string, OnboardingCacheData> = new Map();
   
   // Get storage key for specific user's onboarding
   private getStorageKey(userId: string): string {
@@ -68,6 +70,10 @@ class OnboardingCacheService {
         userId
       };
       
+      // 🚀 FAST UPDATE: Update in-memory cache first
+      this.onboardingCache.set(userId, cacheData);
+      
+      // 🚀 PERSIST: Save to AsyncStorage
       await AsyncStorage.setItem(storageKey, JSON.stringify(cacheData));
       
       console.log(`💾 Saved ${messages.length} onboarding messages for user:`, userId);
@@ -89,15 +95,35 @@ class OnboardingCacheService {
         return { sessionId: null, messages: [], progress: 7 };
       }
 
+      // 🚀 FAST PATH: Return from in-memory cache if available
+      if (this.onboardingCache.has(userId)) {
+        const cachedData = this.onboardingCache.get(userId)!;
+        const messages: OnboardingMessage[] = cachedData.messages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        console.log(`⚡ Loaded ${messages.length} onboarding messages from memory for user:`, userId);
+        return {
+          sessionId: cachedData.sessionId,
+          messages,
+          progress: cachedData.progress
+        };
+      }
+
+      // 🚀 SLOW PATH: Load from AsyncStorage and cache in memory
       const storageKey = this.getStorageKey(userId);
       const storedData = await AsyncStorage.getItem(storageKey);
       
       if (!storedData) {
         console.log('📱 No cached onboarding data found for user:', userId);
-        return { sessionId: null, messages: [], progress: 7 };
+        const emptyData = { sessionId: null, messages: [], progress: 7 };
+        return emptyData;
       }
       
       const parsedData: OnboardingCacheData = JSON.parse(storedData);
+      
+      // 🚀 CACHE IN MEMORY: Store for future fast access
+      this.onboardingCache.set(userId, parsedData);
       
       // Convert timestamps back to Date objects
       const messages: OnboardingMessage[] = parsedData.messages.map(msg => ({
@@ -127,6 +153,10 @@ class OnboardingCacheService {
         return;
       }
 
+      // 🚀 CLEAR MEMORY: Remove from in-memory cache first
+      this.onboardingCache.delete(userId);
+      
+      // 🚀 CLEAR STORAGE: Remove from AsyncStorage
       const storageKey = this.getStorageKey(userId);
       await AsyncStorage.removeItem(storageKey);
       

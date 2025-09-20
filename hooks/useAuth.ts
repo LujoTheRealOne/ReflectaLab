@@ -10,6 +10,7 @@ import { FirestoreService } from '@/lib/firestore';
 import { UserAccount } from '@/types/journal';
 import { useAnalytics } from './useAnalytics';
 import { useNetworkConnectivity } from './useNetworkConnectivity';
+import { AppState } from 'react-native';
 
 // This is required for Expo web
 WebBrowser.maybeCompleteAuthSession();
@@ -30,21 +31,37 @@ export function useAuth() {
   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
   const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null); // Start as null until we know from backend
+  const [isCacheLoaded, setIsCacheLoaded] = useState(false);
+  const [isOptimisticLoad, setIsOptimisticLoad] = useState(false);
+  const [offlineFirebaseUser, setOfflineFirebaseUser] = useState<FirebaseUser | null>(null);
   
-  // Helper function to clear progress when onboarding is completed
+  // 🚀 DEBOUNCED: Helper function to clear progress when onboarding is completed
+  const progressClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastClearUserRef = useRef<string | null>(null);
+  
   const clearProgressIfCompleted = useCallback(async (account: UserAccount, needsOnboardingValue: boolean) => {
     if (!needsOnboardingValue && account.onboardingData?.onboardingCompleted === true) {
-      console.log('🧹 Backend shows onboarding completed - clearing local progress');
-      try {
-        const AsyncStorage = await import('@react-native-async-storage/async-storage');
-        await AsyncStorage.default.removeItem('@onboarding_progress');
-        console.log('✅ Successfully cleared onboarding progress from AsyncStorage');
-        
-        // Small delay to ensure AsyncStorage operation completes
-        await new Promise(resolve => setTimeout(resolve, 50));
-      } catch (error) {
-        console.error('❌ Failed to clear onboarding progress:', error);
+      // 🚀 PREVENT SPAM: Skip if already cleared for this user recently
+      if (lastClearUserRef.current === account.uid) {
+        return;
       }
+      
+      // Clear any pending timeout
+      if (progressClearTimeoutRef.current) {
+        clearTimeout(progressClearTimeoutRef.current);
+      }
+      
+      // Debounced clear operation
+      progressClearTimeoutRef.current = setTimeout(async () => {
+        try {
+          const AsyncStorage = await import('@react-native-async-storage/async-storage');
+          await AsyncStorage.default.removeItem('@onboarding_progress');
+          lastClearUserRef.current = account.uid;
+          console.log('🧹 Successfully cleared onboarding progress (debounced)');
+        } catch (error) {
+          console.error('❌ Failed to clear onboarding progress:', error);
+        }
+      }, 1000); // 1 second debounce
     }
   }, []);
   
@@ -66,14 +83,116 @@ export function useAuth() {
   
   const { trackSignUp, trackSignIn, trackSignOut, trackFirstTimeAppOpened } = useAnalytics();
 
+  // 🚀 CACHE-FIRST: Load cached auth data immediately and skip Firebase if valid
+  useEffect(() => {
+    const loadCachedAuthData = async () => {
+      try {
+        const cachedAuth = await authCache.getCachedAuth();
+        if (cachedAuth && authCache.isCacheValid(cachedAuth)) {
+          // 🚀 REDUCED LOGGING: Only log once per app session
+          if (!GLOBAL_LAST_TRACKED_USER) {
+            console.log('⚡ Valid cache found - using cache-first approach');
+          }
+          
+          // Set complete state from cache immediately
+          setUserAccount({
+            ...cachedAuth.userAccount,
+            firstName: cachedAuth.userAccount.firstName || '',
+            onboardingData: cachedAuth.userAccount.onboardingData || {
+              onboardingCompleted: false,
+              onboardingCompletedAt: 0,
+              whatDoYouDoInLife: [],
+              selfReflectionPracticesTried: [],
+              stressInLife: 0.5,
+              clarityInLife: 0.5,
+            },
+            createdAt: cachedAuth.userAccount.createdAt || new Date(),
+            updatedAt: new Date(),
+            coachingConfig: {
+              challengeDegree: 'moderate',
+              harshToneDegree: 'supportive',
+              coachingMessageFrequency: 'daily',
+              enableCoachingMessages: true,
+              lastCoachingMessageSentAt: 0,
+              coachingMessageTimePreference: 'morning',
+            },
+            mobilePushNotifications: {
+              enabled: false,
+              expoPushTokens: [],
+              lastNotificationSentAt: 0,
+            },
+            userTimezone: 'America/New_York',
+          });
+          
+          // Set onboarding status from cache
+          const needsOnboardingFromCache = !cachedAuth.userAccount.onboardingData?.onboardingCompleted;
+          setNeedsOnboarding(needsOnboardingFromCache);
+          setIsOptimisticLoad(true);
+          setUserAccountLoading(false); // Mark as ready immediately
+          
+          // 🚀 OFFLINE-FIRST: Create offline Firebase user from cache for offline usage
+          const mockFirebaseUser = {
+            uid: cachedAuth.firebaseUser.uid,
+            email: cachedAuth.firebaseUser.email,
+            displayName: cachedAuth.firebaseUser.displayName,
+            photoURL: cachedAuth.firebaseUser.photoURL,
+            emailVerified: true,
+            isAnonymous: false,
+            metadata: {
+              creationTime: new Date().toISOString(),
+              lastSignInTime: new Date().toISOString(),
+            },
+            providerData: [],
+            refreshToken: 'offline-token',
+            tenantId: null,
+            // Add missing methods for offline compatibility
+            delete: async () => { throw new Error('Delete not available offline'); },
+            getIdToken: async () => 'offline-token',
+            getIdTokenResult: async () => ({ token: 'offline-token' } as any),
+            reload: async () => { /* no-op offline */ },
+            toJSON: () => ({ uid: cachedAuth.firebaseUser.uid }),
+          } as unknown as FirebaseUser;
+          
+          setOfflineFirebaseUser(mockFirebaseUser);
+          // 🚀 REDUCED LOGGING: Only log once per app session
+          if (!GLOBAL_LAST_TRACKED_USER) {
+            console.log('✅ Cache-first auth completed with offline Firebase user');
+          }
+          
+          // 🚀 CACHE-FIRST: Skip Firebase entirely if cache is fresh (< 1 hour)
+          const cacheAge = Date.now() - new Date(cachedAuth.lastValidated).getTime();
+          if (cacheAge < 3600000) { // 1 hour
+            // 🚀 REDUCED LOGGING: Only log once per app session
+            if (!GLOBAL_LAST_TRACKED_USER) {
+              console.log('🏆 Cache is very fresh - skipping all Firebase operations');
+            }
+            return; // Skip Firebase entirely
+          }
+        } else {
+          console.log('❌ No valid cache - will need Firebase auth');
+        }
+      } catch (error) {
+        console.error('❌ Error loading cached auth data:', error);
+      } finally {
+        setIsCacheLoaded(true);
+      }
+    };
+
+    loadCachedAuthData();
+  }, []);
+
   // Listen to Firebase auth state changes (optimized to prevent spam)
   useEffect(() => {
     let lastUserId: string | null = null;
     
     const unsubscribe = onFirebaseAuthStateChanged((user) => {
-      // Only log if user actually changed (not just re-fired)
+      // 🚀 REDUCED LOGGING: Only log if user actually changed (not just re-fired) and max 3 times
       if (user?.uid !== lastUserId) {
-        console.log('🔥 Firebase auth state changed:', { uid: user?.uid, hasUser: !!user });
+        const logCount = (global as any).__authStateLogCount || 0;
+        if (logCount < 3) {
+          console.log('🔥 Firebase auth state changed:', { uid: user?.uid, hasUser: !!user });
+          (global as any).__authStateLogCount = logCount + 1;
+        }
         lastUserId = user?.uid || null;
       }
       
@@ -176,94 +295,133 @@ export function useAuth() {
         firebaseRetryTimeoutRef.current = null;
       }
     };
-  }, [isSignedIn, user, firebaseUser, getToken, authAttempts, isSigningOut]);
+  }, [isSignedIn, user?.id, getToken, authAttempts, isSigningOut]); // 🚀 FIXED: Removed firebaseUser from deps to prevent infinite loop
 
-  // Initialize user document in Firestore when Firebase user is available (online/offline aware)
+  // 🚀 OPTIMIZATION: Initialize user document - prevent infinite loops
+  const isInitializedRef = useRef(false);
+  const lastInitUserRef = useRef<string | null>(null);
+  
   useEffect(() => {
     const initializeUserDocument = async () => {
       // Skip user account loading during sign out
       if (isSigningOut) {
-        console.log('⏭️ Skipping user document init - currently signing out');
         return;
       }
       
       if (!firebaseUser?.uid) return;
 
+      // 🚀 PREVENT INFINITE LOOP: Skip if already initialized for this user
+      if (isInitializedRef.current && lastInitUserRef.current === firebaseUser.uid) {
+        return;
+      }
+
+      // 🚀 CACHE-FIRST: If we have fresh cache data, skip all Firebase operations
+      if (isOptimisticLoad && !isInitializedRef.current) {
+        // 🚀 REDUCED LOGGING: Only log once per user session
+        if (!GLOBAL_LAST_TRACKED_USER || GLOBAL_LAST_TRACKED_USER !== firebaseUser.uid) {
+          console.log('🏆 Cache-first: Skipping Firebase operations - using cache only');
+        }
+        isInitializedRef.current = true;
+        lastInitUserRef.current = firebaseUser.uid;
+        
+        // Only do background sync if cache is older than 1 hour
+        const cachedAuth = await authCache.getCachedAuth();
+        if (cachedAuth) {
+          const cacheAge = Date.now() - new Date(cachedAuth.lastValidated).getTime();
+          if (cacheAge > 3600000) { // 1 hour
+            console.log('⏰ Cache is older than 1 hour - scheduling background sync');
+            setTimeout(() => performBackgroundAuthSync(), 15000); // 🚀 OPTIMIZED: 15 second delay to let UI load first
+          } else {
+            // 🚀 REDUCED LOGGING: Skip frequent "cache fresh" logs
+            if (!GLOBAL_LAST_TRACKED_USER || GLOBAL_LAST_TRACKED_USER !== firebaseUser.uid) {
+              console.log('🚀 Cache is fresh - no background sync needed');
+            }
+          }
+        }
+        return;
+      }
+
       const isOnline = isConnected === true && isInternetReachable === true;
-      console.log(`🌐 Network status: ${isOnline ? 'ONLINE' : 'OFFLINE'} (connected: ${isConnected}, reachable: ${isInternetReachable})`);
 
       if (isOnline) {
         // =====================
-        // ONLINE: Prioritize backend data
+        // ONLINE: Fetch backend data (one-time only)
         // =====================
-        console.log('🌐 Online - fetching fresh data from backend');
-        await performFullAuthInit();
+        if (isCacheLoaded && userAccount && !isInitializedRef.current) {
+          console.log('⚡ Cache loaded - fetching fresh data in background (one-time)');
+          isInitializedRef.current = true;
+          lastInitUserRef.current = firebaseUser.uid;
+          setTimeout(() => performFullAuthInit(), 500);
+        } else if (!userAccount && !isInitializedRef.current) {
+          console.log('🌐 Online - fetching fresh data from backend');
+          isInitializedRef.current = true;
+          lastInitUserRef.current = firebaseUser.uid;
+          await performFullAuthInit();
+        }
       } else {
         // =====================
-        // OFFLINE: Use cached data only
+        // OFFLINE: Use cached data only (one-time)
         // =====================
-        console.log('📱 Offline - using cached data only');
-        try {
-          const cachedAuth = await authCache.getCachedAuth();
-          
-          if (cachedAuth && authCache.isUserMatching(firebaseUser.uid)) {
-            console.log('⚡ Using cached auth data (offline mode)');
+        if (!userAccount && !isInitializedRef.current) {
+          try {
+            const cachedAuth = await authCache.getCachedAuth();
             
-            // Set state from cache immediately (with proper UserAccount type)
-            const fullUserAccount: UserAccount = {
-              ...cachedAuth.userAccount,
-              firstName: cachedAuth.userAccount.firstName || '',
-              onboardingData: cachedAuth.userAccount.onboardingData || {
-                onboardingCompleted: false,
-                onboardingCompletedAt: 0,
-                whatDoYouDoInLife: [],
-                selfReflectionPracticesTried: [],
-                stressInLife: 0.5,
-                clarityInLife: 0.5,
-              },
-              createdAt: cachedAuth.userAccount.createdAt || new Date(),
-              updatedAt: new Date(),
-              coachingConfig: {
-                challengeDegree: 'moderate',
-                harshToneDegree: 'supportive',
-                coachingMessageFrequency: 'daily',
-                enableCoachingMessages: true,
-                lastCoachingMessageSentAt: 0,
-                coachingMessageTimePreference: 'morning',
-              },
-              mobilePushNotifications: {
-                enabled: false,
-                expoPushTokens: [],
-                lastNotificationSentAt: 0,
-              },
-              userTimezone: 'America/New_York',
-            };
-            
-            // Don't set needsOnboarding from cached data - wait for fresh backend data
-            // Cached data might be stale, so we'll keep needsOnboarding as null until backend confirms
-            // Progress clearing will happen when fresh backend data arrives
-            
-            setUserAccount(fullUserAccount);
-            setUserAccountLoading(false);
-            // setNeedsOnboarding(needsOnboardingValue); // Commented out - wait for backend data
-            
-            // Skip duplicate analytics tracking (global)
-            if (!GLOBAL_TRACKED_SIGN_INS.has(firebaseUser.uid)) {
-              GLOBAL_TRACKED_SIGN_INS.add(firebaseUser.uid);
-              GLOBAL_LAST_TRACKED_USER = firebaseUser.uid;
-              console.log('⏭️ Using cached auth - offline mode (tracking globally)');
+            if (cachedAuth && authCache.isUserMatching(firebaseUser.uid)) {
+              console.log('⚡ Using cached auth data (offline mode)');
+              
+              // Set state from cache immediately
+              const fullUserAccount: UserAccount = {
+                ...cachedAuth.userAccount,
+                firstName: cachedAuth.userAccount.firstName || '',
+                onboardingData: cachedAuth.userAccount.onboardingData || {
+                  onboardingCompleted: false,
+                  onboardingCompletedAt: 0,
+                  whatDoYouDoInLife: [],
+                  selfReflectionPracticesTried: [],
+                  stressInLife: 0.5,
+                  clarityInLife: 0.5,
+                },
+                createdAt: cachedAuth.userAccount.createdAt || new Date(),
+                updatedAt: new Date(),
+                coachingConfig: {
+                  challengeDegree: 'moderate',
+                  harshToneDegree: 'supportive',
+                  coachingMessageFrequency: 'daily',
+                  enableCoachingMessages: true,
+                  lastCoachingMessageSentAt: 0,
+                  coachingMessageTimePreference: 'morning',
+                },
+                mobilePushNotifications: {
+                  enabled: false,
+                  expoPushTokens: [],
+                  lastNotificationSentAt: 0,
+                },
+                userTimezone: 'America/New_York',
+              };
+              
+              setUserAccount(fullUserAccount);
+              setUserAccountLoading(false);
+              isInitializedRef.current = true;
+              lastInitUserRef.current = firebaseUser.uid;
+              
+              // Skip duplicate analytics tracking (global)
+              if (!GLOBAL_TRACKED_SIGN_INS.has(firebaseUser.uid)) {
+                GLOBAL_TRACKED_SIGN_INS.add(firebaseUser.uid);
+                GLOBAL_LAST_TRACKED_USER = firebaseUser.uid;
+              }
+              
+              return;
+            } else {
+              setUserAccountLoading(false);
+              setAuthError('No cached data available. Please connect to the internet.');
             }
-            
-            return;
-          } else {
-            console.log('❌ No valid cache available in offline mode');
+          } catch (error) {
+            console.error('❌ Error loading auth cache in offline mode:', error);
             setUserAccountLoading(false);
-            setAuthError('No cached data available. Please connect to the internet.');
+            setAuthError('Failed to load cached data.');
           }
-        } catch (error) {
-          console.error('❌ Error loading auth cache in offline mode:', error);
-          setUserAccountLoading(false);
-          setAuthError('Failed to load cached data.');
+          isInitializedRef.current = true;
+          lastInitUserRef.current = firebaseUser.uid;
         }
       }
     };
@@ -514,7 +672,76 @@ export function useAuth() {
         userAccountTimeoutRef.current = null;
       }
     };
-  }, [firebaseUser?.uid, isSigningOut, isConnected, isInternetReachable, clearProgressIfCompleted]);
+  }, [firebaseUser?.uid, isSigningOut]); // 🚀 MINIMAL DEPENDENCIES to prevent loops
+
+  // 🚀 HEAVILY RESTRICTED: Background sync function - minimal usage only
+  const backgroundSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastBackgroundSyncRef = useRef<number>(0);
+  const backgroundSyncCountRef = useRef<number>(0);
+  const MAX_BACKGROUND_SYNCS_PER_SESSION = 3; // Maximum 3 background syncs per app session
+  
+  const performBackgroundAuthSync = useCallback(async () => {
+    if (!firebaseUser?.uid) return;
+    
+    // 🚀 PREVENT SPAM: Only sync once every 5 minutes AND max 3 times per session
+    const now = Date.now();
+    const timeSinceLastSync = now - lastBackgroundSyncRef.current;
+    
+    if (timeSinceLastSync < 300000) { // 5 minutes
+      console.log(`⏭️ Background sync skipped - too recent (${Math.round(timeSinceLastSync/1000)}s ago)`);
+      return;
+    }
+    
+    if (backgroundSyncCountRef.current >= MAX_BACKGROUND_SYNCS_PER_SESSION) {
+      console.log('⏭️ Background sync skipped - session limit reached');
+      return;
+    }
+    
+    // Clear any pending sync
+    if (backgroundSyncTimeoutRef.current) {
+      clearTimeout(backgroundSyncTimeoutRef.current);
+    }
+    
+    // Heavily debounced sync
+    backgroundSyncTimeoutRef.current = setTimeout(async () => {
+      try {
+        backgroundSyncCountRef.current++;
+        console.log(`🔄 Background auth sync started (${backgroundSyncCountRef.current}/${MAX_BACKGROUND_SYNCS_PER_SESSION})`);
+        
+        const account = await FirestoreService.getUserAccount(firebaseUser.uid);
+        
+        if (account) {
+          // Only update cache, don't modify UI state from background sync
+          if (user) {
+            const cacheData = authCache.createCacheData(firebaseUser, user, account);
+            await authCache.setCachedAuth(cacheData);
+          }
+          
+          lastBackgroundSyncRef.current = Date.now();
+          console.log('✅ Background auth sync completed (cache only)');
+        }
+      } catch (error) {
+        console.error('❌ Background auth sync failed:', error);
+      }
+    }, 5000); // 5 second debounce
+  }, [firebaseUser?.uid, user]);
+
+  // 🚀 DISABLED: App state monitoring removed to prevent excessive auth checks
+  // Only rely on cache-first approach - no app foreground triggers
+  
+  useEffect(() => {
+    // Cleanup timeouts only
+    return () => {
+      if (backgroundSyncTimeoutRef.current) {
+        clearTimeout(backgroundSyncTimeoutRef.current);
+        backgroundSyncTimeoutRef.current = null;
+      }
+      if (progressClearTimeoutRef.current) {
+        clearTimeout(progressClearTimeoutRef.current);
+        progressClearTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const signInWithGoogle = useCallback(async () => {
     const signInStartTime = Date.now();
@@ -676,6 +903,28 @@ export function useAuth() {
     return { needsOnboarding: true, account: null };
   }, [firebaseUser?.uid]);
 
+  // 🔄 Enhanced getToken with caching for offline support
+  const getTokenWithCache = useCallback(async (): Promise<string | null> => {
+    try {
+      const token = await getToken();
+      if (token) {
+        // Cache the token for offline use
+        await authCache.saveSessionToken(token);
+        console.log('💾 Session token cached for offline use');
+      }
+      return token;
+    } catch (error) {
+      console.error('❌ Error getting token:', error);
+      // Try to return cached token as fallback
+      const cachedToken = await authCache.getSessionToken();
+      if (cachedToken) {
+        console.log('🔄 Using cached session token as fallback');
+        return cachedToken;
+      }
+      return null;
+    }
+  }, [getToken]);
+
   const completeOnboarding = useCallback(async () => {
     if (!firebaseUser?.uid) {
       throw new Error('No authenticated user found');
@@ -719,32 +968,46 @@ export function useAuth() {
   }, [firebaseUser?.uid, userAccount?.onboardingData, refreshUserAccount]);
 
   // Computed auth states for better navigation decisions
-  const isFullyAuthenticated = isSignedIn && !!firebaseUser;
+  const effectiveFirebaseUser = firebaseUser || offlineFirebaseUser;
+  const isFullyAuthenticated = (isSignedIn && !!firebaseUser) || !!offlineFirebaseUser;
   
-  // Only consider auth ready when we have determined the actual auth state
-  // Wait for both Firebase to be ready AND Clerk to have loaded
-  // During sign out, keep auth ready to prevent white screen flash
-  const isAuthReady = isClerkLoaded && isFirebaseReady && (
-    // During sign out, consider auth as ready to maintain stable navigation
-    isSigningOut ||
-    // Either user is not signed in (confirmed by Clerk) 
-    (!isSignedIn && !firebaseUser) ||
-    // Or user is fully authenticated AND we've attempted to load user account
-    (isFullyAuthenticated && (!!userAccount || !userAccountLoading))
+  // 🚀 OFFLINE-FIRST: Auth is ready when we have cache data OR when online flow completes
+  // Don't block on Clerk/Firebase if we have valid cache data
+  const isOnline = isConnected === true && isInternetReachable === true;
+  const isAuthReady = (
+    // OFFLINE: If we have valid cache data, auth is ready regardless of Clerk/Firebase
+    (isCacheLoaded && !!userAccount && needsOnboarding !== null) ||
+    // ONLINE: Traditional flow when Clerk is loaded and we're online
+    (isOnline && isClerkLoaded && (
+      // During sign out, consider auth as ready to maintain stable navigation
+      isSigningOut ||
+      // Either user is not signed in (confirmed by Clerk) 
+      (!isSignedIn && !firebaseUser && isFirebaseReady) ||
+      // Or user is fully authenticated AND (has cached data OR completed loading)
+      (isFullyAuthenticated && (isCacheLoaded || !!userAccount || !userAccountLoading))
+    )) ||
+    // OFFLINE FALLBACK: If offline but no cache, wait minimally for Clerk
+    (!isOnline && isClerkLoaded)
   );
   
-  const isUserAccountReady = isFullyAuthenticated && (!!userAccount || !userAccountLoading);
+  // 🚀 OFFLINE-FIRST: User account ready when we have cache data OR online data
+  const isUserAccountReady = (
+    // OFFLINE: Cache data is sufficient
+    (!!userAccount && needsOnboarding !== null) ||
+    // ONLINE: Traditional check
+    (isOnline && isFullyAuthenticated && (!!userAccount || (isCacheLoaded && !userAccountLoading)))
+  );
 
   return {
     // User data
     user,
-    firebaseUser,
+    firebaseUser: effectiveFirebaseUser, // 🚀 OFFLINE-FIRST: Use offline user when available
     userAccount,
     
     // Authentication state
-    isSignedIn: isFullyAuthenticated, // This is correct - isFullyAuthenticated is computed from Clerk's isSignedIn
+    isSignedIn: isFullyAuthenticated, // 🚀 OFFLINE-FIRST: Includes offline authentication
     isLoading,
-    isFirebaseReady,
+    isFirebaseReady: isFirebaseReady || !!offlineFirebaseUser, // 🚀 Ready if offline user exists
     isAuthReady,
     isUserAccountReady,
     userAccountLoading,
@@ -755,6 +1018,9 @@ export function useAuth() {
     // Error state
     authError,
     
+    // 🚀 OFFLINE-FIRST: Effective user that works offline and online
+    effectiveFirebaseUser,
+    
     // Actions
     signInWithGoogle,
     signInWithApple,
@@ -764,5 +1030,6 @@ export function useAuth() {
     refreshUserAccount,
     retryAuthentication,
     getToken,
+    getTokenWithCache, // 🔄 Enhanced token getter with caching
   };
 }

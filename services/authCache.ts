@@ -34,7 +34,9 @@ const CACHE_KEYS = {
 
 class AuthCache {
   private cacheData: CachedAuthData | null = null;
-  private readonly CACHE_VALIDITY = 24 * 60 * 60 * 1000; // 24 hours
+  private readonly CACHE_VALIDITY = 7 * 24 * 60 * 60 * 1000; // 7 days - much longer validity
+  private readonly BACKGROUND_REFRESH_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours - refresh in background after this
+  private readonly FRESH_CACHE_THRESHOLD = 60 * 60 * 1000; // 1 hour - consider very fresh
 
   // =====================
   // CACHE MANAGEMENT
@@ -101,6 +103,22 @@ class AuthCache {
     
     const cacheAge = Date.now() - new Date(data.lastValidated).getTime();
     return cacheAge < this.CACHE_VALIDITY;
+  }
+
+  // 🚀 OPTIMIZATION: Check if cache should be refreshed in background
+  shouldRefreshInBackground(data: CachedAuthData | null): boolean {
+    if (!data) return false;
+    
+    const cacheAge = Date.now() - new Date(data.lastValidated).getTime();
+    return cacheAge > this.BACKGROUND_REFRESH_THRESHOLD;
+  }
+
+  // 🚀 CACHE-FIRST: Check if cache is very fresh and can skip all Firebase operations
+  isCacheVeryFresh(data: CachedAuthData | null): boolean {
+    if (!data) return false;
+    
+    const cacheAge = Date.now() - new Date(data.lastValidated).getTime();
+    return cacheAge < this.FRESH_CACHE_THRESHOLD;
   }
 
   isUserMatching(userId: string): boolean {

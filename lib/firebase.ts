@@ -18,13 +18,19 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const db = getFirestore(app);
 
-// Ensure persistent auth on React Native by using AsyncStorage
+// 🚀 OPTIMIZATION: Ensure persistent auth on React Native with AsyncStorage
 // initializeAuth must be called only once and before getAuth on RN
 const auth = (() => {
   if (Platform.OS !== 'web') {
     try {
-      const a = initializeAuth(app);
-      console.log('🔐 Firebase Auth initialized with default persistence');
+      // Import AsyncStorage for persistence
+      const ReactNativeAsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const { getReactNativePersistence } = require('firebase/auth');
+      
+      const a = initializeAuth(app, {
+        persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+      });
+      console.log('🔐 Firebase Auth initialized with AsyncStorage persistence');
       return a;
     } catch (_e) {
       // initializeAuth throws if called more than once; fall back to getAuth
@@ -39,12 +45,12 @@ const auth = (() => {
 
 const storage = getStorage(app);
 
-// Connect to emulators in development
+// Connect to emulators in development (optimized for faster startup)
 if (__DEV__) {
-  // Simple flag to prevent multiple connection attempts
-  let emulatorsConnected = false;
+  // Global flag to prevent multiple connection attempts across app restarts
+  const EMULATOR_CONNECTED_KEY = '__firebase_emulators_connected__';
   
-  if (!emulatorsConnected) {
+  if (!(global as any)[EMULATOR_CONNECTED_KEY]) {
     // Use environment variable for emulator host (for physical device development)
     // Default to localhost for emulator/simulator, use your dev machine IP for physical device
     const emulatorHost = process.env.EXPO_PUBLIC_EMULATOR_HOST || 'localhost';
@@ -57,8 +63,7 @@ if (__DEV__) {
       connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true });
       console.log(`   ✅ Auth emulator connected: http://${emulatorHost}:9099`);
     } catch (error) {
-      // Emulator connection might already be established
-      console.log('   ⚠️ Auth emulator connection skipped (likely already connected)');
+      // Emulator connection might already be established - no need to log
     }
 
     try {
@@ -66,8 +71,7 @@ if (__DEV__) {
       connectFirestoreEmulator(db, emulatorHost, 8080);
       console.log(`   ✅ Firestore emulator connected: ${emulatorHost}:8080`);
     } catch (error) {
-      // Emulator connection might already be established
-      console.log('   ⚠️ Firestore emulator connection skipped (likely already connected)');
+      // Emulator connection might already be established - no need to log
     }
 
     try {
@@ -75,12 +79,14 @@ if (__DEV__) {
       connectStorageEmulator(storage, emulatorHost, 9199);
       console.log(`   ✅ Storage emulator connected: ${emulatorHost}:9199`);
     } catch (error) {
-      // Emulator connection might already be established
-      console.log('   ⚠️ Storage emulator connection skipped (likely already connected)');
+      // Emulator connection might already be established - no need to log
     }
     
-    emulatorsConnected = true;
+    // Mark as connected globally to prevent future connection attempts
+    (global as any)[EMULATOR_CONNECTED_KEY] = true;
     console.log('🎯 Firebase emulators setup complete for Expo development');
+  } else {
+    console.log('🔥 Firebase emulators already connected - skipping setup');
   }
 } else {
   console.log('🔥 Firebase Client SDK (Expo): Using production Firebase services');

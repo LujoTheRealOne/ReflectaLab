@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './useAuth';
+import { useNetworkConnectivity } from './useNetworkConnectivity';
+import { commitmentCacheService } from '@/services/commitmentCacheService';
+import { authCache } from '@/services/authCache';
 
 export interface ActiveCommitment {
   id: string;
@@ -132,8 +135,12 @@ function clearCommitmentsData() {
 
 export const useActiveCommitments = () => {
   // FIXED: Use Clerk user ID for consistency with web and backend
-  const { getToken, user, firebaseUser } = useAuth();
+  const { getToken, getTokenWithCache, user, firebaseUser } = useAuth();
+  const { isConnected, isInternetReachable } = useNetworkConnectivity();
   const [, forceUpdate] = useState({});
+  
+  // Network status
+  const isOnline = isConnected === true && isInternetReachable === true;
 
   // Force re-render when global state changes
   useEffect(() => {
@@ -144,23 +151,16 @@ export const useActiveCommitments = () => {
     };
   }, []);
 
-  const fetchActiveCommitments = useCallback(async () => {
-    // FIXED: Use Clerk user ID instead of Firebase UID
-    const userId = user?.id || firebaseUser?.uid;
-    if (!userId) {
-      updateGlobalState({ loading: false });
-      return;
-    }
-
+  // 🚀 CACHE-FIRST: Helper function to sync commitments from backend
+  const syncCommitmentsFromBackend = useCallback(async (userId: string) => {
     try {
-      updateGlobalState({ loading: true, error: null });
-
-      const token = await getToken();
+      // Use enhanced token getter that handles caching automatically
+      const token = await getTokenWithCache();
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error('No authentication token available (online or cached)');
       }
 
-      console.log('🎯 Fetching active commitments for user:', userId);
+      console.log('🎯 Syncing active commitments from backend for user:', userId);
 
       const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
         method: 'GET',
@@ -175,7 +175,7 @@ export const useActiveCommitments = () => {
       }
 
       const data = await response.json();
-      console.log('✅ Active commitments fetched:', data);
+      console.log('✅ Active commitments synced from backend:', data);
 
       // Transform the data to match our interface
       const transformedCommitments: ActiveCommitment[] = (data.commitments || []).map((commitment: any) => ({
@@ -197,17 +197,42 @@ export const useActiveCommitments = () => {
         index === self.findIndex(c => c.id === commitment.id)
       );
 
-      updateGlobalState({ commitments: uniqueCommitments });
+      // Update global state and cache
+      updateGlobalState({ commitments: uniqueCommitments, loading: false });
+      await commitmentCacheService.saveCommitments(uniqueCommitments, userId);
+      
+      // Sync any pending check-ins while we're here
+      if (isOnline) {
+        const syncResult = await commitmentCacheService.syncPendingCheckIns(userId, getToken, true);
+        if (syncResult.synced > 0) {
+          console.log(`💾 [COMMITMENT SYNC] Synced ${syncResult.synced} pending check-ins`);
+          // Refresh commitments after syncing pending check-ins
+          setTimeout(() => syncCommitmentsFromBackend(userId), 1000);
+        }
+      }
+      
+      isInitialized = true;
     } catch (err) {
-      console.error('❌ Error fetching active commitments:', err);
+      console.error('❌ Error syncing commitments from backend:', err);
       updateGlobalState({ 
-        error: err instanceof Error ? err.message : 'Failed to fetch commitments',
-        commitments: []
+        error: err instanceof Error ? err.message : 'Failed to sync commitments',
+        loading: false
       });
-    } finally {
-      updateGlobalState({ loading: false });
+      isInitialized = true;
     }
-  }, [user?.id, firebaseUser?.uid, getToken]);
+  }, [getToken, isOnline]);
+
+  const fetchActiveCommitments = useCallback(async () => {
+    // FIXED: Use Clerk user ID instead of Firebase UID
+    const userId = user?.id || firebaseUser?.uid;
+    if (!userId) {
+      updateGlobalState({ loading: false });
+      return;
+    }
+
+    updateGlobalState({ loading: true, error: null });
+    await syncCommitmentsFromBackend(userId);
+  }, [user?.id, firebaseUser?.uid, syncCommitmentsFromBackend]);
 
   const checkInCommitment = useCallback(async (commitmentId: string, completed: boolean) => {
     // FIXED: Use Clerk user ID instead of Firebase UID
@@ -216,18 +241,56 @@ export const useActiveCommitments = () => {
       throw new Error('User not authenticated');
     }
 
-    // Note: We don't check here anymore because the UI (SettingsScreen) already handles this check
-    // This prevents double-checking and allows the backend to handle the actual commitment logic
-    
     const commitment = globalCommitments.find(c => c.id === commitmentId);
+    const coachingSessionId = user?.id || firebaseUser?.uid;
 
-    try {
-      const token = await getToken();
-      if (!token) {
-        throw new Error('No authentication token available');
+    console.log('🎯 Checking in commitment:', { commitmentId, completed, isOnline });
+
+    // 🚀 OFFLINE-FIRST: Handle offline check-ins
+    if (!isOnline) {
+      console.log('📱 [COMMITMENT OFFLINE] Offline check-in - queuing for sync');
+      
+      try {
+        // Queue check-in for offline sync
+        await commitmentCacheService.queueCheckIn(
+          commitmentId,
+          completed,
+          userId,
+          coachingSessionId!
+        );
+
+        // Mark as checked in locally for recurring commitments
+        if (commitment && commitment.type === 'recurring' && commitment.cadence) {
+          await markCheckedInForPeriod(commitmentId, commitment.cadence);
+        }
+
+        // Update local state optimistically
+        const updatedCommitments = globalCommitments.map(c => 
+          c.id === commitmentId 
+            ? { 
+                ...c, 
+                lastCheckedInAt: new Date(),
+                // Don't update streaks offline - wait for sync
+              }
+            : c
+        );
+        updateGlobalState({ commitments: updatedCommitments });
+
+        console.log('✅ [COMMITMENT OFFLINE] Check-in queued for sync when online');
+        return { success: true, offline: true };
+      } catch (error) {
+        console.error('❌ [COMMITMENT OFFLINE] Error queuing offline check-in:', error);
+        throw error;
       }
+    }
 
-      console.log('🎯 Checking in commitment:', { commitmentId, completed });
+    // 🚀 ONLINE: Process check-in immediately
+    try {
+      // Use enhanced token getter that handles caching automatically
+      const token = await getTokenWithCache();
+      if (!token) {
+        throw new Error('No authentication token available (online or cached)');
+      }
 
       const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}api/coaching/commitments/checkin`, {
         method: 'POST',
@@ -238,8 +301,7 @@ export const useActiveCommitments = () => {
         body: JSON.stringify({
           commitmentId,
           completed,
-          // FIXED: Use Clerk user ID for coachingSessionId (consistent with web)
-          coachingSessionId: user?.id || firebaseUser?.uid,
+          coachingSessionId,
           messageId: `settings_checkin_${Date.now()}`
         }),
       });
@@ -257,26 +319,27 @@ export const useActiveCommitments = () => {
       }
 
       // Update the local commitment with check-in time and new streak count
-      const updatedCommitments = globalCommitments.map(commitment => 
-        commitment.id === commitmentId 
+      const updatedCommitments = globalCommitments.map(c => 
+        c.id === commitmentId 
           ? { 
-              ...commitment, 
+              ...c, 
               lastCheckedInAt: new Date(),
-              currentStreakCount: result.commitment?.currentStreakCount || commitment.currentStreakCount,
-              numberOfTimesCompleted: result.commitment?.numberOfTimesCompleted || commitment.numberOfTimesCompleted
+              currentStreakCount: result.commitment?.currentStreakCount || c.currentStreakCount,
+              numberOfTimesCompleted: result.commitment?.numberOfTimesCompleted || c.numberOfTimesCompleted
             }
-          : commitment
+          : c
       );
       updateGlobalState({ commitments: updatedCommitments });
 
-      // No need to refetch - we already have the updated data from the API response
+      // Update cache with latest data
+      await commitmentCacheService.saveCommitments(updatedCommitments, userId);
 
       return result;
     } catch (err) {
       console.error('❌ Error checking in commitment:', err);
       throw err;
     }
-  }, [user?.id, firebaseUser?.uid, getToken, fetchActiveCommitments]);
+  }, [user?.id, firebaseUser?.uid, getToken, isOnline]);
 
   // Initialize commitments when user changes
   useEffect(() => {
@@ -291,14 +354,85 @@ export const useActiveCommitments = () => {
       
       // Fetch if not already initialized for this user
       if (!isInitialized) {
-        fetchActiveCommitments().then(() => {
-          isInitialized = true;
-        });
+        // 🚀 CACHE-FIRST: Load from cache immediately, then sync in background
+        (async () => {
+          try {
+            updateGlobalState({ loading: true, error: null });
+
+            console.log('💾 [COMMITMENT CACHE] Loading cached commitments first...');
+            const cachedCommitments = await commitmentCacheService.loadCommitments(userId);
+            
+            if (cachedCommitments.length > 0) {
+              console.log(`💾 [COMMITMENT CACHE] Found ${cachedCommitments.length} cached commitments - displaying immediately`);
+              
+              // Show cached commitments immediately for fast UI
+              updateGlobalState({ commitments: cachedCommitments, loading: false });
+              isInitialized = true;
+              
+              // Start background sync to get fresh data (non-blocking) only if online
+              if (isOnline) {
+                setTimeout(async () => {
+                  try {
+                    console.log('🔄 [COMMITMENT BACKGROUND] Starting background sync...');
+                    await syncCommitmentsFromBackend(userId);
+                  } catch (error) {
+                    console.error('⚠️ [COMMITMENT BACKGROUND] Background sync failed:', error);
+                  }
+                }, 2000); // 2 second delay to let UI load first
+              } else {
+                console.log('📱 [COMMITMENT OFFLINE] Offline - using cached data only');
+              }
+              
+            } else if (isOnline) {
+              // No cache and online - try to load from backend
+              console.log('📱 [COMMITMENT INIT] No cache found - loading from backend...');
+              await syncCommitmentsFromBackend(userId);
+            } else {
+              // No cache and offline - show empty state
+              console.log('📱 [COMMITMENT OFFLINE] No cache and offline - showing empty state');
+              updateGlobalState({ commitments: [], loading: false });
+              isInitialized = true;
+            }
+            
+          } catch (error) {
+            console.error('❌ [COMMITMENT INIT] Initialization failed:', error);
+            updateGlobalState({ 
+              error: error instanceof Error ? error.message : 'Failed to load commitments',
+              commitments: [],
+              loading: false
+            });
+            isInitialized = true;
+          }
+        })();
       }
     } else {
       clearCommitmentsData();
     }
-  }, [user?.id, firebaseUser?.uid, fetchActiveCommitments]);
+  }, [user?.id, firebaseUser?.uid]); // 🚀 FIXED: Removed fetchActiveCommitments from deps to prevent infinite loop
+
+  // 🚀 OFFLINE-FIRST: Sync pending check-ins when coming back online
+  useEffect(() => {
+    if (isOnline && currentUserId && isInitialized) {
+      const syncPendingWhenOnline = async () => {
+        try {
+          console.log('🌐 [COMMITMENT SYNC] Device back online - syncing pending check-ins');
+          const syncResult = await commitmentCacheService.syncPendingCheckIns(currentUserId, getTokenWithCache, true);
+          
+          if (syncResult.synced > 0) {
+            console.log(`💾 [COMMITMENT SYNC] Synced ${syncResult.synced} pending check-ins`);
+            // Refresh commitments to get updated streak counts
+            await syncCommitmentsFromBackend(currentUserId);
+          }
+        } catch (error) {
+          console.error('❌ [COMMITMENT SYNC] Error syncing pending check-ins:', error);
+        }
+      };
+
+      // Small delay to avoid immediate sync on app start
+      const timeoutId = setTimeout(syncPendingWhenOnline, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isOnline, currentUserId, isInitialized, getToken, syncCommitmentsFromBackend]);
 
   return {
     commitments: globalCommitments,
@@ -308,5 +442,9 @@ export const useActiveCommitments = () => {
     refetch: fetchActiveCommitments,
     checkInCommitment,
     hasCheckedInThisPeriod, // Export the updated helper function
+    // 🚀 OFFLINE-FIRST: Export sync utilities
+    isOnline,
+    syncPendingCheckIns: () => currentUserId ? commitmentCacheService.syncPendingCheckIns(currentUserId, getToken, isOnline) : Promise.resolve({ synced: 0, failed: 0 }),
+    getPendingCheckInsCount: () => currentUserId ? commitmentCacheService.getPendingCheckIns(currentUserId).then(checkIns => checkIns.length) : Promise.resolve(0),
   };
 };

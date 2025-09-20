@@ -22,6 +22,7 @@ import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { CoachingCardRenderer, parseCoachingCompletion, getDisplayContent, CoachingCardRendererProps } from '@/components/coaching/CoachingCardRenderer';
 import { loadMessagesFromFirestore, saveMessagesToFirestore, initializeCoachingSession } from '@/services/coachingFirestore';
 import { useCoachingScroll } from '@/hooks/useCoachingScroll';
+import { coachingCacheService } from '@/services/coachingCacheService';
 import { SpinningAnimation } from '@/components/coaching/ui/SpinningAnimation';
 import { ModernSpinner } from '@/components/coaching/ui/ModernSpinner';
 import { DateSeparator } from '@/components/coaching/ui/DateSeparator';
@@ -35,25 +36,25 @@ import { betterStackLogger } from '@/services/betterStackLogger';
 type CoachingScreenNavigationProp = NativeStackNavigationProp<AppStackParamList, 'SwipeableScreens'>;
 
 
-function CoachingScreen() {
+export default function CoachingScreen() {
   const navigation = useNavigation<CoachingScreenNavigationProp>();
   const route = useRoute();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { user, firebaseUser, getToken, isAuthReady } = useAuth();
+  const { user, firebaseUser, effectiveFirebaseUser, getToken, getTokenWithCache } = useAuth(); // 🚀 CACHE-FIRST: Use effectiveFirebaseUser for offline capability
   const { 
     trackCoachingMessageSent,
     trackEntryCreated
   } = useAnalytics();
-  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(firebaseUser?.uid);
+  const { isPro, presentPaywallIfNeeded, currentOffering, initialized } = useRevenueCat(effectiveFirebaseUser?.uid);
 
   // Route parameters not used in current implementation
 
-  // Use Clerk userId as session ID (single session per user) - consistent with backend
+  // 🚀 CACHE-FIRST: Use effectiveFirebaseUser UID as session ID for offline capability
   const getSessionId = (): string => {
-    const sessionId = user?.id || 'anonymous';
-    console.log('🔑 [SESSION ID] Current session ID (Clerk):', sessionId);
+    const sessionId = effectiveFirebaseUser?.uid || user?.id || 'anonymous';
+    console.log('🔑 [SESSION ID] Current session ID (cached/effective):', sessionId);
     return sessionId;
   };
 
@@ -72,6 +73,14 @@ function CoachingScreen() {
       setShowCompletionForMessage(null);
       setParsedCoachingData(null);
       setIsInitialized(false);
+      
+      // 🚀 CACHE-FIRST: Also clear cached messages
+      try {
+        await coachingCacheService.clearUserMessages(userId);
+        console.log('💾 [COACHING CACHE] Cached messages cleared for user');
+      } catch (cacheError) {
+        console.error('❌ [COACHING CACHE] Failed to clear cached messages:', cacheError);
+      }
       
       console.log('✅ Coaching state cleared for user:', userId);
     } catch (error) {
@@ -125,7 +134,7 @@ function CoachingScreen() {
     } catch (error) {
       console.error('❌ Error clearing coaching data:', error);
     }
-  }, [firebaseUser, user?.firstName, setMessages]);
+  }, [effectiveFirebaseUser, user?.firstName, setMessages]); // 🚀 CACHE-FIRST: Use effectiveFirebaseUser
 
   // Manual refresh from Firestore
   const refreshFromFirestore = useCallback(async () => {
@@ -144,7 +153,7 @@ function CoachingScreen() {
         setHasMoreMessages,
         setDisplayedMessageCount,
         setMessages,
-        getToken
+        getTokenWithCache
       );
       
       if (sessionMessages.length > 0) {
@@ -288,8 +297,8 @@ function CoachingScreen() {
     return deduplicated;
   }, []);
 
-  // Memoized messages with separators - only recalculate when messages actually change
-  const messagesWithSeparators = useMemo(() => {
+  // Group messages by date and insert separators
+  const getMessagesWithSeparators = useCallback((messages: CoachingMessage[]) => {
     if (messages.length === 0) return [];
     
     // First deduplicate messages
@@ -315,7 +324,7 @@ function CoachingScreen() {
     });
     
     return result;
-  }, [messages, deduplicateMessages]);
+  }, [deduplicateMessages]);
 
   // Track when AI response actually starts
   useEffect(() => {
@@ -361,79 +370,6 @@ function CoachingScreen() {
   const CONTAINER_BASE_HEIGHT = 90; // Minimum container height
   const CONTAINER_PADDING = 40; // Total container padding (8+20+12)
 
-  // Memoize expensive text change handler
-  const handleTextChangeCallback = useCallback((text: string) => {
-    setChatInput(text);
-    
-    // More precise calculation - word-based line wrapping
-    const containerWidth = 380; // chatInputWrapper width
-    const containerPadding = 16; // 8px left + 8px right padding
-    const textInputPadding = 8; // 4px left + 4px right padding
-    
-    // First estimate the line count
-    const estimatedLines = Math.max(1, text.split('\n').length);
-    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
-    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
-    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
-    
-    // Character width based on font size (fontSize: 15, fontWeight: 400)
-    // More conservative calculation - extra margin for words
-    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
-    const charsPerLine = baseCharsPerLine;
-    
-    // Line calculation - including word wrapping
-    const textLines = text.split('\n');
-    let totalLines = 0;
-    
-    textLines.forEach(line => {
-      if (line.length === 0) {
-        totalLines += 1; // Empty line
-      } else {
-        // Word-based calculation - for risk of long words wrapping
-        const words = line.split(' ');
-        let currentLineLength = 0;
-        let linesForThisTextLine = 1;
-        
-        words.forEach((word, index) => {
-          const wordLength = word.length;
-          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
-          
-          // If this word won't fit on current line, new line
-          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
-            linesForThisTextLine++;
-            currentLineLength = wordLength;
-          } else {
-            currentLineLength += spaceNeeded + wordLength;
-          }
-        });
-        
-        totalLines += linesForThisTextLine;
-      }
-    });
-    
-    // Save line count
-    setCurrentLineCount(totalLines);
-    
-    // Min/Max limits - based on expand state
-    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
-    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
-    
-    // Height calculation
-    const newInputHeight = actualLines * LINE_HEIGHT;
-    
-    // Container height - optimized for real layout
-    const topPadding = 12; // TextInput top padding increased
-    const bottomPadding = 8;
-    const buttonHeight = 32; // Voice/Send button height
-    const buttonTopPadding = 8; // Button container padding top
-    
-    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
-    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
-    
-    setInputHeight(newInputHeight);
-    setContainerHeight(newContainerHeight);
-  }, [isInputExpanded, EXPANDED_MAX_LINES, MAX_LINES, MIN_LINES, LINE_HEIGHT, CONTAINER_BASE_HEIGHT]);
-
   // Use the coaching scroll hook
   const scrollHook = useCoachingScroll({
     messages,
@@ -464,17 +400,44 @@ function CoachingScreen() {
     debugLog
   } = scrollHook;
 
-  // Coaching card renderer props - optimized memoization
+  // Coaching card renderer props - memoized for performance
   const coachingCardRendererProps: CoachingCardRendererProps = useMemo(() => ({
     messages,
     setMessages,
-    firebaseUser,
+    firebaseUser: effectiveFirebaseUser, // 🚀 CACHE-FIRST: Use effectiveFirebaseUser for offline capability
     getToken,
     saveMessagesToFirestore
-  }), [messages.length, setMessages, firebaseUser?.uid, getToken]); // Only re-create when message count or user changes
+  }), [messages, setMessages, effectiveFirebaseUser, getToken, saveMessagesToFirestore]); // 🚀 CACHE-FIRST: Use effectiveFirebaseUser
 
+  // State for tracking expanded messages
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
 
+  // Function to check if a USER message is long and should be collapsible (only user messages)
+  const isLongMessage = (content: string, role: string) => {
+    if (role !== 'user') return false; // Only user messages can be collapsible
+    const cleanContent = getDisplayContent(content);
+    return cleanContent.length > 300; // Messages longer than 300 characters
+  };
 
+  // Function to get truncated message content
+  const getTruncatedContent = (content: string, maxLength: number = 200) => {
+    const cleanContent = getDisplayContent(content);
+    if (cleanContent.length <= maxLength) return cleanContent;
+    return cleanContent.substring(0, maxLength) + '...';
+  };
+
+  // Function to toggle message expansion
+  const toggleMessageExpansion = (messageId: string) => {
+    setExpandedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      return newSet;
+    });
+  };
 
   // Use the audio transcription hook
   const {
@@ -618,8 +581,96 @@ function CoachingScreen() {
           // Session completion tracking removed - using single session approach
         }
       };
-    }, [firebaseUser?.uid, setMessages])
+     }, [effectiveFirebaseUser?.uid, setMessages]) // 🚀 CACHE-FIRST: Use effectiveFirebaseUser
   );
+
+  // 🚀 CACHE-FIRST: Auto-cache messages whenever they change (debounced)
+  const cacheUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!effectiveFirebaseUser?.uid || allMessages.length === 0) return;
+    
+    // Debounce cache updates to avoid excessive writes
+    if (cacheUpdateTimeoutRef.current) {
+      clearTimeout(cacheUpdateTimeoutRef.current);
+    }
+    
+    cacheUpdateTimeoutRef.current = setTimeout(async () => {
+      try {
+        // 🚀 CRITICAL: Re-check effectiveFirebaseUser inside timeout (don't use closure)
+        if (!effectiveFirebaseUser?.uid) {
+          console.log('⏭️ [COACHING CACHE] Skipping auto-cache - user signed out');
+          return;
+        }
+        
+        // 🚀 CRITICAL: Always use allMessages as master source (not messages)
+        const messagesToCache = allMessages.slice(-300);
+        await coachingCacheService.saveMessages(messagesToCache, effectiveFirebaseUser.uid);
+        console.log(`💾 [COACHING CACHE] Auto-cached ${messagesToCache.length} messages from allMessages (master)`);
+      } catch (error) {
+        console.error('❌ [COACHING CACHE] Failed to auto-cache messages:', error);
+      }
+    }, 2000); // 2 second debounce
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (cacheUpdateTimeoutRef.current) {
+        clearTimeout(cacheUpdateTimeoutRef.current);
+      }
+    };
+  }, [allMessages, effectiveFirebaseUser?.uid]); // 🚀 CRITICAL: Only depend on allMessages
+  
+  // 🚀 CRITICAL: Immediate cache for user messages (no debounce) - use allMessages as master
+  useEffect(() => {
+    if (!effectiveFirebaseUser?.uid || allMessages.length === 0) return;
+    
+    // Check if the last message is a user message that was just added
+    const lastMessage = allMessages[allMessages.length - 1];
+    if (lastMessage && lastMessage.role === 'user') {
+      // Immediate cache save for user messages
+      const cacheUserMessage = async () => {
+        try {
+          // 🚀 CRITICAL: Re-check effectiveFirebaseUser (don't rely on closure)
+          if (!effectiveFirebaseUser?.uid) {
+            console.log('⏭️ [COACHING CACHE] Skipping immediate cache - user signed out');
+            return;
+          }
+          
+          const messagesToCache = allMessages.slice(-300);
+          await coachingCacheService.saveMessages(messagesToCache, effectiveFirebaseUser.uid);
+          console.log(`⚡ [COACHING CACHE] Immediately cached user message from allMessages (master) - ${messagesToCache.length} total`);
+        } catch (error) {
+          console.error('❌ [COACHING CACHE] Failed to immediately cache user message:', error);
+        }
+      };
+      
+      cacheUserMessage();
+    }
+  }, [allMessages, effectiveFirebaseUser?.uid]); // 🚀 CRITICAL: Only depend on allMessages
+  
+  // 🚀 CRITICAL: Sync allMessages with messages from useAICoaching
+  useEffect(() => {
+    // When useAICoaching updates messages (new messages OR content changes), sync allMessages
+    if (messages.length > 0) {
+      // 🚀 CRITICAL: Filter out empty AI messages during streaming to prevent saving empty content
+      const validMessages = messages.filter(msg => {
+        // Keep user messages always
+        if (msg.role === 'user') return true;
+        // Keep AI messages only if they have content (avoid empty streaming placeholders)
+        if (msg.role === 'assistant') return msg.content.trim().length > 0;
+        return true;
+      });
+      
+      // Check if we need to sync (new messages or content changed for streaming)
+      const needsSync = validMessages.length !== allMessages.length || 
+                       (validMessages.length > 0 && allMessages.length > 0 && 
+                        validMessages[validMessages.length - 1]?.content !== allMessages[allMessages.length - 1]?.content);
+      
+      if (needsSync && validMessages.length > 0) {
+        console.log(`🔄 [SYNC] Syncing allMessages with ${validMessages.length} valid messages (filtered out ${messages.length - validMessages.length} empty AI messages)`);
+        setAllMessages(validMessages);
+      }
+    }
+  }, [messages.length, allMessages.length, messages[messages.length - 1]?.content]);
 
   // Session ID is derived from user.id (Clerk) - no useEffect needed
 
@@ -651,21 +702,11 @@ function CoachingScreen() {
 
   // Real-time listener for coaching session - ONLY during active messaging
   const realTimeListenerActive = useRef(false);
-  const lastRealtimeUpdate = useRef(0);
-  const REALTIME_THROTTLE_MS = 500; // Throttle updates to max once per 500ms
   
   useEffect(() => {
-    // Only use real-time listener when:
-    // 1. User is ready and initialized
-    // 2. Not currently messaging (prevents conflicts)
-    // 3. Listener is not already active
-    if (!user?.id || !isInitialized || isLoading) {
-      // Clean up any existing listener if conditions are not met
-      if (realTimeListenerActive.current) {
-        console.log('🧹 [REALTIME] Conditions not met, should cleanup listener');
-      }
-      return;
-    }
+    // Only use real-time listener when not actively messaging (isLoading = false)
+    // This prevents conflicts with useAICoaching's state management
+    if (!user?.id || !isInitialized || isLoading) return;
 
     // Prevent multiple listeners
     if (realTimeListenerActive.current) return;
@@ -676,14 +717,6 @@ function CoachingScreen() {
     const unsubscribe = onSnapshot(
       doc(db, 'coachingSessions', user.id),
       (docSnap) => {
-        // Throttle updates to prevent excessive re-renders
-        const now = Date.now();
-        if (now - lastRealtimeUpdate.current < REALTIME_THROTTLE_MS) {
-          console.log('🔄 [REALTIME] Throttling update - too frequent');
-          return;
-        }
-        lastRealtimeUpdate.current = now;
-        
         // Skip updates if currently messaging to avoid conflicts
         if (isLoading) {
           console.log('🔄 [REALTIME] Skipping update - messaging in progress');
@@ -703,29 +736,19 @@ function CoachingScreen() {
             timestamp: msg.timestamp ? new Date(msg.timestamp.seconds * 1000) : new Date()
           }));
           
-          // Only update if message count or last message content changed (prevent unnecessary re-renders)
-          // Use current component messages state for comparison, not the local messages variable from Firestore
-          const currentMessages = messages; // This is the component state
-          const hasNewMessages = firestoreMessages.length !== currentMessages.length;
-          const lastMessage = currentMessages[currentMessages.length - 1];
-          const lastFirestoreMessage = firestoreMessages[firestoreMessages.length - 1];
-          const lastMessageChanged = lastMessage?.id !== lastFirestoreMessage?.id || 
-                                   lastMessage?.content !== lastFirestoreMessage?.content;
-          
-          if (hasNewMessages || lastMessageChanged) {
-            console.log(`✅ [REALTIME] Updating with ${firestoreMessages.length} messages from real-time listener`, {
-              hasNewMessages,
-              lastMessageChanged,
-              currentCount: currentMessages.length,
-              newCount: firestoreMessages.length
-            });
-            
+          // 🚀 CRITICAL: Only update if Firestore has MORE messages than current state
+          // Prevent realtime listener from overriding with fewer messages during active messaging
+          if (firestoreMessages.length > messages.length) {
             setAllMessages(firestoreMessages);
             setMessages(firestoreMessages.slice(-30)); // Show last 30 messages
             setDisplayedMessageCount(Math.min(30, firestoreMessages.length));
             setHasMoreMessages(firestoreMessages.length > 30);
+            
+            console.log(`✅ [REALTIME] Updated with ${firestoreMessages.length} messages from real-time listener (was ${messages.length})`);
+          } else if (firestoreMessages.length < messages.length) {
+            console.log(`⚠️ [REALTIME] Firestore has fewer messages (${firestoreMessages.length}) than current state (${messages.length}) - ignoring to prevent data loss`);
           } else {
-            console.log('🔄 [REALTIME] No significant changes detected, skipping update');
+            console.log(`ℹ️ [REALTIME] Message count unchanged (${firestoreMessages.length}) - no update needed`);
           }
         } else {
           console.log('🔄 [REALTIME] No session document found');
@@ -742,19 +765,11 @@ function CoachingScreen() {
       realTimeListenerActive.current = false;
       unsubscribe();
     };
-  }, [user?.id, isInitialized, isLoading]); // Removed messages.length to prevent listener recreation
+  }, [user?.id, isInitialized, isLoading, messages.length]);
   
   useEffect(() => {
-    console.log('🔄 [COACHING INIT] useEffect triggered:', {
-      hasUser: !!user?.id,
-      userId: user?.id,
-      isAuthReady,
-      isInitialized,
-      initInProgress: initializationInProgress.current,
-      shouldReturn: !isAuthReady || !user?.id || isInitialized || initializationInProgress.current
-    });
-    
-    if (!isAuthReady || !user?.id || isInitialized || initializationInProgress.current) return;
+    // 🚀 CACHE-FIRST: Use effectiveFirebaseUser for offline capability
+    if (!effectiveFirebaseUser?.uid || isInitialized || initializationInProgress.current) return;
     
     const initializeChat = async () => {
       // Prevent concurrent initialization
@@ -765,59 +780,99 @@ function CoachingScreen() {
       
       initializationInProgress.current = true;
       
-      console.log('🔄 [COACHING INIT] Starting chat initialization for user:', user!.id);
-      console.log('🔄 [COACHING INIT] User details:', {
-        uid: user!.id,
-        email: firebaseUser?.email,
-        firstName: user?.firstName
-      });
+       console.log('🔄 [COACHING INIT] Starting cache-first chat initialization for user:', effectiveFirebaseUser!.uid);
+       console.log('🔄 [COACHING INIT] User details:', {
+         uid: effectiveFirebaseUser!.uid,
+         email: effectiveFirebaseUser?.email,
+         firstName: user?.firstName || 'User' // Fallback for cached user
+       });
       
       try {
-        // Load existing session from backend (never create from cache)
-        console.log('🔄 [COACHING INIT] Calling initializeCoachingSession...');
-        const sessionMessages = await initializeCoachingSession(
-          user!.id,
-          setAllMessages,
-          setHasMoreMessages,
-          setDisplayedMessageCount,
-          setMessages,
-          getToken
-        );
+        // 🚀 CACHE-FIRST: Load from cache immediately, then sync in background
+        console.log('⚡ [COACHING INIT] Loading cached messages first...');
+        const cachedMessages = await coachingCacheService.loadMessages(effectiveFirebaseUser!.uid);
         
-        console.log('🔄 [COACHING INIT] Session initialization result:', {
-          messageCount: sessionMessages.length,
-          hasMessages: sessionMessages.length > 0
-        });
-        
-        if (sessionMessages.length > 0) {
-          // Existing session found - load recent messages
-          console.log('✅ [COACHING INIT] Found existing session, loading messages...');
-          console.log('✅ [COACHING INIT] Message preview:', {
-            firstMessage: {
-              id: sessionMessages[0].id,
-              role: sessionMessages[0].role,
-              contentPreview: sessionMessages[0].content.substring(0, 100) + '...'
-            },
-            lastMessage: {
-              id: sessionMessages[sessionMessages.length - 1].id,
-              role: sessionMessages[sessionMessages.length - 1].role,
-              contentPreview: sessionMessages[sessionMessages.length - 1].content.substring(0, 100) + '...'
-            }
-          });
+        if (cachedMessages.length > 0) {
+          console.log(`⚡ [COACHING INIT] Found ${cachedMessages.length} cached messages - displaying immediately`);
           
-          setMessages(sessionMessages);
-          console.log(`✅ [COACHING INIT] Successfully loaded existing session with ${sessionMessages.length} messages`);
+          // Show cached messages immediately for fast UI
+          setMessages(cachedMessages.slice(-30)); // Show last 30 messages
+          setAllMessages(cachedMessages);
+          setHasMoreMessages(cachedMessages.length > 300);
+          setDisplayedMessageCount(Math.min(300, cachedMessages.length));
+          
+          // 🚀 CRITICAL: Set initialized to true immediately when cache is found
+          setIsInitialized(true);
+          console.log('✅ [COACHING INIT] Chat initialized with cached messages');
+          
+          // Start background sync to get fresh data (non-blocking)
+          setTimeout(async () => {
+            try {
+              console.log('🔄 [COACHING BACKGROUND] Starting background sync...');
+              const freshMessages = await loadMessagesFromFirestore(effectiveFirebaseUser!.uid);
+              
+              if (freshMessages.allMessages.length > cachedMessages.length) {
+                console.log(`🔄 [COACHING BACKGROUND] Found ${freshMessages.allMessages.length - cachedMessages.length} new messages - updating UI`);
+                setMessages(freshMessages.allMessages.slice(-30));
+                setAllMessages(freshMessages.allMessages);
+                // Cache the fresh messages (keep last 300)
+                await coachingCacheService.saveMessages(freshMessages.allMessages.slice(-300), effectiveFirebaseUser!.uid);
+              } else if (freshMessages.allMessages.length < cachedMessages.length) {
+                // 🚀 CRITICAL: Backend has fewer messages than cache - backend is authoritative
+                console.log(`⚠️ [COACHING BACKGROUND] Backend has ${freshMessages.allMessages.length} messages vs cache ${cachedMessages.length} - backend is authoritative, updating UI`);
+                setMessages(freshMessages.allMessages.slice(-30));
+                setAllMessages(freshMessages.allMessages);
+                // Update cache with backend data (even if empty)
+                await coachingCacheService.saveMessages(freshMessages.allMessages.slice(-300), effectiveFirebaseUser!.uid);
+                
+                if (freshMessages.allMessages.length === 0) {
+                  console.log('🗑️ [COACHING BACKGROUND] Backend session is empty - clearing all state and showing welcome message');
+                  // Create welcome message when backend session is empty
+                  const welcomeMessage: CoachingMessage = {
+                    id: '1',
+                    content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
+                    role: 'assistant',
+                    timestamp: new Date()
+                  };
+                  setMessages([welcomeMessage]);
+                  setAllMessages([]);
+                }
+              } else {
+                console.log('✅ [COACHING BACKGROUND] Cache is up to date');
+              }
+            } catch (error) {
+              console.error('⚠️ [COACHING BACKGROUND] Background sync failed:', error);
+            }
+          }, 5000); // 🚀 OPTIMIZED: 5 second delay to let UI load first
+          
         } else {
-          // No existing session found - show welcome message (session will be created on first user message)
-          console.log('📝 [COACHING INIT] No existing session found, creating welcome message');
-          const initialMessage: CoachingMessage = {
-            id: '1',
-            content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
-            role: 'assistant',
-            timestamp: new Date()
-          };
-          setMessages([initialMessage]);
-          console.log('✅ [COACHING INIT] Welcome message created - ready for new session');
+          // No cache - try to load from backend
+          console.log('📱 [COACHING INIT] No cache found - loading from backend...');
+          const sessionMessages = await initializeCoachingSession(
+            effectiveFirebaseUser!.uid, // 🚀 CACHE-FIRST: Use cached user UID
+            setAllMessages,
+            setHasMoreMessages,
+            setDisplayedMessageCount,
+            setMessages,
+            getTokenWithCache
+          );
+          
+          if (sessionMessages.length > 0) {
+            console.log(`✅ [COACHING INIT] Loaded ${sessionMessages.length} messages from backend`);
+            // Cache the loaded messages (keep last 300)
+            await coachingCacheService.saveMessages(sessionMessages.slice(-300), effectiveFirebaseUser!.uid);
+          } else {
+            // No existing session found - show welcome message (session will be created on first user message)
+            console.log('📝 [COACHING INIT] No existing session found, creating welcome message');
+            const initialMessage: CoachingMessage = {
+              id: '1',
+              content: `Hello ${user?.firstName || 'there'}!\n\nI'm here to support your growth and reflection. What's on your mind today? Feel free to share anything that's weighing on you, exciting you, or simply present in your awareness right now.`,
+              role: 'assistant',
+              timestamp: new Date()
+            };
+            setMessages([initialMessage]);
+            console.log('✅ [COACHING INIT] Welcome message created - ready for new session');
+          }
         }
         
         setIsInitialized(true);
@@ -848,19 +903,17 @@ function CoachingScreen() {
     };
     
     initializeChat();
-    }, [isAuthReady, user?.id, isInitialized, setMessages, user?.firstName, initializeCoachingSession]);
+    }, [effectiveFirebaseUser?.uid, setMessages, user?.firstName, initializeCoachingSession]); // 🚀 CACHE-FIRST: Use effectiveFirebaseUser + removed isInitialized from deps to prevent infinite loop
 
   // Hide splash screen when coaching is fully initialized and ready
   useEffect(() => {
     if (isInitialized) {
-      console.log('✅ [COACHING INIT] Coaching is ready, hiding splash screen with fade animation');
+      console.log('✅ [COACHING INIT] Coaching is ready, hiding splash screen immediately');
       
-      // Wait 2 seconds to ensure everything is fully rendered and provide smooth user experience
-      setTimeout(() => {
-        SplashScreen.hideAsync().catch(error => {
-          console.log('ℹ️ [COACHING SPLASH] Splash screen already hidden:', error.message);
-        });
-      }, 2000); // 2 second delay for smooth user experience
+      // Hide splash screen immediately for faster startup
+      SplashScreen.hideAsync().catch(error => {
+        console.log('ℹ️ [COACHING SPLASH] Splash screen already hidden:', error.message);
+      });
     }
   }, [isInitialized]);
 
@@ -903,8 +956,9 @@ function CoachingScreen() {
       saveTimeoutRef.current = setTimeout(() => {
         console.log('💾 [SAVE] Executing debounced save...');
         
-        // Save to Firestore (all messages)
-        saveMessagesToFirestore(messages, user.id);
+        // 🚀 CRITICAL: Save to Firestore using allMessages (master state)
+        const messagesToSave = allMessages.length > 0 ? allMessages : messages;
+        saveMessagesToFirestore(messagesToSave, user.id);
         
         // Update last save hash
         lastSaveRef.current = messageHash;
@@ -1066,47 +1120,78 @@ function CoachingScreen() {
     };
   }, []);
 
-  // Text change handlers for dynamic input (now uses memoized callback)
-  const handleTextChange = handleTextChangeCallback;
-
-  // Memoized ScrollView event handlers to prevent re-renders
-  const handleScrollViewScroll = useCallback((event: any) => {
-    // Call existing handleScroll function
-    handleScroll(event);
+  // Text change handlers for dynamic input
+  const handleTextChange = (text: string) => {
+    setChatInput(text);
     
-    // Update content height
-    const { contentSize } = event.nativeEvent;
-    setContentHeight(contentSize.height);
-  }, [handleScroll, setContentHeight]);
-
-  const handleScrollViewLayout = useCallback((event: any) => {
-    // Save ScrollView height
-    const { height } = event.nativeEvent.layout;
-    setScrollViewHeight(height);
-  }, [setScrollViewHeight]);
-
-  const handleScrollEndDrag = useCallback((event: any) => {
-    const { contentOffset } = event.nativeEvent;
+    // More precise calculation - word-based line wrapping
+    const containerWidth = 380; // chatInputWrapper width
+    const containerPadding = 16; // 8px left + 8px right padding
+    const textInputPadding = 8; // 4px left + 4px right padding
     
-    // If scroll exceeds maximum limit, bring it back
-    if (contentOffset.y > scrollLimits.maxScrollDistance) {
-      scrollViewRef.current?.scrollTo({
-        y: scrollLimits.maxScrollDistance,
-        animated: true
-      });
-    }
-  }, [scrollLimits.maxScrollDistance]);
-
-  const handleMomentumScrollEnd = useCallback((event: any) => {
-    const { contentOffset } = event.nativeEvent;
+    // First estimate the line count
+    const estimatedLines = Math.max(1, text.split('\n').length);
+    const isMultiLine = estimatedLines > 1 || text.length > 30; // Earlier multi-line detection
+    const expandButtonSpace = isMultiLine ? 36 : 0; // Space for expand button
+    const availableWidth = containerWidth - containerPadding - textInputPadding - expandButtonSpace;
     
-    if (contentOffset.y > scrollLimits.maxScrollDistance) {
-      scrollViewRef.current?.scrollTo({
-        y: scrollLimits.maxScrollDistance,
-        animated: true
-      });
-    }
-  }, [scrollLimits.maxScrollDistance]);
+    // Character width based on font size (fontSize: 15, fontWeight: 400)
+    // More conservative calculation - extra margin for words
+    const baseCharsPerLine = isMultiLine ? 36 : 42; // Fewer characters in multi-line
+    const charsPerLine = baseCharsPerLine;
+    
+    // Line calculation - including word wrapping
+    const textLines = text.split('\n');
+    let totalLines = 0;
+    
+    textLines.forEach(line => {
+      if (line.length === 0) {
+        totalLines += 1; // Empty line
+      } else {
+        // Word-based calculation - for risk of long words wrapping
+        const words = line.split(' ');
+        let currentLineLength = 0;
+        let linesForThisTextLine = 1;
+        
+        words.forEach((word, index) => {
+          const wordLength = word.length;
+          const spaceNeeded = index > 0 ? 1 : 0; // Space before word (except first)
+          
+          // If this word won't fit on current line, new line
+          if (currentLineLength + spaceNeeded + wordLength > charsPerLine && currentLineLength > 0) {
+            linesForThisTextLine++;
+            currentLineLength = wordLength;
+          } else {
+            currentLineLength += spaceNeeded + wordLength;
+          }
+        });
+        
+        totalLines += linesForThisTextLine;
+      }
+    });
+    
+    // Save line count
+    setCurrentLineCount(totalLines);
+    
+    // Min/Max limits - based on expand state
+    const maxLines = isInputExpanded ? EXPANDED_MAX_LINES : MAX_LINES;
+    const actualLines = Math.max(MIN_LINES, Math.min(maxLines, totalLines));
+    
+    // Height calculation
+    const newInputHeight = actualLines * LINE_HEIGHT;
+    
+    // Container height - optimized for real layout
+    const topPadding = 12; // TextInput top padding increased
+    const bottomPadding = 8;
+    const buttonHeight = 32; // Voice/Send button height
+    const buttonTopPadding = 8; // Button container padding top
+    
+    const totalContainerHeight = topPadding + newInputHeight + buttonTopPadding + buttonHeight + bottomPadding;
+    const newContainerHeight = Math.max(CONTAINER_BASE_HEIGHT, totalContainerHeight);
+    
+    setInputHeight(newInputHeight);
+    setContainerHeight(newContainerHeight);
+  };
 
   const handleContentSizeChange = (event: any) => {
     const { height } = event.nativeEvent.contentSize;
@@ -1164,7 +1249,7 @@ function CoachingScreen() {
     // Log coaching session (session is always the user ID)
     console.log('🎯 [COACHING] User coaching session...', {
       sessionId: currentSessionId,
-      userId: firebaseUser?.uid,
+      userId: effectiveFirebaseUser?.uid, // 🚀 CACHE-FIRST: Use cached user UID
       sessionType: 'single-user-session',
       trigger: 'manual'
     });
@@ -1624,29 +1709,9 @@ function CoachingScreen() {
   };
 
 
-  // Performance debugging - simplified to reduce log spam
-  const renderCountRef = useRef(0);
-  
-  if (__DEV__) {
-    renderCountRef.current += 1;
-    
-    // Only log every 10th render to reduce spam, but track the issue
-    if (renderCountRef.current % 10 === 0) {
-      console.log(`🔄 [COACHING RENDER] Render #${renderCountRef.current} (excessive renders detected - investigating)`);
-    }
-  }
-
   // Keep splash screen visible by not rendering content until initialization is complete
   if (!isInitialized) {
-    console.log('🔄 [COACHING SPLASH] Keeping splash screen visible during initialization', {
-      hasUser: !!user?.id,
-      userId: user?.id,
-      isAuthReady,
-      isInitialized,
-      initInProgress: initializationInProgress.current,
-      firebaseUserUid: firebaseUser?.uid,
-      userEmail: firebaseUser?.email
-    });
+    console.log('🔄 [COACHING SPLASH] Keeping splash screen visible during initialization');
     return null; // Don't render anything, keep splash screen visible
   }
 
@@ -1706,26 +1771,59 @@ function CoachingScreen() {
               }
             ]}
             scrollEventThrottle={16}
-            onScroll={handleScrollViewScroll}
-            onLayout={handleScrollViewLayout}
+            onScroll={(event) => {
+              // Call existing handleScroll function
+              handleScroll(event);
+              
+              // Update content height
+              const { contentSize } = event.nativeEvent;
+              setContentHeight(contentSize.height);
+            }}
+            onLayout={(event) => {
+              // Save ScrollView height
+              const { height } = event.nativeEvent.layout;
+              setScrollViewHeight(height);
+            }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="interactive"
             bounces={false}
             overScrollMode="never"
             // Scroll limit enforcement - prevent endless scrolling
-            onScrollEndDrag={handleScrollEndDrag}
+            onScrollEndDrag={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              // If scroll exceeds maximum limit, bring it back
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
             // Momentum scroll limit enforcement
-            onMomentumScrollEnd={handleMomentumScrollEnd}
+            onMomentumScrollEnd={(event) => {
+              const { contentOffset } = event.nativeEvent;
+              
+              if (contentOffset.y > scrollLimits.maxScrollDistance) {
+                scrollViewRef.current?.scrollTo({
+                  y: scrollLimits.maxScrollDistance,
+                  animated: true
+                });
+              }
+            }}
           >
             {/* Simple loading spinner */}
             {isLoadingMore && (
-              <View style={styles.loadingSpinnerContainer}>
+              <View style={{
+                alignItems: 'center',
+                paddingVertical: 16,
+              }}>
                 <ModernSpinner colorScheme={colorScheme} size={20} />
               </View>
             )}
 
-            {messagesWithSeparators.map((item) => {
+            {getMessagesWithSeparators(messages).map((item) => {
               // Render date separator
               if ('type' in item && item.type === 'separator') {
                 return (
@@ -1762,25 +1860,52 @@ function CoachingScreen() {
                                         : 'transparent'
                                     }
                                   ] : undefined}>
-                     <Text
-                       style={[
-                         styles.messageText,
-                         message.role === 'user'
-                           ? [
-                               styles.userMessageText, 
-                               { 
-                                 color: colorScheme === 'dark' 
-                                   ? 'rgba(255, 255, 255, 0.85)' 
-                                   : 'rgba(0, 0, 0, 0.75)' 
-                               }
-                             ]
-                           : { color: colors.text }
-                       ]}
-                       numberOfLines={message.role === 'user' ? undefined : undefined}
-                       ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
+                     {/* Collapsible message content */}
+                     <TouchableOpacity
+                       activeOpacity={isLongMessage(message.content, message.role) ? 0.7 : 1}
+                       onPress={() => {
+                         if (isLongMessage(message.content, message.role)) {
+                           toggleMessageExpansion(message.id);
+                         }
+                       }}
                      >
-                       {getDisplayContent(message.content)}
-                     </Text>
+                       <Text
+                         style={[
+                           styles.messageText,
+                           message.role === 'user'
+                             ? [
+                                 styles.userMessageText, 
+                                 { 
+                                   color: colorScheme === 'dark' 
+                                     ? 'rgba(255, 255, 255, 0.85)' 
+                                     : 'rgba(0, 0, 0, 0.75)' 
+                                 }
+                               ]
+                             : { color: colors.text }
+                         ]}
+                       >
+                         {isLongMessage(message.content, message.role) && !expandedMessages.has(message.id)
+                           ? getTruncatedContent(message.content)
+                           : getDisplayContent(message.content)
+                         }
+                       </Text>
+                       
+                       {/* Show expand/collapse indicator for long messages */}
+                       {isLongMessage(message.content, message.role) && (
+                         <Text
+                           style={[
+                             styles.expandIndicator,
+                             {
+                               color: message.role === 'user' 
+                                 ? (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)')
+                                 : `${colors.text}80`
+                             }
+                           ]}
+                         >
+                           {expandedMessages.has(message.id) ? 'Show less' : 'Show more'}
+                         </Text>
+                       )}
+                     </TouchableOpacity>
 
                    {/* Render coaching cards for AI messages */}
                    <CoachingCardRenderer 
@@ -2261,10 +2386,6 @@ const styles = StyleSheet.create({
     height: 20,
     width: 20,
   },
-  loadingSpinnerContainer: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
   spinner: {
     width: 16,
     height: 16,
@@ -2356,7 +2477,10 @@ const styles = StyleSheet.create({
     elevation: 2,
     zIndex: 10,
   },
-});
-
-// Memo wrap to prevent unnecessary re-renders from parent/context changes
-export default React.memo(CoachingScreen); 
+  expandIndicator: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 6,
+    textAlign: 'left',
+  },
+}); 

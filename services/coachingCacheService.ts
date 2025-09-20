@@ -22,6 +22,9 @@ interface CoachingCacheMetadata {
 
 class CoachingCacheService {
   private currentUserId: string | null = null;
+  
+  // 🚀 IN-MEMORY CACHE: Keep frequently accessed coaching messages in memory
+  private messagesCache: Map<string, CoachingMessage[]> = new Map();
 
   // Get storage key for specific user
   private getStorageKey(userId: string): string {
@@ -52,11 +55,14 @@ class CoachingCacheService {
         return;
       }
 
-      const storageKey = this.getStorageKey(userId);
-      
       // Keep last 300 messages for better offline experience
       const messagesToSave = messages.slice(-300);
       
+      // 🚀 FAST UPDATE: Update in-memory cache first
+      this.messagesCache.set(userId, messagesToSave);
+      
+      // 🚀 PERSIST: Save to AsyncStorage
+      const storageKey = this.getStorageKey(userId);
       await AsyncStorage.setItem(storageKey, JSON.stringify(messagesToSave));
       
       // Update metadata
@@ -76,18 +82,31 @@ class CoachingCacheService {
         return [];
       }
 
+      // 🚀 FAST PATH: Return from in-memory cache if available
+      if (this.messagesCache.has(userId)) {
+        const messages = this.messagesCache.get(userId)!;
+        console.log(`⚡ Loaded ${messages.length} coaching messages from memory for user:`, userId);
+        return messages;
+      }
+
+      // 🚀 SLOW PATH: Load from AsyncStorage and cache in memory
       const storageKey = this.getStorageKey(userId);
       const storedMessages = await AsyncStorage.getItem(storageKey);
       
       if (!storedMessages) {
         console.log('📱 No cached coaching messages found for user:', userId);
-        return [];
+        const emptyMessages: CoachingMessage[] = [];
+        this.messagesCache.set(userId, emptyMessages);
+        return emptyMessages;
       }
       
       const parsedMessages: CoachingMessage[] = JSON.parse(storedMessages).map((msg: any) => ({
         ...msg,
         timestamp: new Date(msg.timestamp)
       }));
+      
+      // 🚀 CACHE IN MEMORY: Store for future fast access
+      this.messagesCache.set(userId, parsedMessages);
       
       // Update last accessed time
       await this.updateMetadata(userId, parsedMessages.length);
@@ -108,6 +127,10 @@ class CoachingCacheService {
         return;
       }
 
+      // 🚀 CLEAR MEMORY: Remove from in-memory cache first
+      this.messagesCache.delete(userId);
+      
+      // 🚀 CLEAR STORAGE: Remove from AsyncStorage
       const storageKey = this.getStorageKey(userId);
       await AsyncStorage.removeItem(storageKey);
       

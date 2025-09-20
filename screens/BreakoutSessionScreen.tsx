@@ -512,6 +512,36 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
   // ✅ COACHING SCREEN PATTERN: Error handling state
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   
+  // State for tracking expanded messages
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+
+  // Function to check if a USER message is long and should be collapsible (only user messages)
+  const isLongMessage = (content: string, role: string) => {
+    if (role !== 'user') return false; // Only user messages can be collapsible
+    const cleanContent = getDisplayContent(content);
+    return cleanContent.length > 300; // Messages longer than 300 characters
+  };
+
+  // Function to get truncated message content
+  const getTruncatedContent = (content: string, maxLength: number = 200) => {
+    const cleanContent = getDisplayContent(content);
+    if (cleanContent.length <= maxLength) return cleanContent;
+    return cleanContent.substring(0, maxLength) + '...';
+  };
+
+  // Function to toggle message expansion
+  const toggleMessageExpansion = (messageId: string) => {
+    setExpandedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      return newSet;
+    });
+  };
+  
   // ✅ COACHING SCREEN PATTERN: CoachingCardRenderer props
   const coachingCardRendererProps: CoachingCardRendererProps = useMemo(() => ({
     messages,
@@ -2440,25 +2470,52 @@ export default function BreakoutSessionScreen({ route }: BreakoutSessionScreenPr
                                         : 'transparent'
                                     }
                                   ] : undefined}>
-                    <Text
-                      style={[
-                        styles.messageText,
-                        message.role === 'user'
-                          ? [
-                              styles.userMessageText, 
-                              { 
-                                color: colorScheme === 'dark' 
-                                  ? 'rgba(255, 255, 255, 0.85)' 
-                                  : 'rgba(0, 0, 0, 0.75)' 
-                              }
-                            ]
-                          : { color: colors.text }
-                      ]}
-                      numberOfLines={message.role === 'user' ? undefined : undefined}
-                      ellipsizeMode={message.role === 'user' ? 'tail' : 'tail'}
+                    {/* Collapsible message content */}
+                    <TouchableOpacity
+                      activeOpacity={isLongMessage(message.content, message.role) ? 0.7 : 1}
+                      onPress={() => {
+                        if (isLongMessage(message.content, message.role)) {
+                          toggleMessageExpansion(message.id);
+                        }
+                      }}
                     >
-                      {getDisplayContent(message.content)}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.messageText,
+                          message.role === 'user'
+                            ? [
+                                styles.userMessageText, 
+                                { 
+                                  color: colorScheme === 'dark' 
+                                    ? 'rgba(255, 255, 255, 0.85)' 
+                                    : 'rgba(0, 0, 0, 0.75)' 
+                                }
+                              ]
+                            : { color: colors.text }
+                        ]}
+                      >
+                        {isLongMessage(message.content, message.role) && !expandedMessages.has(message.id)
+                          ? getTruncatedContent(message.content)
+                          : getDisplayContent(message.content)
+                        }
+                      </Text>
+                      
+                      {/* Show expand/collapse indicator for long messages */}
+                      {isLongMessage(message.content, message.role) && (
+                        <Text
+                          style={[
+                            styles.expandIndicator,
+                            {
+                              color: message.role === 'user' 
+                                ? (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)')
+                                : `${colors.text}80`
+                            }
+                          ]}
+                        >
+                          {expandedMessages.has(message.id) ? 'Show less' : 'Show more'}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
 
                    {/* Render coaching cards for AI messages */}
                    <CoachingCardRenderer 
@@ -3083,5 +3140,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
     height: 36,
+  },
+  expandIndicator: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 6,
+    textAlign: 'left',
   },
 }); 
